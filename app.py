@@ -644,8 +644,251 @@ elif menu == "🔎 Literatur & Referensi":
             • Daftar pustaka tanpa sitasi
             """
         )
+# TAHAP 2 - ANALISIS AKADEMIK CERDAS
+    st.divider()
+    st.subheader("🧠 Analisis Akademik Cerdas")
 
+    st.caption(
+        "Tahap 2 menyiapkan analisis terstruktur berdasarkan jenis karya. "
+        "Analisis AI penuh akan dihubungkan melalui 9Router pada tahap berikutnya."
+    )
 
+    if daftar_file:
+
+        st.markdown("### 🎯 Fokus Analisis")
+
+        fokus_analisis = st.multiselect(
+            "Pilih bagian yang ingin dianalisis",
+            [
+                "Identitas Dokumen",
+                "Latar Belakang / Masalah",
+                "Tujuan Penelitian",
+                "Teori / Konsep Utama",
+                "Metodologi",
+                "Populasi / Sampel / Informan",
+                "Instrumen Penelitian",
+                "Teknik Analisis Data",
+                "Temuan / Hasil",
+                "Pembahasan",
+                "Kesimpulan",
+                "Keterbatasan",
+                "Research Gap",
+                "Novelty / Kebaruan",
+                "Kontribusi Penelitian",
+                "Relevansi dengan Penelitian Saya"
+            ],
+            default=[
+                "Latar Belakang / Masalah",
+                "Tujuan Penelitian",
+                "Metodologi",
+                "Temuan / Hasil",
+                "Keterbatasan",
+                "Research Gap",
+                "Novelty / Kebaruan"
+            ],
+            key="fokus_analisis_tahap2"
+        )
+
+        st.markdown("### 📋 Kerangka Analisis")
+
+        if jenis == "Artikel Jurnal":
+            kerangka = [
+                "Identitas artikel",
+                "Topik penelitian",
+                "Masalah penelitian",
+                "Tujuan penelitian",
+                "Teori atau konsep utama",
+                "Metode penelitian",
+                "Populasi, sampel, atau informan",
+                "Instrumen penelitian",
+                "Teknik analisis data",
+                "Temuan utama",
+                "Keterbatasan penelitian",
+                "Research gap",
+                "Kontribusi penelitian",
+                "Peluang penelitian lanjutan",
+                "Relevansi dengan penelitian pengguna"
+            ]
+
+        elif jenis == "Buku" or jenis == "Bab Buku":
+            kerangka = [
+                "Identitas buku",
+                "Pokok bahasan",
+                "Gagasan utama",
+                "Konsep atau teori penting",
+                "Argumentasi penulis",
+                "Bagian penting",
+                "Kekuatan pembahasan",
+                "Keterbatasan pembahasan",
+                "Relevansi dengan penelitian pengguna"
+            ]
+
+        elif jenis == "Tesis":
+            kerangka = [
+                "Identitas tesis",
+                "Latar belakang",
+                "Masalah penelitian",
+                "Rumusan masalah",
+                "Tujuan penelitian",
+                "Teori utama",
+                "Penelitian terdahulu",
+                "Metodologi",
+                "Instrumen penelitian",
+                "Teknik analisis data",
+                "Hasil penelitian",
+                "Pembahasan",
+                "Kesimpulan",
+                "Keterbatasan",
+                "Research gap",
+                "Novelty",
+                "Kontribusi",
+                "Peluang penelitian lanjutan"
+            ]
+
+        elif jenis == "Disertasi":
+            kerangka = [
+                "Identitas disertasi",
+                "Latar belakang",
+                "Masalah penelitian",
+                "Rumusan masalah",
+                "Tujuan penelitian",
+                "State of the Art",
+                "Landasan teori",
+                "Metodologi",
+                "Instrumen penelitian",
+                "Teknik analisis data",
+                "Temuan utama",
+                "Pembahasan",
+                "Originalitas yang diklaim",
+                "Novelty",
+                "Kontribusi teoretis",
+                "Kontribusi metodologis",
+                "Kontribusi praktis",
+                "Keterbatasan",
+                "Research gap",
+                "Peluang penelitian doktoral lanjutan"
+            ]
+
+        elif jenis == "Proposal":
+            kerangka = [
+                "Judul penelitian",
+                "Latar belakang",
+                "Identifikasi masalah",
+                "Research gap",
+                "Rumusan masalah",
+                "Tujuan penelitian",
+                "Manfaat penelitian",
+                "Kajian teori",
+                "Penelitian terdahulu",
+                "Kerangka berpikir",
+                "Hipotesis atau fokus penelitian",
+                "Metodologi",
+                "Populasi, sampel, atau informan",
+                "Instrumen",
+                "Teknik pengumpulan data",
+                "Teknik analisis data"
+            ]
+
+        else:
+            kerangka = [
+                "Identitas dokumen",
+                "Topik utama",
+                "Masalah utama",
+                "Tujuan",
+                "Konsep penting",
+                "Metode atau pendekatan",
+                "Temuan atau gagasan utama",
+                "Kesimpulan",
+                "Keterbatasan",
+                "Relevansi"
+            ]
+
+        for no, item in enumerate(kerangka, start=1):
+            st.write(f"{no}. {item}")
+
+        st.markdown("### 🤖 Status Mesin AI")
+
+        st.info(
+            "Kerangka analisis sudah siap. "
+            "Pada tahap integrasi 9Router, tombol Analisis dengan AI akan "
+            "membaca isi dokumen secara semantik dan mengisi setiap bagian "
+            "berdasarkan isi dokumen, bukan mengarang informasi."
+        )
+
+        st.button(
+            "🤖 Analisis dengan AI — 9Router segera diaktifkan",
+            disabled=True,
+            key="ai_9router_tahap2"
+        )
+
+        st.markdown("### 💾 Hasil & Ekspor")
+
+        st.write(
+            "Hasil analisis nantinya dapat disimpan ke proyek aktif dan "
+            "diekspor untuk kebutuhan penelitian."
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.button(
+                "💾 Simpan Hasil",
+                disabled=True,
+                key="simpan_hasil_ai"
+            )
+
+        with col2:
+            st.button(
+                "📄 Ekspor Word",
+                disabled=True,
+                key="ekspor_word_ai"
+            )
+
+        with col3:
+            st.button(
+                "📊 Ekspor Matriks",
+                disabled=True,
+                key="ekspor_matriks_ai"
+            )
+
+        if banyak:
+            st.markdown("### 📚 Analisis Banyak Dokumen")
+
+            st.success(
+                "Mode banyak dokumen siap untuk dikembangkan menjadi "
+                "Matriks Literatur."
+            )
+
+            kolom_matriks = [
+                "Penulis",
+                "Tahun",
+                "Judul",
+                "Masalah",
+                "Teori",
+                "Metode",
+                "Sampel / Informan",
+                "Instrumen",
+                "Analisis Data",
+                "Temuan",
+                "Keterbatasan",
+                "Research Gap",
+                "Novelty",
+                "Relevansi",
+                "DOI / URL"
+            ]
+
+            st.write("Kolom Matriks Literatur:")
+
+            st.dataframe(
+                pd.DataFrame(columns=kolom_matriks),
+                use_container_width=True
+            )
+
+    else:
+        st.info(
+            "Unggah minimal satu dokumen pada bagian Analisis Karya Akademik "
+            "di atas untuk membuka Analisis Akademik Cerdas."
+        )
 # ============================================================
 # TESIS S2
 # ============================================================
