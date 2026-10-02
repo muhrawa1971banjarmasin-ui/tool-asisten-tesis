@@ -3,7 +3,7 @@ import re
 from io import BytesIO
 
 
-    import pypdf
+import pypdf
 
 try:
     import docx
