@@ -3,7 +3,7 @@ import re
 from io import BytesIO
 
 
-import pypdf
+import PyPDF2
 
 try:
     import docx
@@ -36,7 +36,7 @@ def baca_pdf(file):
     if pypdf is None:
         return "Library pypdf belum tersedia."
 
-    reader = pypdf.PdfReader(file)
+    reader = PyPDF2.PdfReader(file)
     teks = []
 
     for halaman in reader.pages:
