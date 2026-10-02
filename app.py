@@ -33,9 +33,6 @@ st.divider()
 # FUNGSI MEMBACA DOKUMEN
 # =========================
 def baca_pdf(file):
-    if pypdf is None:
-        return "Library pypdf belum tersedia."
-
     reader = PyPDF2.PdfReader(file)
     teks = []
 
