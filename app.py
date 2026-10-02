@@ -399,15 +399,29 @@ elif menu == "🔬 Analisis Karya Akademik":
 
     st.header("🔬 Analisis Karya Akademik")
 
+    st.caption(
+        "Analisis satu atau banyak karya akademik. "
+        "PDF, DOCX, dan TXT dapat dibaca langsung."
+    )
+
+    # --------------------------------------------------------
+    # PILIH MODE
+    # --------------------------------------------------------
     mode = st.radio(
         "Mode Analisis",
         [
             "Analisis 1 Dokumen",
             "Analisis Banyak Dokumen"
         ],
-        horizontal=True
+        horizontal=True,
+        key="mode_analisis_karya"
     )
 
+    banyak = mode == "Analisis Banyak Dokumen"
+
+    # --------------------------------------------------------
+    # PILIH JENIS KARYA
+    # --------------------------------------------------------
     jenis = st.selectbox(
         "Jenis karya",
         [
@@ -423,16 +437,18 @@ elif menu == "🔬 Analisis Karya Akademik":
             "Laporan Penelitian",
             "Regulasi",
             "Dokumen Lain"
-        ]
+        ],
+        key="jenis_karya_analisis"
     )
 
-    banyak = mode == "Analisis Banyak Dokumen"
-
+    # --------------------------------------------------------
+    # UPLOAD
+    # --------------------------------------------------------
     files = st.file_uploader(
         "Unggah dokumen",
         type=["pdf", "docx", "txt"],
         accept_multiple_files=banyak,
-        key="analisis_karya"
+        key="upload_analisis_karya"
     )
 
     daftar_file = []
@@ -440,49 +456,122 @@ elif menu == "🔬 Analisis Karya Akademik":
     if files:
         daftar_file = files if banyak else [files]
 
-    for nomor, file in enumerate(daftar_file, start=1):
+    # ========================================================
+    # JIKA BELUM ADA DOKUMEN
+    # ========================================================
+    if not daftar_file:
 
-        st.divider()
-        st.subheader(f"Dokumen {nomor}: {file.name}")
+        st.info(
+            "Unggah minimal satu dokumen untuk memulai analisis."
+        )
 
-        teks = ekstrak_teks(file)
+        st.markdown("### 🧠 Kemampuan Analisis")
 
-        if teks.startswith("ERROR:"):
-            st.error(teks)
-            continue
+        st.write(
+            """
+            Sistem ini disiapkan untuk menganalisis:
 
-        if teks.strip():
+            - tugas kuliah dan makalah
+            - artikel jurnal
+            - buku dan bab buku
+            - proposal penelitian
+            - tesis
+            - disertasi
+            - laporan penelitian
+            - regulasi dan dokumen akademik lainnya
+            """
+        )
 
-            kata = len(teks.split())
-            karakter = len(teks)
+        st.markdown("### 🔜 Mesin AI")
 
-            a, b, c = st.columns(3)
-            a.metric("Jumlah Kata", kata)
-            b.metric("Jumlah Karakter", karakter)
-            c.metric("Ukuran File", format_ukuran(file.size))
+        st.caption(
+            "Analisis semantik penuh akan menggunakan 9Router. "
+            "Struktur aplikasi dan alur analisis disiapkan terlebih dahulu."
+        )
 
+    # ========================================================
+    # JIKA DOKUMEN SUDAH DIUNGGAH
+    # ========================================================
+    else:
+
+        hasil_dokumen = []
+
+        # ----------------------------------------------------
+        # BACA SEMUA DOKUMEN
+        # ----------------------------------------------------
+        for nomor, file in enumerate(daftar_file, start=1):
+
+            st.divider()
+            st.subheader(f"📄 Dokumen {nomor}: {file.name}")
+
+            teks = ekstrak_teks(file)
+
+            if teks.startswith("ERROR:"):
+                st.error(teks)
+                continue
+
+            if not teks.strip():
+                st.warning(
+                    "Teks tidak berhasil dibaca dari dokumen ini."
+                )
+                continue
+
+            jumlah_kata = len(teks.split())
+            jumlah_karakter = len(teks)
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Jumlah Kata",
+                jumlah_kata
+            )
+
+            col2.metric(
+                "Jumlah Karakter",
+                jumlah_karakter
+            )
+
+            col3.metric(
+                "Ukuran File",
+                format_ukuran(file.size)
+            )
+
+            # -----------------------------------------------
+            # DETEKSI STRUKTUR
+            # -----------------------------------------------
             struktur = deteksi_struktur(teks)
 
-            st.write("**Deteksi struktur dasar:**")
+            st.markdown("#### 🔎 Deteksi Struktur Dasar")
 
             for bagian, ada in struktur.items():
+
                 if ada:
                     st.success(f"✓ {bagian}")
                 else:
-                    st.caption(f"○ {bagian} belum terdeteksi")
+                    st.caption(
+                        f"○ {bagian} belum terdeteksi secara otomatis"
+                    )
 
-            with st.expander("Lihat teks dokumen"):
+            # -----------------------------------------------
+            # TEKS ASLI
+            # -----------------------------------------------
+            with st.expander("📖 Lihat teks dokumen"):
+
                 st.text_area(
-                    "Teks",
+                    "Teks hasil ekstraksi",
                     teks,
                     height=350,
-                    key=f"teks_{nomor}"
+                    key=f"teks_dokumen_{nomor}"
                 )
 
+            # -----------------------------------------------
+            # SIMPAN KE BANK KARYA
+            # -----------------------------------------------
             if st.button(
                 "💾 Simpan ke Bank Karya",
-                key=f"simpan_{nomor}"
+                key=f"simpan_bank_karya_{nomor}"
             ):
+
                 berhasil = simpan_karya(
                     file.name,
                     jenis,
@@ -490,405 +579,429 @@ elif menu == "🔬 Analisis Karya Akademik":
                 )
 
                 if berhasil:
-                    st.success("Disimpan ke Bank Karya.")
+                    st.success(
+                        "Dokumen berhasil disimpan ke Bank Karya."
+                    )
                 else:
                     st.warning(
-                        "File ini sudah tercatat pada proyek aktif."
+                        "Dokumen ini sudah tercatat pada proyek aktif."
                     )
 
-    if banyak:
-        st.info(
-            "Tahap berikutnya akan menambahkan matriks lintas dokumen: "
-            "penulis, tahun, masalah, teori, metode, sampel/informan, "
-            "instrumen, hasil, keterbatasan, gap dan relevansi."
-        )
+            hasil_dokumen.append(
+                {
+                    "nama": file.name,
+                    "teks": teks,
+                    "kata": jumlah_kata,
+                    "karakter": jumlah_karakter,
+                    "ukuran": format_ukuran(file.size),
+                    "struktur": struktur
+                }
+            )
 
+        # ====================================================
+        # ANALISIS AKADEMIK CERDAS
+        # ====================================================
+        if hasil_dokumen:
 
-# ============================================================
-# LITERATUR & REFERENSI
-# ============================================================
-elif menu == "🔎 Literatur & Referensi":
+            st.divider()
 
-    st.header("🔎 Literatur & Referensi")
+            st.header("🧠 Analisis Akademik Cerdas")
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        [
-            "🔎 Pencarian",
-            "📚 Bank Referensi",
-            "💬 Bank Kutipan",
-            "✅ Validasi"
-        ]
-    )
+            st.caption(
+                "Kerangka analisis menyesuaikan jenis karya. "
+                "Mesin AI 9Router akan dihubungkan pada tahap integrasi AI."
+            )
 
-    with tab1:
+            # ------------------------------------------------
+            # FOKUS ANALISIS
+            # ------------------------------------------------
+            st.markdown("### 🎯 Fokus Analisis")
 
-        st.text_input(
-            "Topik / judul / DOI / kata kunci"
-        )
+            fokus_analisis = st.multiselect(
+                "Pilih bagian yang ingin dianalisis",
+                [
+                    "Identitas Dokumen",
+                    "Latar Belakang / Masalah",
+                    "Rumusan Masalah",
+                    "Tujuan Penelitian",
+                    "Teori / Konsep Utama",
+                    "Penelitian Terdahulu",
+                    "Metodologi",
+                    "Populasi / Sampel / Informan",
+                    "Instrumen Penelitian",
+                    "Teknik Pengumpulan Data",
+                    "Teknik Analisis Data",
+                    "Temuan / Hasil",
+                    "Pembahasan",
+                    "Kesimpulan",
+                    "Keterbatasan",
+                    "Research Gap",
+                    "Novelty / Kebaruan",
+                    "Kontribusi Penelitian",
+                    "Relevansi dengan Penelitian Saya"
+                ],
+                default=[
+                    "Latar Belakang / Masalah",
+                    "Tujuan Penelitian",
+                    "Metodologi",
+                    "Temuan / Hasil",
+                    "Keterbatasan",
+                    "Research Gap",
+                    "Novelty / Kebaruan"
+                ],
+                key="fokus_analisis_akademik"
+            )
 
-        st.multiselect(
-            "Sumber yang dibutuhkan",
-            [
-                "Jurnal Indonesia",
-                "Jurnal Internasional",
-                "Buku",
-                "Tesis",
-                "Disertasi",
-                "Prosiding",
-                "Repository"
-            ]
-        )
+            # ------------------------------------------------
+            # KERANGKA BERDASARKAN JENIS
+            # ------------------------------------------------
+            st.markdown("### 📋 Kerangka Analisis")
 
-        st.info(
-            "Tahap berikutnya: pencarian sumber nyata dan "
-            "verifikasi metadata. Referensi tidak akan dibuat-buat."
-        )
+            if jenis == "Artikel Jurnal":
 
-    with tab2:
+                kerangka = [
+                    "Identitas artikel",
+                    "Topik penelitian",
+                    "Masalah penelitian",
+                    "Tujuan penelitian",
+                    "Teori atau konsep utama",
+                    "Penelitian terdahulu",
+                    "Metode penelitian",
+                    "Populasi, sampel, atau informan",
+                    "Instrumen penelitian",
+                    "Teknik pengumpulan data",
+                    "Teknik analisis data",
+                    "Temuan utama",
+                    "Pembahasan",
+                    "Kesimpulan",
+                    "Keterbatasan penelitian",
+                    "Research gap",
+                    "Novelty atau kebaruan",
+                    "Kontribusi penelitian",
+                    "Peluang penelitian lanjutan",
+                    "Relevansi dengan penelitian pengguna"
+                ]
 
-        st.subheader("Tambah Referensi Manual")
+            elif jenis in ["Buku", "Bab Buku"]:
 
-        judul = st.text_input(
-            "Judul",
-            key="ref_judul"
-        )
+                kerangka = [
+                    "Identitas buku",
+                    "Pokok bahasan",
+                    "Gagasan utama",
+                    "Konsep atau teori penting",
+                    "Argumentasi penulis",
+                    "Bagian penting",
+                    "Kekuatan pembahasan",
+                    "Keterbatasan pembahasan",
+                    "Relevansi dengan penelitian pengguna"
+                ]
 
-        penulis = st.text_input(
-            "Penulis",
-            key="ref_penulis"
-        )
+            elif jenis == "Proposal":
 
-        tahun = st.text_input(
-            "Tahun",
-            key="ref_tahun"
-        )
+                kerangka = [
+                    "Judul penelitian",
+                    "Latar belakang",
+                    "Identifikasi masalah",
+                    "Research gap",
+                    "Rumusan masalah",
+                    "Tujuan penelitian",
+                    "Manfaat penelitian",
+                    "Kajian teori",
+                    "Penelitian terdahulu",
+                    "Kerangka berpikir",
+                    "Hipotesis atau fokus penelitian",
+                    "Metodologi",
+                    "Populasi, sampel, atau informan",
+                    "Instrumen penelitian",
+                    "Teknik pengumpulan data",
+                    "Teknik analisis data",
+                    "Kelayakan rancangan penelitian"
+                ]
 
-        sumber = st.text_input(
-            "Jurnal / Penerbit / Universitas",
-            key="ref_sumber"
-        )
+            elif jenis == "Tesis":
 
-        doi = st.text_input(
-            "DOI / URL",
-            key="ref_doi"
-        )
+                kerangka = [
+                    "Identitas tesis",
+                    "Judul penelitian",
+                    "Latar belakang",
+                    "Masalah penelitian",
+                    "Rumusan masalah",
+                    "Tujuan penelitian",
+                    "Teori utama",
+                    "Penelitian terdahulu",
+                    "Research gap",
+                    "Kerangka berpikir",
+                    "Hipotesis atau fokus penelitian",
+                    "Metodologi",
+                    "Populasi, sampel, atau informan",
+                    "Instrumen penelitian",
+                    "Teknik analisis data",
+                    "Hasil penelitian",
+                    "Pembahasan",
+                    "Kesimpulan",
+                    "Keterbatasan",
+                    "Novelty",
+                    "Kontribusi penelitian",
+                    "Peluang penelitian lanjutan"
+                ]
 
-        if st.button("➕ Tambahkan ke Bank Referensi"):
+            elif jenis == "Disertasi":
 
-            if not judul.strip():
-                st.warning("Judul referensi belum diisi.")
+                kerangka = [
+                    "Identitas disertasi",
+                    "Judul penelitian",
+                    "Latar belakang",
+                    "Masalah penelitian",
+                    "Rumusan masalah",
+                    "Tujuan penelitian",
+                    "State of the Art",
+                    "Landasan teori",
+                    "Penelitian terdahulu",
+                    "Research gap",
+                    "Kerangka konseptual",
+                    "Metodologi",
+                    "Populasi, sampel, atau informan",
+                    "Instrumen penelitian",
+                    "Teknik analisis data",
+                    "Temuan utama",
+                    "Pembahasan",
+                    "Originalitas yang diklaim",
+                    "Novelty",
+                    "Kontribusi teoretis",
+                    "Kontribusi metodologis",
+                    "Kontribusi praktis",
+                    "Keterbatasan",
+                    "Peluang penelitian doktoral lanjutan"
+                ]
 
             else:
-                st.session_state.bank_referensi.append(
-                    {
-                        "Proyek": st.session_state.proyek_aktif,
-                        "Judul": judul,
-                        "Penulis": penulis,
-                        "Tahun": tahun,
-                        "Sumber": sumber,
-                        "DOI/URL": doi,
-                        "Status": "Belum diverifikasi"
-                    }
+
+                kerangka = [
+                    "Identitas dokumen",
+                    "Topik utama",
+                    "Masalah utama",
+                    "Tujuan",
+                    "Konsep penting",
+                    "Metode atau pendekatan",
+                    "Temuan atau gagasan utama",
+                    "Kesimpulan",
+                    "Keterbatasan",
+                    "Relevansi"
+                ]
+
+            for no, item in enumerate(kerangka, start=1):
+                st.write(f"{no}. {item}")
+
+            # =================================================
+            # PERSIAPAN AI
+            # =================================================
+            st.markdown("### 🤖 Mesin Analisis AI")
+
+            st.info(
+                "Dokumen sudah berhasil dibaca dan kerangka analisis "
+                "sudah siap. Integrasi 9Router akan membuat AI membaca "
+                "isi dokumen secara semantik dan mengisi hasil analisis "
+                "berdasarkan bukti dari dokumen."
+            )
+
+            st.button(
+                "🤖 Analisis dengan AI",
+                disabled=True,
+                key="tombol_analisis_9router"
+            )
+
+            st.caption(
+                "Tombol akan diaktifkan setelah koneksi 9Router "
+                "dan API key dipasang melalui Streamlit Secrets."
+            )
+
+            # =================================================
+            # HASIL ANALISIS
+            # =================================================
+            st.markdown("### 📝 Hasil Analisis")
+
+            st.text_area(
+                "Hasil analisis AI akan tampil di sini",
+                value="",
+                height=250,
+                disabled=True,
+                key="hasil_analisis_ai"
+            )
+
+            # =================================================
+            # SIMPAN DAN EKSPOR
+            # =================================================
+            st.markdown("### 💾 Simpan & Ekspor")
+
+            col_simpan, col_word = st.columns(2)
+
+            with col_simpan:
+
+                st.button(
+                    "💾 Simpan Hasil ke Proyek",
+                    disabled=True,
+                    key="simpan_hasil_proyek"
                 )
 
-                st.success("Referensi ditambahkan.")
+            # -----------------------------------------------
+            # EKSPOR WORD - SUDAH BERFUNGSI
+            # -----------------------------------------------
+            with col_word:
 
-        if st.session_state.bank_referensi:
+                try:
+                    from io import BytesIO
+                    from docx import Document
 
-            df_ref = pd.DataFrame(
-                st.session_state.bank_referensi
-            )
+                    dokumen_word = Document()
 
-            st.dataframe(
-                df_ref,
-                use_container_width=True
-            )
+                    dokumen_word.add_heading(
+                        "Analisis Karya Akademik",
+                        level=1
+                    )
 
-            csv = df_ref.to_csv(
-                index=False
-            ).encode("utf-8")
+                    dokumen_word.add_paragraph(
+                        f"Jenis karya: {jenis}"
+                    )
 
-            st.download_button(
-                "⬇️ Unduh Bank Referensi CSV",
-                csv,
-                "bank_referensi.csv",
-                "text/csv"
-            )
+                    dokumen_word.add_paragraph(
+                        f"Mode analisis: {mode}"
+                    )
 
-        else:
-            st.info("Bank Referensi masih kosong.")
+                    dokumen_word.add_heading(
+                        "Dokumen yang Dianalisis",
+                        level=2
+                    )
 
-    with tab3:
+                    for item in hasil_dokumen:
 
-        st.write(
-            """
-            Bank Kutipan nantinya menyimpan:
+                        dokumen_word.add_paragraph(
+                            f"Nama file: {item['nama']}"
+                        )
 
-            **Kutipan → Halaman → Sumber → DOI/ISBN →
-            Topik → Digunakan pada BAB mana**
-            """
-        )
+                        dokumen_word.add_paragraph(
+                            f"Jumlah kata: {item['kata']}"
+                        )
 
-    with tab4:
+                        dokumen_word.add_paragraph(
+                            f"Ukuran: {item['ukuran']}"
+                        )
 
-        st.write(
-            """
-            Status pemeriksaan referensi:
+                    dokumen_word.add_heading(
+                        "Fokus Analisis",
+                        level=2
+                    )
 
-            • Terverifikasi  
-            • Perlu diperiksa  
-            • Tidak ditemukan  
-            • Duplikat  
-            • Metadata tidak lengkap  
-            • Sitasi tanpa daftar pustaka  
-            • Daftar pustaka tanpa sitasi
-            """
-        )
-# TAHAP 2 - ANALISIS AKADEMIK CERDAS
-    st.divider()
-    st.subheader("🧠 Analisis Akademik Cerdas")
+                    for fokus in fokus_analisis:
+                        dokumen_word.add_paragraph(
+                            fokus,
+                            style="List Bullet"
+                        )
 
-    st.caption(
-        "Tahap 2 menyiapkan analisis terstruktur berdasarkan jenis karya. "
-        "Analisis AI penuh akan dihubungkan melalui 9Router pada tahap berikutnya."
-    )
+                    dokumen_word.add_heading(
+                        "Kerangka Analisis",
+                        level=2
+                    )
 
-    if daftar_file:
+                    for bagian in kerangka:
+                        dokumen_word.add_paragraph(
+                            bagian,
+                            style="List Number"
+                        )
 
-        st.markdown("### 🎯 Fokus Analisis")
+                    dokumen_word.add_heading(
+                        "Hasil Analisis AI",
+                        level=2
+                    )
 
-        fokus_analisis = st.multiselect(
-            "Pilih bagian yang ingin dianalisis",
-            [
-                "Identitas Dokumen",
-                "Latar Belakang / Masalah",
-                "Tujuan Penelitian",
-                "Teori / Konsep Utama",
-                "Metodologi",
-                "Populasi / Sampel / Informan",
-                "Instrumen Penelitian",
-                "Teknik Analisis Data",
-                "Temuan / Hasil",
-                "Pembahasan",
-                "Kesimpulan",
-                "Keterbatasan",
-                "Research Gap",
-                "Novelty / Kebaruan",
-                "Kontribusi Penelitian",
-                "Relevansi dengan Penelitian Saya"
-            ],
-            default=[
-                "Latar Belakang / Masalah",
-                "Tujuan Penelitian",
-                "Metodologi",
-                "Temuan / Hasil",
-                "Keterbatasan",
-                "Research Gap",
-                "Novelty / Kebaruan"
-            ],
-            key="fokus_analisis_tahap2"
-        )
+                    dokumen_word.add_paragraph(
+                        "Hasil analisis AI akan dimasukkan setelah "
+                        "integrasi 9Router diaktifkan."
+                    )
 
-        st.markdown("### 📋 Kerangka Analisis")
+                    buffer_word = BytesIO()
 
-        if jenis == "Artikel Jurnal":
-            kerangka = [
-                "Identitas artikel",
-                "Topik penelitian",
-                "Masalah penelitian",
-                "Tujuan penelitian",
-                "Teori atau konsep utama",
-                "Metode penelitian",
-                "Populasi, sampel, atau informan",
-                "Instrumen penelitian",
-                "Teknik analisis data",
-                "Temuan utama",
-                "Keterbatasan penelitian",
-                "Research gap",
-                "Kontribusi penelitian",
-                "Peluang penelitian lanjutan",
-                "Relevansi dengan penelitian pengguna"
-            ]
+                    dokumen_word.save(buffer_word)
 
-        elif jenis == "Buku" or jenis == "Bab Buku":
-            kerangka = [
-                "Identitas buku",
-                "Pokok bahasan",
-                "Gagasan utama",
-                "Konsep atau teori penting",
-                "Argumentasi penulis",
-                "Bagian penting",
-                "Kekuatan pembahasan",
-                "Keterbatasan pembahasan",
-                "Relevansi dengan penelitian pengguna"
-            ]
+                    buffer_word.seek(0)
 
-        elif jenis == "Tesis":
-            kerangka = [
-                "Identitas tesis",
-                "Latar belakang",
-                "Masalah penelitian",
-                "Rumusan masalah",
-                "Tujuan penelitian",
-                "Teori utama",
-                "Penelitian terdahulu",
-                "Metodologi",
-                "Instrumen penelitian",
-                "Teknik analisis data",
-                "Hasil penelitian",
-                "Pembahasan",
-                "Kesimpulan",
-                "Keterbatasan",
-                "Research gap",
-                "Novelty",
-                "Kontribusi",
-                "Peluang penelitian lanjutan"
-            ]
+                    st.download_button(
+                        "📄 Ekspor Word",
+                        data=buffer_word.getvalue(),
+                        file_name="analisis_karya_akademik.docx",
+                        mime=(
+                            "application/vnd.openxmlformats-"
+                            "officedocument.wordprocessingml.document"
+                        ),
+                        key="download_analisis_word"
+                    )
 
-        elif jenis == "Disertasi":
-            kerangka = [
-                "Identitas disertasi",
-                "Latar belakang",
-                "Masalah penelitian",
-                "Rumusan masalah",
-                "Tujuan penelitian",
-                "State of the Art",
-                "Landasan teori",
-                "Metodologi",
-                "Instrumen penelitian",
-                "Teknik analisis data",
-                "Temuan utama",
-                "Pembahasan",
-                "Originalitas yang diklaim",
-                "Novelty",
-                "Kontribusi teoretis",
-                "Kontribusi metodologis",
-                "Kontribusi praktis",
-                "Keterbatasan",
-                "Research gap",
-                "Peluang penelitian doktoral lanjutan"
-            ]
+                except Exception as e:
 
-        elif jenis == "Proposal":
-            kerangka = [
-                "Judul penelitian",
-                "Latar belakang",
-                "Identifikasi masalah",
-                "Research gap",
-                "Rumusan masalah",
-                "Tujuan penelitian",
-                "Manfaat penelitian",
-                "Kajian teori",
-                "Penelitian terdahulu",
-                "Kerangka berpikir",
-                "Hipotesis atau fokus penelitian",
-                "Metodologi",
-                "Populasi, sampel, atau informan",
-                "Instrumen",
-                "Teknik pengumpulan data",
-                "Teknik analisis data"
-            ]
+                    st.warning(
+                        f"Ekspor Word belum dapat dibuat: {e}"
+                    )
 
-        else:
-            kerangka = [
-                "Identitas dokumen",
-                "Topik utama",
-                "Masalah utama",
-                "Tujuan",
-                "Konsep penting",
-                "Metode atau pendekatan",
-                "Temuan atau gagasan utama",
-                "Kesimpulan",
-                "Keterbatasan",
-                "Relevansi"
-            ]
+            # =================================================
+            # ANALISIS BANYAK DOKUMEN
+            # =================================================
+            if banyak:
 
-        for no, item in enumerate(kerangka, start=1):
-            st.write(f"{no}. {item}")
+                st.divider()
 
-        st.markdown("### 🤖 Status Mesin AI")
+                st.header("📚 Matriks Literatur")
 
-        st.info(
-            "Kerangka analisis sudah siap. "
-            "Pada tahap integrasi 9Router, tombol Analisis dengan AI akan "
-            "membaca isi dokumen secara semantik dan mengisi setiap bagian "
-            "berdasarkan isi dokumen, bukan mengarang informasi."
-        )
+                st.caption(
+                    "Setelah AI diaktifkan, setiap dokumen akan "
+                    "dianalisis dan dimasukkan otomatis ke matriks."
+                )
 
-        st.button(
-            "🤖 Analisis dengan AI — 9Router segera diaktifkan",
-            disabled=True,
-            key="ai_9router_tahap2"
-        )
+                data_matriks = []
 
-        st.markdown("### 💾 Hasil & Ekspor")
+                for item in hasil_dokumen:
 
-        st.write(
-            "Hasil analisis nantinya dapat disimpan ke proyek aktif dan "
-            "diekspor untuk kebutuhan penelitian."
-        )
+                    data_matriks.append(
+                        {
+                            "Nama File": item["nama"],
+                            "Penulis": "",
+                            "Tahun": "",
+                            "Judul": "",
+                            "Masalah": "",
+                            "Teori": "",
+                            "Metode": "",
+                            "Sampel / Informan": "",
+                            "Instrumen": "",
+                            "Analisis Data": "",
+                            "Temuan": "",
+                            "Keterbatasan": "",
+                            "Research Gap": "",
+                            "Novelty": "",
+                            "Relevansi": "",
+                            "DOI / URL": ""
+                        }
+                    )
 
-        col1, col2, col3 = st.columns(3)
+                df_matriks = pd.DataFrame(data_matriks)
 
-        with col1:
-            st.button(
-                "💾 Simpan Hasil",
-                disabled=True,
-                key="simpan_hasil_ai"
-            )
+                st.dataframe(
+                    df_matriks,
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-        with col2:
-            st.button(
-                "📄 Ekspor Word",
-                disabled=True,
-                key="ekspor_word_ai"
-            )
+                st.download_button(
+                    "📥 Ekspor Matriks CSV",
+                    data=df_matriks.to_csv(
+                        index=False
+                    ).encode("utf-8-sig"),
+                    file_name="matriks_literatur.csv",
+                    mime="text/csv",
+                    key="download_matriks_csv"
+                )
 
-        with col3:
-            st.button(
-                "📊 Ekspor Matriks",
-                disabled=True,
-                key="ekspor_matriks_ai"
-            )
-
-        if banyak:
-            st.markdown("### 📚 Analisis Banyak Dokumen")
-
-            st.success(
-                "Mode banyak dokumen siap untuk dikembangkan menjadi "
-                "Matriks Literatur."
-            )
-
-            kolom_matriks = [
-                "Penulis",
-                "Tahun",
-                "Judul",
-                "Masalah",
-                "Teori",
-                "Metode",
-                "Sampel / Informan",
-                "Instrumen",
-                "Analisis Data",
-                "Temuan",
-                "Keterbatasan",
-                "Research Gap",
-                "Novelty",
-                "Relevansi",
-                "DOI / URL"
-            ]
-
-            st.write("Kolom Matriks Literatur:")
-
-            st.dataframe(
-                pd.DataFrame(columns=kolom_matriks),
-                use_container_width=True
-            )
-
-    else:
-        st.info(
-            "Unggah minimal satu dokumen pada bagian Analisis Karya Akademik "
-            "di atas untuk membuka Analisis Akademik Cerdas."
-        )
+                st.info(
+                    "Ekspor Excel (.xlsx), PDF, RIS dan BibTeX "
+                    "akan ditambahkan pada tahap ekspor lanjutan."
+                )
 # ============================================================
 # TESIS S2
 # ============================================================
