@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import PyPDF2
 from datetime import datetime
-
+import json
+import urllib.request
+import urllib.error
 try:
     import docx
 except ImportError:
@@ -168,7 +170,111 @@ def simpan_karya(nama, jenis, ukuran):
         "Ukuran": ukuran,
         "Tanggal": datetime.now().strftime("%d-%m-%Y %H:%M")
     }
+    st.session_state.bank_karya.append(data)
+# ============================================================
+# KONEKSI AI 9ROUTER
+# ============================================================
+def analisis_dengan_9router(teks, jenis_karya, fokus_analisis):
+    try:
+        api_key = st.secrets["NINEROUTER_API_KEY"]
+        base_url = st.secrets["NINEROUTER_BASE_URL"].rstrip("/")
+    except Exception:
+        return "Konfigurasi 9Router belum ditemukan di Streamlit Secrets."
 
+    # Batasi teks pada tahap awal agar permintaan tetap stabil
+    teks_dokumen = teks[:60000]
+
+    fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
+
+    prompt = f"""
+Anda adalah Asisten Akademik AI untuk mahasiswa S2 dan S3.
+
+Analisis dokumen akademik berikut secara teliti dan hanya berdasarkan
+isi dokumen yang diberikan.
+
+Jenis karya yang dipilih:
+{jenis_karya}
+
+Fokus analisis:
+{fokus}
+
+ATURAN WAJIB:
+1. Jangan mengarang informasi.
+2. Jika informasi tidak ditemukan, tulis: "Tidak ditemukan dalam dokumen."
+3. Jangan membuat nama penulis, teori, metode, hasil, referensi, DOI,
+   research gap, atau novelty yang tidak terdapat dalam dokumen.
+4. Bedakan antara novelty yang diklaim penulis dengan novelty yang
+   benar-benar telah diverifikasi melalui literatur.
+5. Pada tahap ini Anda hanya menganalisis dokumen, bukan membuktikan
+   novelty terhadap seluruh literatur ilmiah.
+6. Gunakan bahasa Indonesia akademik yang jelas.
+7. Berikan bukti atau bagian dokumen yang mendukung analisis jika tersedia.
+
+Susun hasil dengan bagian:
+
+A. IDENTITAS DAN JENIS DOKUMEN
+B. TOPIK UTAMA
+C. LATAR BELAKANG / MASALAH
+D. TUJUAN
+E. KONSEP ATAU LANDASAN TEORI
+F. METODOLOGI
+G. TEMUAN / HASIL UTAMA
+H. KETERBATASAN
+I. RESEARCH GAP YANG TERIDENTIFIKASI
+J. NOVELTY / KEBAHARUAN YANG DIKLAIM
+K. KONTRIBUSI AKADEMIK
+L. RELEVANSI UNTUK PENELITIAN LANJUTAN
+M. KESIMPULAN ANALISIS
+
+DOKUMEN:
+--------------------
+{teks_dokumen}
+--------------------
+"""
+
+    payload = {
+        "model": "auto",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Anda adalah asisten analisis akademik yang akurat dan tidak mengarang data."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.2
+    }
+
+    request = urllib.request.Request(
+        base_url + "/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            hasil = json.loads(response.read().decode("utf-8"))
+
+        return hasil["choices"][0]["message"]["content"]
+
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8")
+        except Exception:
+            detail = ""
+        return f"9Router belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
+
+    except urllib.error.URLError as e:
+        return f"Tidak dapat terhubung ke 9Router: {e.reason}"
+
+    except Exception as e:
+        return f"Terjadi kesalahan saat menjalankan analisis AI: {str(e)}"
     sudah_ada = any(
         x["Nama File"] == nama
         and x["Proyek"] == st.session_state.proyek_aktif
@@ -395,9 +501,9 @@ elif menu == "📚 Perkuliahan":
 # ============================================================
 # ANALISIS KARYA AKADEMIK
 # ============================================================
-elif menu == "🔬 Analisis Karya Akademik":
+elif menu == "🔬   # PERSIAPAN AI":
 
-    st.header("🔬 Analisis Karya Akademik")
+    st.header("🔬 # SIMPAN DAN EKSPOR")
 
     st.caption(
         "Analisis satu atau banyak karya akademik. "
@@ -792,42 +898,70 @@ elif menu == "🔬 Analisis Karya Akademik":
             for no, item in enumerate(kerangka, start=1):
                 st.write(f"{no}. {item}")
 
-            # =================================================
-            # PERSIAPAN AI
+                       # =================================================
+            # MESIN ANALISIS AI 9ROUTER
             # =================================================
             st.markdown("### 🤖 Mesin Analisis AI")
 
             st.info(
-                "Dokumen sudah berhasil dibaca dan kerangka analisis "
-                "sudah siap. Integrasi 9Router akan membuat AI membaca "
-                "isi dokumen secara semantik dan mengisi hasil analisis "
-                "berdasarkan bukti dari dokumen."
+                "Dokumen sudah berhasil dibaca. AI 9Router siap "
+                "menganalisis isi dokumen berdasarkan fokus yang dipilih."
             )
 
-            st.button(
+            if "hasil_ai_9router" not in st.session_state:
+                st.session_state.hasil_ai_9router = ""
+
+            if st.button(
                 "🤖 Analisis dengan AI",
-                disabled=True,
+                type="primary",
+                use_container_width=True,
                 key="tombol_analisis_9router"
-            )
+            ):
+                if not hasil_dokumen:
+                    st.warning(
+                        "Belum ada dokumen yang berhasil dibaca."
+                    )
+                else:
+                    dokumen_ai = hasil_dokumen[0]
+                    teks_ai = dokumen_ai["teks"]
 
-            st.caption(
-                "Tombol akan diaktifkan setelah koneksi 9Router "
-                "dan API key dipasang melalui Streamlit Secrets."
-            )
+                    with st.spinner(
+                        "9Router sedang membaca dan menganalisis dokumen..."
+                    ):
+                        hasil_ai = analisis_dengan_9router(
+                            teks_ai,
+                            jenis,
+                            fokus_analisis
+                        )
+
+                    st.session_state.hasil_ai_9router = hasil_ai
 
             # =================================================
-            # HASIL ANALISIS
+            # HASIL ANALISIS AI
             # =================================================
             st.markdown("### 📝 Hasil Analisis")
 
-            st.text_area(
-                "Hasil analisis AI akan tampil di sini",
-                value="",
-                height=250,
-                disabled=True,
-                key="hasil_analisis_ai"
-            )
+            if st.session_state.hasil_ai_9router:
 
+                st.success("✅ Analisis AI selesai.")
+
+                hasil_edit = st.text_area(
+                    "Hasil analisis dapat diedit sebelum diekspor",
+                    value=st.session_state.hasil_ai_9router,
+                    height=600,
+                    key="editor_hasil_ai_9router"
+                )
+
+                st.session_state.hasil_ai_9router = hasil_edit
+
+            else:
+                st.text_area(
+                    "Hasil analisis AI akan tampil di sini",
+                    value="",
+                    height=300,
+                    disabled=True,
+                    key="hasil_ai_kosong"
+                )
             # =================================================
             # SIMPAN DAN EKSPOR
             # =================================================
