@@ -2,10 +2,8 @@ import streamlit as st
 import re
 from io import BytesIO
 
-try:
+
     import pypdf
-except ImportError:
-    pypdf = None
 
 try:
     import docx
