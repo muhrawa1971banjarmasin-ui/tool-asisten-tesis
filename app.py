@@ -2520,6 +2520,38 @@ elif menu == "🔎 Literatur & Referensi":
         st.success("🔒 PROTEKSI NASKAH AKTIF: narasi, typo, judul, penomoran, abjad, indentasi, tabel, gambar, margin, header-footer, dan tata letak tidak boleh diubah oleh proses referensi.")
         st.caption("File asli tidak pernah ditimpa. Perubahan hanya boleh terjadi pada area sitasi/footnote/daftar pustaka yang dipilih pengguna. Bila audit mendeteksi perubahan di luar area izin, file hasil ditolak.")
 
+        # ------------------------------------------------------------
+        # SALIN SITASI / FOOTNOTE — fitur ringan, tidak menyentuh Word
+        # ------------------------------------------------------------
+        st.markdown("#### 📋 Salin Sitasi / Footnote dari Library")
+        st.caption("Pilih satu referensi yang sudah ada di Library. Teks di bawah hanya untuk disalin; naskah Word dan formatnya tidak disentuh.")
+        _refs_salin=st.session_state.get("bank_referensi",[])
+        if _refs_salin:
+            _opsi_salin=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(_refs_salin)]
+            _pilih_salin=st.selectbox("Pilih referensi untuk disalin",_opsi_salin,key="pilih_ref_salin_naskah")
+            _ref_salin=_refs_salin[_opsi_salin.index(_pilih_salin)]
+            _status_salin=str(_ref_salin.get("Status","") or "")
+            if _status_salin.startswith("✅") or _status_salin.startswith("📘"):
+                st.success("Sumber siap digunakan sesuai status verifikasinya: "+_status_salin)
+            else:
+                st.warning("⚠️ Referensi ini belum terverifikasi penuh. Boleh ditinjau/disalin untuk pemeriksaan, tetapi jangan dijadikan sumber final sebelum diverifikasi.")
+            _jenis_salin=st.radio("Yang ingin disalin",["Catatan kaki / Footnote","Daftar pustaka","Sitasi singkat"],horizontal=True,key="jenis_salin_naskah")
+            if _jenis_salin=="Catatan kaki / Footnote":
+                _hal_salin=st.text_input("Halaman kutipan (opsional)",placeholder="Contoh: 25–26",key="halaman_salin_naskah")
+                _teks_salin=format_chicago_note(_ref_salin,_hal_salin.strip())
+            elif _jenis_salin=="Daftar pustaka":
+                _teks_salin=format_referensi(_ref_salin,st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography"))
+            else:
+                _pen=_nama_chicago(_ref_salin.get("Penulis"))
+                _th=_ref_salin.get("Tahun") or "n.d."
+                _teks_salin=f"({_pen}, {_th})"
+            st.code(_teks_salin,language=None)
+            st.caption("Klik ikon salin pada kotak di atas, lalu tempel ke naskah. Tidak ada perubahan otomatis pada file Word.")
+        else:
+            st.info("Library masih kosong. Masukkan atau verifikasi referensi terlebih dahulu, lalu kembali ke bagian ini.")
+
+        st.divider()
+        st.markdown("#### 📄 Periksa / Proses Salinan Word")
         doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
         mode_kerja=st.radio(
             "Mode kerja",
