@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import re
 import html
+import difflib
 try:
     import docx
 except ImportError:
@@ -54,6 +55,11 @@ if "kredit_ai" not in st.session_state:
 
 if "riwayat_kredit" not in st.session_state:
     st.session_state.riwayat_kredit = []
+
+if "sumber_online_user" not in st.session_state:
+    st.session_state.sumber_online_user = []
+if "gaya_sitasi" not in st.session_state:
+    st.session_state.gaya_sitasi = "Chicago Notes & Bibliography"
 
 
 # ============================================================
@@ -446,183 +452,280 @@ def panggil_gemini(prompt, temperature=0.25):
     return {"sukses":False,"hasil":"","error":"Gemini belum berhasil setelah beberapa percobaan."}
 
 
+def _http_json(url, timeout=30):
+    req = urllib.request.Request(url, headers={"User-Agent":"AsistenAkademikAI/2.0 (academic reference tool)"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def _tahun_crossref(item):
+    dp=item.get("published-print") or item.get("published-online") or item.get("issued") or {}
+    parts=dp.get("date-parts") or [[]]
+    return str(parts[0][0]) if parts and parts[0] else ""
+
+def _crossref_to_ref(item, sumber="Crossref"):
+    authors=[]
+    for a in item.get("author",[]):
+        nama=(" ".join([a.get("given",""),a.get("family","")])).strip()
+        if nama: authors.append(nama)
+    return {"Judul":(item.get("title") or [""])[0],"Penulis":"; ".join(authors),"Tahun":_tahun_crossref(item),"Jurnal":(item.get("container-title") or [""])[0],"Volume":item.get("volume",""),"Nomor":item.get("issue",""),"Halaman":item.get("page",""),"DOI":item.get("DOI",""),"URL":item.get("URL",""),"Sumber":sumber,"Status":"✅ Metadata terverifikasi Crossref" if item.get("DOI") else "⚠️ DOI belum tersedia"}
+
 def cari_crossref(kata_kunci, jumlah=10):
-    """Mencari metadata ilmiah nyata melalui Crossref REST API."""
-    if not kata_kunci.strip():
-        return []
-    q = urllib.parse.quote(kata_kunci.strip())
-    url = f"https://api.crossref.org/works?query.bibliographic={q}&rows={jumlah}&select=DOI,title,author,published-print,published-online,container-title,volume,issue,page,URL,type"
-    req = urllib.request.Request(url, headers={"User-Agent":"AsistenAkademikAI/1.0 (academic reference tool)"})
+    if not kata_kunci.strip(): return []
+    q=urllib.parse.quote(kata_kunci.strip())
+    url=f"https://api.crossref.org/works?query.bibliographic={q}&rows={jumlah}&select=DOI,title,author,published-print,published-online,issued,container-title,volume,issue,page,URL,type"
+    try: return [_crossref_to_ref(x) for x in _http_json(url).get("message",{}).get("items",[])]
+    except Exception: return []
+
+def cari_openalex(kata_kunci, jumlah=10):
+    if not kata_kunci.strip(): return []
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            data=json.loads(response.read().decode("utf-8"))
-        hasil=[]
-        for item in data.get("message",{}).get("items",[]):
-            title=(item.get("title") or [""])[0]
-            authors=[]
-            for a in item.get("author",[]):
-                nama=(" ".join([a.get("given",""),a.get("family","")])).strip()
-                if nama: authors.append(nama)
-            dp=item.get("published-print") or item.get("published-online") or {}
-            parts=dp.get("date-parts") or [[]]
-            tahun=str(parts[0][0]) if parts and parts[0] else ""
-            hasil.append({
-                "Judul":title,
-                "Penulis":"; ".join(authors),
-                "Tahun":tahun,
-                "Jurnal":(item.get("container-title") or [""])[0],
-                "Volume":item.get("volume",""),
-                "Nomor":item.get("issue",""),
-                "Halaman":item.get("page",""),
-                "DOI":item.get("DOI",""),
-                "URL":item.get("URL",""),
-                "Sumber":"Crossref",
-                "Status":"✅ Metadata terverifikasi Crossref" if item.get("DOI") else "⚠️ DOI belum tersedia"
-            })
-        return hasil
+        data=_http_json(f"https://api.openalex.org/works?search={urllib.parse.quote(kata_kunci.strip())}&per-page={jumlah}")
+        out=[]
+        for x in data.get("results",[]):
+            authors=[a.get("author",{}).get("display_name","") for a in x.get("authorships",[]) if a.get("author",{}).get("display_name")]
+            loc=x.get("primary_location") or {}; src=loc.get("source") or {}; b=x.get("biblio") or {}; doi=(x.get("doi") or "").replace("https://doi.org/","")
+            pages="-".join([str(v) for v in [b.get("first_page"),b.get("last_page")] if v])
+            out.append({"Judul":x.get("title","") or "","Penulis":"; ".join(authors),"Tahun":str(x.get("publication_year") or ""),"Jurnal":src.get("display_name","") or "","Volume":b.get("volume","") or "","Nomor":b.get("issue","") or "","Halaman":pages,"DOI":doi,"URL":x.get("id","") or "","Sumber":"OpenAlex","Status":"✅ Metadata teridentifikasi OpenAlex" if doi else "⚠️ DOI belum tersedia"})
+        return out
+    except Exception: return []
+
+
+def cari_semantic_scholar(kata_kunci, jumlah=10):
+    """Pencarian metadata publik Semantic Scholar. Gagal diam-diam bila rate-limit."""
+    if not kata_kunci.strip(): return []
+    try:
+        q=urllib.parse.quote(kata_kunci.strip())
+        fields="title,authors,year,venue,externalIds,url"
+        data=_http_json(f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit={min(jumlah,100)}&fields={fields}")
+        out=[]
+        for x in data.get("data",[]):
+            ext=x.get("externalIds") or {}
+            doi=ext.get("DOI","") or ""
+            authors=[a.get("name","") for a in x.get("authors",[]) if a.get("name")]
+            out.append({"Judul":x.get("title","") or "","Penulis":"; ".join(authors),
+                        "Tahun":str(x.get("year") or ""),"Jurnal":x.get("venue","") or "",
+                        "Volume":"","Nomor":"","Halaman":"","DOI":doi,
+                        "URL":x.get("url","") or "","Sumber":"Semantic Scholar",
+                        "Status":"✅ Metadata teridentifikasi Semantic Scholar" if doi else "🔎 Metadata ditemukan — DOI belum tersedia"})
+        return out
     except Exception:
         return []
 
+def cari_library_of_congress(kata_kunci, jumlah=8):
+    """Pencarian koleksi digital Library of Congress melalui JSON API resmi."""
+    if not kata_kunci.strip(): return []
+    try:
+        q=urllib.parse.quote(kata_kunci.strip())
+        data=_http_json(f"https://www.loc.gov/search/?q={q}&fo=json&c={min(jumlah,25)}")
+        out=[]
+        for x in data.get("results",[])[:jumlah]:
+            title=x.get("title","") or ""
+            date=str(x.get("date","") or "")
+            creator=x.get("contributor") or x.get("creator") or []
+            if isinstance(creator,str): creator=[creator]
+            authors="; ".join([str(a) for a in creator[:8]])
+            out.append({"Judul":title,"Penulis":authors,"Tahun":date[:4] if date else "",
+                        "Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"",
+                        "URL":x.get("id","") or x.get("url","") or "",
+                        "Sumber":"Library of Congress",
+                        "Status":"🏛️ Metadata katalog teridentifikasi Library of Congress"})
+        return out
+    except Exception:
+        return []
+
+def cari_multi_sumber(kata_kunci, jumlah=12):
+    """Federated search: metadata sources that legally expose machine-readable APIs."""
+    unik=[]; seen=set()
+    gabungan=(cari_crossref(kata_kunci,jumlah)+cari_openalex(kata_kunci,jumlah)
+              +cari_semantic_scholar(kata_kunci,min(jumlah,10))
+              +cari_library_of_congress(kata_kunci,min(jumlah,8)))
+    for r in gabungan:
+        k=(r.get("DOI") or re.sub(r"[^a-z0-9]+","",r.get("Judul","").lower())).lower()
+        if k and k not in seen:
+            seen.add(k); unik.append(r)
+    return unik
+
+def cari_crossref_doi(doi):
+    doi=(doi or "").strip().strip(".,;:) ]}")
+    if not doi: return None
+    try: return _crossref_to_ref(_http_json("https://api.crossref.org/works/"+urllib.parse.quote(doi,safe="")).get("message") or {})
+    except Exception: return None
+
+def ekstrak_doi(teks):
+    m=re.search(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+",teks or "",re.I)
+    return m.group(0).rstrip(".,;:) ]}") if m else ""
+
+def normal_judul(x): return re.sub(r"[^a-z0-9]+"," ",(x or "").lower()).strip()
+
+def verifikasi_judul_crossref(judul):
+    best=None; score=0.0; a=normal_judul(judul)
+    for r in cari_crossref(judul,5):
+        sc=difflib.SequenceMatcher(None,a,normal_judul(r.get("Judul",""))).ratio() if a else 0
+        if sc>score: best,score=r,sc
+    return best,score
+
+def ekstrak_metadata_gemini(teks,nama_file=""):
+    if not teks or teks.startswith("ERROR:"): return None
+    prompt=("Ekstrak metadata bibliografis dari dokumen berikut. Jangan menebak. Jika tidak ada isi string kosong. "
+            "Kembalikan HANYA JSON valid dengan kunci Judul, Penulis, Tahun, Jurnal, Volume, Nomor, Halaman, DOI, URL. "
+            "Penulis dipisahkan titik koma. Nama file: "+nama_file+"\nDOKUMEN:\n"+teks[:15000])
+    h=panggil_gemini(prompt,0.05)
+    if not h.get("sukses"): return None
+    raw=re.sub(r"^```(?:json)?\s*|\s*```$","",h.get("hasil","").strip(),flags=re.I|re.S).strip()
+    try:
+        d=json.loads(raw); return {k:str(d.get(k,"") or "").strip() for k in ["Judul","Penulis","Tahun","Jurnal","Volume","Nomor","Halaman","DOI","URL"]}
+    except Exception: return None
 
 def kunci_ref(ref):
     doi=(ref.get("DOI") or "").strip().lower()
-    if doi: return "doi:"+doi
-    return "title:"+re.sub(r"[^a-z0-9]+","", (ref.get("Judul") or "").lower())
-
+    return "doi:"+doi if doi else "title:"+re.sub(r"[^a-z0-9]+","",(ref.get("Judul") or "").lower())
 
 def tambah_bank_referensi(ref):
     key=kunci_ref(ref)
-    if any(kunci_ref(x)==key for x in st.session_state.bank_referensi):
-        return False
-    data=dict(ref)
-    data["Proyek"]=st.session_state.proyek_aktif
-    data["Tanggal"]=datetime.now().strftime("%d-%m-%Y %H:%M")
-    st.session_state.bank_referensi.append(data)
-    return True
+    if any(kunci_ref(x)==key for x in st.session_state.bank_referensi): return False
+    data=dict(ref); data["Proyek"]=st.session_state.proyek_aktif; data["Tanggal"]=datetime.now().strftime("%d-%m-%Y %H:%M"); st.session_state.bank_referensi.append(data); return True
 
+def _nama_chicago(penulis):
+    n=[x.strip() for x in (penulis or "").split(";") if x.strip()]
+    return "Tanpa penulis" if not n else n[0] if len(n)==1 else f"{n[0]} dan {n[1]}" if len(n)==2 else f"{n[0]} et al."
+
+def format_chicago_note(ref,halaman_kutip=""):
+    pen=_nama_chicago(ref.get("Penulis")); jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; th=ref.get("Tahun") or "n.d."; doi=ref.get("DOI") or ""; url=ref.get("URL") or ""
+    pub=jur + (f" {vol}" if vol else "") + (f", no. {no}" if no else "") + f" ({th})"; loc=halaman_kutip or ref.get("Halaman") or ""
+    if loc: pub+=f": {loc}"
+    return f'{pen}, “{jud},” {pub}'+(f", https://doi.org/{doi}" if doi else f", {url}" if url else "")+"."
+
+def format_chicago_bibliography(ref):
+    pen=_nama_chicago(ref.get("Penulis")); jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; th=ref.get("Tahun") or "n.d."; hal=ref.get("Halaman") or ""; doi=ref.get("DOI") or ""; url=ref.get("URL") or ""
+    s=f'{pen}. “{jud}.”'+(f" {jur}" if jur else "")+(f" {vol}" if vol else "")+(f", no. {no}" if no else "")+f" ({th})"+(f": {hal}" if hal else "")
+    return s+(f". https://doi.org/{doi}" if doi else f". {url}" if url else "")+"."
 
 def format_apa(ref):
-    pen=ref.get("Penulis") or "Tanpa penulis"
-    th=ref.get("Tahun") or "n.d."
-    jud=ref.get("Judul") or "Tanpa judul"
-    jur=ref.get("Jurnal") or ""
-    vol=ref.get("Volume") or ""
-    no=ref.get("Nomor") or ""
-    hal=ref.get("Halaman") or ""
-    doi=ref.get("DOI") or ""
-    tail=""
-    if jur: tail += f" {jur}"
-    if vol: tail += f", {vol}"
-    if no: tail += f"({no})"
-    if hal: tail += f", {hal}"
-    if doi: tail += f". https://doi.org/{doi}"
+    pen=ref.get("Penulis") or "Tanpa penulis"; th=ref.get("Tahun") or "n.d."; jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; hal=ref.get("Halaman") or ""; doi=ref.get("DOI") or ""; tail=""
+    if jur: tail+=f" {jur}"
+    if vol: tail+=f", {vol}"
+    if no: tail+=f"({no})"
+    if hal: tail+=f", {hal}"
+    if doi: tail+=f". https://doi.org/{doi}"
     return f"{pen}. ({th}). {jud}.{tail}".strip()
 
+def format_referensi(ref,gaya=None):
+    gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
+    return format_chicago_bibliography(ref) if gaya.startswith("Chicago") else format_apa(ref)
 
 def ekspor_ris(refs):
     out=[]
     for r in refs:
-        out += ["TY  - JOUR", f"TI  - {r.get('Judul','')}", f"PY  - {r.get('Tahun','')}"]
-        for a in [x.strip() for x in (r.get("Penulis") or "").split(";") if x.strip()]:
-            out.append(f"AU  - {a}")
-        if r.get("Jurnal"): out.append(f"JO  - {r['Jurnal']}")
-        if r.get("Volume"): out.append(f"VL  - {r['Volume']}")
-        if r.get("Nomor"): out.append(f"IS  - {r['Nomor']}")
-        if r.get("Halaman"): out.append(f"SP  - {r['Halaman']}")
-        if r.get("DOI"): out.append(f"DO  - {r['DOI']}")
-        if r.get("URL"): out.append(f"UR  - {r['URL']}")
+        out += ["TY  - JOUR",f"TI  - {r.get('Judul','')}",f"PY  - {r.get('Tahun','')}"]
+        for a in [x.strip() for x in (r.get("Penulis") or "").split(";") if x.strip()]: out.append(f"AU  - {a}")
+        for tag,key in [("JO","Jurnal"),("VL","Volume"),("IS","Nomor"),("SP","Halaman"),("DO","DOI"),("UR","URL")]:
+            if r.get(key): out.append(f"{tag}  - {r[key]}")
         out += ["ER  - ",""]
     return "\n".join(out)
-
 
 def ekspor_bibtex(refs):
     out=[]
     for i,r in enumerate(refs,1):
-        author=(r.get("Penulis") or "Unknown").replace(";"," and")
-        year=r.get("Tahun") or "n.d."
-        title=(r.get("Judul") or "").replace("{","").replace("}","")
-        journal=(r.get("Jurnal") or "").replace("{","").replace("}","")
-        doi=r.get("DOI") or ""
-        out.append("@article{ref"+str(i)+",\n"
-                   f"  author = {{{author}}},\n  title = {{{title}}},\n"
-                   f"  year = {{{year}}},\n  journal = {{{journal}}},\n"
-                   f"  doi = {{{doi}}}\n}}")
+        out.append("@article{ref"+str(i)+",\n"+f"  author = {{{(r.get('Penulis') or 'Unknown').replace(';',' and')}}},\n  title = {{{r.get('Judul','')}}},\n  year = {{{r.get('Tahun') or 'n.d.'}}},\n  journal = {{{r.get('Jurnal','')}}},\n  doi = {{{r.get('DOI','')}}}\n}}")
     return "\n\n".join(out)
 
-
 def deteksi_sitasi_author_year(teks):
-    pola=r"\(([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+(?:\\s+(?:&|dan)\\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+|\\s+et\\s+al\\.)?),\\s*((?:19|20)\\d{2})[a-z]?\)"
+    pola=r"\(([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+(?:\s+(?:&|dan)\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+|\s+et\s+al\.)?),\s*((?:19|20)\d{2})[a-z]?\)"
     return sorted(set((a.strip(),y) for a,y in re.findall(pola,teks)))
 
-
-def status_sitasi(teks, refs):
-    cites=deteksi_sitasi_author_year(teks)
+def status_sitasi(teks,refs):
     rows=[]
-    for author,year in cites:
-        surname=author.split()[0].lower()
-        cocok=[]
-        for r in refs:
-            if str(r.get("Tahun",""))==year and surname in (r.get("Penulis") or "").lower():
-                cocok.append(r)
-        rows.append({
-            "Sitasi":f"({author}, {year})",
-            "Status":"✅ Ada di Library" if cocok else "⚠️ Belum cocok dengan Library",
-            "Referensi":cocok[0].get("Judul","") if cocok else ""
-        })
+    for author,year in deteksi_sitasi_author_year(teks):
+        surname=author.split()[0].lower(); cocok=[r for r in refs if str(r.get("Tahun",""))==year and surname in (r.get("Penulis") or "").lower()]
+        rows.append({"Sitasi":f"({author}, {year})","Status":"✅ Ada di Library" if cocok else "⚠️ Belum cocok dengan Library","Referensi":cocok[0].get("Judul","") if cocok else ""})
     return rows
 
-
 def unggah_referensi_ke_bank(files):
-    jumlah=0
+    jumlah=0; laporan=[]
     for f in files or []:
-        nama=f.name
-        teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""
-        ref={
-            "Judul":nama.rsplit(".",1)[0],
-            "Penulis":"",
-            "Tahun":"",
-            "Jurnal":"",
-            "Volume":"",
-            "Nomor":"",
-            "Halaman":"",
-            "DOI":"",
-            "URL":"",
-            "Sumber":"Unggahan pengguna",
-            "Status":"🔍 Perlu verifikasi metadata",
-            "Cuplikan":teks[:3000] if teks else ""
-        }
-        if tambah_bank_referensi(ref): jumlah+=1
-    return jumlah
+        nama=f.name; teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""; ref=None; doi=ekstrak_doi(teks)
+        if doi: ref=cari_crossref_doi(doi)
+        if ref: ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
+        else:
+            meta=ekstrak_metadata_gemini(teks,nama)
+            if meta:
+                doi2=ekstrak_doi(meta.get("DOI","")); ref=cari_crossref_doi(doi2) if doi2 else None
+                if not ref:
+                    cand,score=verifikasi_judul_crossref(meta.get("Judul","")); ref=cand if cand and score>=0.82 else None
+                if ref: ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
+                else: ref=dict(meta); ref.update({"Sumber":"Unggahan pengguna + ekstraksi AI","Status":"🔍 Metadata belum terverifikasi — cek manual"})
+            else: ref={"Judul":nama.rsplit(".",1)[0],"Penulis":"","Tahun":"","Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"","URL":"","Sumber":"Unggahan pengguna","Status":"🔍 Metadata belum terbaca — cek manual"}
+        ref["Nama File"]=nama; ref["Cuplikan"]=(teks[:5000] if teks and not teks.startswith("ERROR:") else ""); added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
+        laporan.append({"File":nama,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
+    return jumlah,laporan
+
+def sumber_online_default():
+    """
+    Registry portal resmi. {q} diganti kata kunci.
+    API langsung hanya dipakai bila layanan memang menyediakan akses mesin.
+    Portal login/berlisensi dibuka resmi tanpa melewati autentikasi.
+    """
+    return [
+        # INDONESIA - NASIONAL
+        ("🇮🇩 Nasional","Indonesia OneSearch","https://onesearch.id/Search/Results?lookfor={q}&type=AllFields","Agregator katalog dan repository perpustakaan Indonesia"),
+        ("🇮🇩 Nasional","OPAC Perpusnas RI","https://opac.perpusnas.go.id/Search/Results?lookfor={q}&type=AllFields","Katalog Perpustakaan Nasional RI"),
+        ("🇮🇩 Nasional","e-Resources Perpusnas","https://e-resources.perpusnas.go.id/","Jurnal, ebook, dan basis data berlangganan; login anggota"),
+        ("🇮🇩 Nasional","iPusnas","https://ipusnas.id/","Perpustakaan digital Perpusnas"),
+        ("🇮🇩 Nasional","GARUDA","https://garuda.kemdiktisaintek.go.id/documents?q={q}","Publikasi ilmiah Indonesia"),
+        ("🇮🇩 Nasional","Neliti","https://www.neliti.com/search?q={q}","Repository publikasi dan kebijakan Indonesia"),
+        # DAERAH / PROVINSI - titik awal + agregator nasional
+        ("🏢 Daerah/Provinsi","Perpustakaan Provinsi Kalimantan Selatan","https://inlislite.dispersip.my.id/opac/search?q={q}","OPAC daerah; akses mengikuti layanan resmi"),
+        ("🏫 Daerah/Provinsi","Perpustakaan Kabupaten Banjar","https://perpustakaan.banjarkab.go.id/opac/index.php?keywords={q}&search=search","OPAC Kabupaten Banjar"),
+        ("🏢 Daerah/Provinsi","Direktori melalui Indonesia OneSearch","https://onesearch.id/Search/Results?lookfor={q}&type=AllFields","Menjangkau banyak perpustakaan provinsi, kabupaten/kota, kampus, dan repository Indonesia"),
+        # INTERNASIONAL - API/OPEN DISCOVERY
+        ("🌍 Internasional","Crossref","https://search.crossref.org/?q={q}","Metadata DOI; terhubung langsung ke pencarian aplikasi"),
+        ("🌍 Internasional","OpenAlex","https://openalex.org/works?page=1&filter=default.search:{q}","Indeks karya ilmiah terbuka; terhubung langsung"),
+        ("🌍 Internasional","Semantic Scholar","https://www.semanticscholar.org/search?q={q}","Artikel, penulis, sitasi; terhubung langsung"),
+        ("🌍 Internasional","Google Scholar","https://scholar.google.com/scholar?q={q}","Pencarian akademik; dibuka resmi, tidak di-scrape"),
+        ("🌍 Internasional","DOAJ","https://doaj.org/search/articles?ref=homepage-box&q={q}","Jurnal dan artikel open access"),
+        ("🌍 Internasional","CORE","https://core.ac.uk/search?q={q}","Agregator karya ilmiah open access"),
+        ("🌍 Internasional","BASE","https://www.base-search.net/Search/Results?lookfor={q}&type=all&oaboost=1","Mesin pencari repository akademik global"),
+        ("🌍 Internasional","OpenAIRE Explore","https://explore.openaire.eu/search/find?keyword={q}","Publikasi dan keluaran riset Eropa/global"),
+        ("🌍 Internasional","WorldCat","https://search.worldcat.org/search?q={q}","Katalog kolektif perpustakaan dunia"),
+        ("🌍 Internasional","Library of Congress","https://www.loc.gov/search/?q={q}","Koleksi digital; terhubung ke JSON API resmi"),
+        ("🌍 Internasional","Europe PMC","https://europepmc.org/search?query={q}","Literatur biomedis dan life sciences"),
+        ("🌍 Internasional","PubMed","https://pubmed.ncbi.nlm.nih.gov/?term={q}","Literatur biomedis"),
+        ("🌍 Internasional","ERIC","https://eric.ed.gov/?q={q}","Literatur pendidikan"),
+        ("🌍 Internasional","arXiv","https://arxiv.org/search/?query={q}&searchtype=all","Preprint ilmiah"),
+        ("🌍 Internasional","Google Books","https://books.google.com/books?q={q}","Pencarian buku dan metadata"),
+        ("🌍 Internasional","Internet Archive","https://archive.org/search?query={q}","Koleksi digital buku dan arsip"),
+    ]
 
 
 def panel_ai_penulisan(konteks, jenis_output, instruksi, referensi=None, key="ai"):
     refs=referensi or []
-    daftar="\n".join(f"- {format_apa(r)}" for r in refs[:40]) or "Belum ada referensi terverifikasi di Library."
+    gaya=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
+    daftar="\n".join(f"[{i}] {format_referensi(r,gaya)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}" for i,r in enumerate(refs[:60],1)) or "Belum ada referensi terverifikasi di Library."
     prompt=f"""Anda adalah Asisten Akademik AI S1-S3.
 Tugas: {jenis_output}
 Instruksi pengguna: {instruksi}
 Konteks/bahan:
 {konteks[:60000]}
 
-REFERENSI YANG BOLEH DIKUTIP:
+GAYA SITASI: {gaya}
+REFERENSI YANG BOLEH DIPAKAI:
 {daftar}
 
-ATURAN:
-- Jangan membuat referensi, DOI, data penelitian, hasil uji, kutipan, atau fakta yang tidak tersedia.
-- Jika referensi dibutuhkan, gunakan hanya referensi pada daftar di atas dan buat sitasi penulis-tahun yang dapat ditelusuri.
-- Jika bukti/referensi belum cukup, tandai [PERLU REFERENSI TERVERIFIKASI].
-- Bedakan fakta, interpretasi, dan saran.
-- Untuk BAB hasil penelitian, jangan menciptakan data. Jika data belum ada, buat struktur/format analisis saja.
-- Pertahankan integritas akademik; jangan membantu menyamarkan plagiarisme.
-- Gunakan bahasa akademik yang jelas dan dapat diedit.
+ATURAN WAJIB:
+- Jangan membuat referensi, DOI, data penelitian, hasil uji, nomor halaman sumber, kutipan, atau fakta yang tidak tersedia.
+- Prioritaskan referensi berstatus terverifikasi.
+- Jika Chicago Notes & Bibliography: beri penanda footnote [^1], [^2], dst. pada klaim; setelah naskah buat CATATAN KAKI bernomor sama dan DAFTAR PUSTAKA. Jangan mengarang halaman spesifik; tulis [halaman perlu verifikasi] jika belum diketahui.
+- Daftar pustaka hanya memuat sumber yang benar-benar dipakai dan tanpa duplikasi.
+- Jika referensi belum cukup, tandai [PERLU REFERENSI TERVERIFIKASI].
+- Untuk BAB hasil penelitian, jangan menciptakan data. Jika data belum ada, buat struktur analisis saja.
+- Pertahankan integritas akademik.
 """
-    with st.spinner("Gemini sedang menyusun..."):
+    with st.spinner("Gemini sedang menyusun naskah dan menghubungkan referensi..."):
         h=panggil_gemini(prompt)
     if h["sukses"]:
         st.session_state.hasil_penulisan_ai=h["hasil"]
-        st.success("✅ Draf AI selesai.")
-    else:
-        st.error(h["error"])
+        st.success("✅ Draf AI selesai dengan aturan referensi.")
+    else: st.error(h["error"])
     return h
 
 # ============================================================
@@ -1696,88 +1799,93 @@ elif menu == "🔬 Analisis Karya Akademik":
 # ============================================================
 elif menu == "🔎 Literatur & Referensi":
     st.header("🔎 Literatur, Sitasi & Library Referensi")
-    mode_ref=st.radio(
-        "Mode Referensi",
-        ["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],
-        horizontal=True
-    )
-    st.caption("Default: Otomatis Terverifikasi. Referensi yang belum terverifikasi tidak diperlakukan sebagai sumber valid.")
-
-    tab_cari, tab_upload, tab_bank, tab_audit = st.tabs(
-        ["🔎 Cari Referensi","📤 Unggah Referensi","📚 Library","✅ Audit Sitasi"]
-    )
+    c1,c2=st.columns([2,1])
+    with c1: mode_ref=st.radio("Mode Referensi",["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],horizontal=True)
+    with c2:
+        gaya_list=["Chicago Notes & Bibliography","APA 7","Harvard","IEEE","MLA"]
+        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(st.session_state.gaya_sitasi))
+    st.caption("Chicago Notes & Bibliography menjadi default. Artikel jurnal tetap mengikuti gaya rumah jurnal/template yang diunggah.")
+    tab_cari,tab_online,tab_upload,tab_bank,tab_pakai,tab_audit=st.tabs(["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","✅ Audit Sitasi"])
 
     with tab_cari:
-        q=st.text_input("Topik / kata kunci", key="q_ref")
-        col1,col2=st.columns(2)
-        with col1:
-            if st.button("🔎 Cari Metadata Terverifikasi", type="primary"):
-                with st.spinner("Mencari metadata ilmiah..."):
-                    st.session_state.hasil_cari_ref=cari_crossref(q,15)
-        with col2:
-            if q:
-                scholar="https://scholar.google.com/scholar?q="+urllib.parse.quote(q)
-                st.link_button("🎓 Buka pencarian Google Scholar", scholar, use_container_width=True)
-
+        q=st.text_input("Topik / judul / kata kunci",key="q_ref")
+        if st.button("🔎 Cari 4 Sumber Terintegrasi",type="primary",disabled=not bool(q.strip())):
+            with st.spinner("Mencari Crossref, OpenAlex, Semantic Scholar, dan Library of Congress..."): st.session_state.hasil_cari_ref=cari_multi_sumber(q,12)
         hasil=st.session_state.get("hasil_cari_ref",[])
         if hasil:
+            st.success(f"Ditemukan {len(hasil)} kandidat unik dari sumber terintegrasi.")
+            st.caption("Status metadata menunjukkan asal verifikasi/identifikasi. Referensi tanpa DOI tetap harus diperiksa sebelum dipakai sebagai sumber final.")
             for i,r in enumerate(hasil):
-                with st.expander(f"{i+1}. {r['Judul']} ({r['Tahun']})"):
+                with st.expander(f"{i+1}. {r['Judul']} ({r['Tahun']}) — {r['Sumber']}"):
                     st.write(f"**Penulis:** {r['Penulis'] or '-'}")
-                    st.write(f"**Sumber:** {r['Jurnal'] or '-'}")
+                    st.write(f"**Jurnal:** {r['Jurnal'] or '-'}")
                     st.write(f"**DOI:** {r['DOI'] or 'Belum tersedia'}")
                     st.write(r["Status"])
-                    if st.button("➕ Simpan ke Library", key=f"addref_{i}"):
-                        st.success("Disimpan." if tambah_bank_referensi(r) else "Sudah ada di Library.")
+                    if st.button("➕ Simpan ke Library",key=f"addref_new_{i}"): st.success("Disimpan." if tambah_bank_referensi(r) else "Sudah ada di Library.")
+                    if r.get("DOI"): st.link_button("🔗 Buka DOI","https://doi.org/"+r["DOI"])
+
+    with tab_online:
+        st.subheader("🌐 Perpustakaan & Sumber Referensi Online")
+        oq=st.text_input("Kata kunci pencarian",key="q_online")
+        st.info("Pencarian langsung aplikasi: Crossref, OpenAlex, Semantic Scholar, dan Library of Congress. Sumber lain dibuka melalui portal resminya. Login, lisensi, dan hak akses perpustakaan tetap dihormati.")
+        kategori_pilih=st.multiselect("Wilayah sumber",["🇮🇩 Nasional","🏢 Daerah/Provinsi","🌍 Internasional"],
+                                     default=["🇮🇩 Nasional","🏢 Daerah/Provinsi","🌍 Internasional"],key="kategori_sumber_online")
+        sumber=[x for x in sumber_online_default() if x[0] in kategori_pilih]
+        for kategori,nama,url,ket in sumber:
+            target=url.replace("{q}",urllib.parse.quote_plus(oq.strip())) if "{q}" in url else url
+            a,b=st.columns([4,1]); a.write(f"{kategori} **{nama}** — {ket}"); b.link_button("Buka / Cari",target,use_container_width=True)
+        st.divider(); st.subheader("➕ Tambahkan Perpustakaan / Repository Sendiri")
+        nm=st.text_input("Nama sumber",key="src_name"); ur=st.text_input("Link katalog/repository",placeholder="https://...",key="src_url")
+        if st.button("💾 Simpan Sumber",disabled=not(nm.strip() and ur.strip())):
+            if ur.startswith(("http://","https://")):
+                item={"Nama":nm.strip(),"URL":ur.strip()}
+                if item not in st.session_state.sumber_online_user: st.session_state.sumber_online_user.append(item)
+                st.success("Sumber ditambahkan untuk sesi ini.")
+            else: st.error("Link harus diawali http:// atau https://")
+        for x in st.session_state.sumber_online_user:
+            a,b=st.columns([3,1]); a.write("**"+x["Nama"]+"**"); b.link_button("Buka",x["URL"],use_container_width=True)
 
     with tab_upload:
-        uprefs=st.file_uploader(
-            "Unggah PDF/DOCX/TXT referensi tambahan",
-            type=["pdf","docx","txt"], accept_multiple_files=True, key="upload_refs"
-        )
-        prioritas=st.checkbox("Utamakan referensi yang saya unggah", value=True)
-        if st.button("📥 Masukkan ke Library", disabled=not bool(uprefs)):
-            n=unggah_referensi_ke_bank(uprefs)
-            st.success(f"{n} referensi baru masuk Library. Metadata unggahan tetap ditandai untuk verifikasi.")
+        uprefs=st.file_uploader("Unggah satu atau banyak PDF/DOCX/TXT referensi",type=["pdf","docx","txt"],accept_multiple_files=True,key="upload_refs")
+        st.checkbox("Utamakan referensi yang saya unggah",value=True,key="prioritas_upload")
+        st.caption("Otomatis: baca dokumen → cari DOI → verifikasi Crossref. Jika DOI tidak terbaca, Gemini mengekstrak metadata lalu judul diverifikasi kembali.")
+        if st.button("📥 Baca, Verifikasi & Masukkan ke Library",type="primary",disabled=not bool(uprefs)):
+            with st.spinner("Membaca dan memverifikasi metadata..."): n,lap=unggah_referensi_ke_bank(uprefs)
+            st.session_state.laporan_upload_ref=lap; st.success(f"{n} referensi baru masuk Library.")
+        if st.session_state.get("laporan_upload_ref"): st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
 
     with tab_bank:
         refs=st.session_state.bank_referensi
         if refs:
-            df=pd.DataFrame(refs)
-            kolom=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
-            st.dataframe(df[kolom], use_container_width=True, hide_index=True)
-            st.download_button("📥 RIS — Zotero/Mendeley", ekspor_ris(refs).encode("utf-8"),
-                               "library_referensi.ris","application/x-research-info-systems")
-            st.download_button("📥 BibTeX — Zotero/Mendeley", ekspor_bibtex(refs).encode("utf-8"),
-                               "library_referensi.bib","application/x-bibtex")
-            st.download_button("📥 Daftar Pustaka APA 7", "\n".join(format_apa(r) for r in refs).encode("utf-8"),
-                               "daftar_pustaka_APA7.txt","text/plain")
-        else:
-            st.info("Library Referensi masih kosong.")
+            df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
+            st.dataframe(df[kol],use_container_width=True,hide_index=True)
+            st.download_button("📥 RIS — Zotero/Mendeley",ekspor_ris(refs).encode("utf-8"),"library_referensi.ris","application/x-research-info-systems")
+            st.download_button("📥 BibTeX — Zotero/Mendeley",ekspor_bibtex(refs).encode("utf-8"),"library_referensi.bib","application/x-bibtex")
+            st.download_button("📥 Daftar Pustaka — "+st.session_state.gaya_sitasi,"\n\n".join(format_referensi(r) for r in refs).encode("utf-8"),"daftar_pustaka.txt","text/plain")
+        else: st.info("Library Referensi masih kosong.")
+
+    with tab_pakai:
+        st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
+        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=300,key="naskah_ref")
+        refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
+        pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
+        dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
+        arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
+        if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
+        if st.session_state.get("hasil_penulisan_ai"):
+            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
 
     with tab_audit:
-        naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT", type=["pdf","docx","txt"], key="audit_ref_file")
+        naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
         if naskah:
-            teks=ekstrak_teks(naskah)
-            rows=status_sitasi(teks, st.session_state.bank_referensi)
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            else:
-                st.info("Pola sitasi penulis-tahun belum terdeteksi otomatis.")
+            teks=ekstrak_teks(naskah); rows=status_sitasi(teks,st.session_state.bank_referensi)
+            if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+            else: st.info("Untuk Chicago footnote, gunakan Audit Semantik.")
             if st.button("🤖 Audit Semantik Sitasi dengan Gemini"):
-                refs="\n".join(format_apa(r) for r in st.session_state.bank_referensi)
-                h=panggil_gemini(f"""Audit sitasi naskah berikut. Cocokkan sitasi dengan daftar referensi yang tersedia.
-Jangan menyatakan sebuah sumber mendukung klaim jika isi sumber tidak tersedia. Bedakan:
-✅ metadata/citation match; ⚠️ perlu cek isi sumber; ❌ tidak ditemukan.
-Jangan membuat DOI/referensi.
-NASKAH:
-{teks[:60000]}
-LIBRARY:
-{refs}
-""")
+                refs="\n".join(format_referensi(r) for r in st.session_state.bank_referensi)
+                h=panggil_gemini("Audit sitasi/footnote. Jangan menyatakan sumber mendukung klaim bila isi sumber tidak tersedia. Jangan membuat DOI/referensi.\nNASKAH:\n"+teks[:60000]+"\nLIBRARY:\n"+refs)
                 if h["sukses"]: st.text_area("Hasil Audit",h["hasil"],height=500)
                 else: st.error(h["error"])
-
 
 # ============================================================
 # PENELITIAN S1-S3 TERPADU
