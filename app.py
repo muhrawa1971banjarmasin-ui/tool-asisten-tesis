@@ -962,24 +962,62 @@ elif menu == "🔬   # PERSIAPAN AI":
                     disabled=True,
                     key="hasil_ai_kosong"
                 )
-            # =================================================
-            # SIMPAN DAN EKSPOR
+                        # =================================================
+            # SIMPAN DAN EKSPOR HASIL AI
             # =================================================
             st.markdown("### 💾 Simpan & Ekspor")
 
+            hasil_final = st.session_state.get(
+                "hasil_ai_9router",
+                ""
+            )
+
+            if not hasil_final:
+                st.info(
+                    "Jalankan Analisis dengan AI terlebih dahulu. "
+                    "Setelah hasil tersedia, tombol simpan dan ekspor "
+                    "akan aktif."
+                )
+
+            # =================================================
+            # SIMPAN HASIL KE PROYEK
+            # =================================================
             col_simpan, col_word = st.columns(2)
 
             with col_simpan:
 
-                st.button(
+                if st.button(
                     "💾 Simpan Hasil ke Proyek",
-                    disabled=True,
+                    disabled=not bool(hasil_final),
+                    use_container_width=True,
                     key="simpan_hasil_proyek"
-                )
+                ):
+                    if "hasil_proyek" not in st.session_state:
+                        st.session_state.hasil_proyek = []
 
-            # -----------------------------------------------
-            # EKSPOR WORD - SUDAH BERFUNGSI
-            # -----------------------------------------------
+                    data_hasil = {
+                        "Proyek": st.session_state.proyek_aktif,
+                        "Jenis": jenis,
+                        "Mode": mode,
+                        "Fokus": fokus_analisis,
+                        "Hasil": hasil_final,
+                        "Tanggal": datetime.now().strftime(
+                            "%d-%m-%Y %H:%M"
+                        )
+                    }
+
+                    st.session_state.hasil_proyek.append(
+                        data_hasil
+                    )
+
+                    st.success(
+                        "✅ Hasil analisis berhasil disimpan "
+                        "ke proyek aktif."
+                    )
+
+            # =================================================
+            # EKSPOR WORD
+            # =================================================
             with col_word:
 
                 try:
@@ -991,6 +1029,10 @@ elif menu == "🔬   # PERSIAPAN AI":
                     dokumen_word.add_heading(
                         "Analisis Karya Akademik",
                         level=1
+                    )
+
+                    dokumen_word.add_paragraph(
+                        f"Proyek: {st.session_state.proyek_aktif}"
                     )
 
                     dokumen_word.add_paragraph(
@@ -1007,15 +1049,12 @@ elif menu == "🔬   # PERSIAPAN AI":
                     )
 
                     for item in hasil_dokumen:
-
                         dokumen_word.add_paragraph(
                             f"Nama file: {item['nama']}"
                         )
-
                         dokumen_word.add_paragraph(
                             f"Jumlah kata: {item['kata']}"
                         )
-
                         dokumen_word.add_paragraph(
                             f"Ukuran: {item['ukuran']}"
                         )
@@ -1032,30 +1071,17 @@ elif menu == "🔬   # PERSIAPAN AI":
                         )
 
                     dokumen_word.add_heading(
-                        "Kerangka Analisis",
-                        level=2
-                    )
-
-                    for bagian in kerangka:
-                        dokumen_word.add_paragraph(
-                            bagian,
-                            style="List Number"
-                        )
-
-                    dokumen_word.add_heading(
                         "Hasil Analisis AI",
                         level=2
                     )
 
                     dokumen_word.add_paragraph(
-                        "Hasil analisis AI akan dimasukkan setelah "
-                        "integrasi 9Router diaktifkan."
+                        hasil_final if hasil_final
+                        else "Belum ada hasil analisis AI."
                     )
 
                     buffer_word = BytesIO()
-
                     dokumen_word.save(buffer_word)
-
                     buffer_word.seek(0)
 
                     st.download_button(
@@ -1066,14 +1092,190 @@ elif menu == "🔬   # PERSIAPAN AI":
                             "application/vnd.openxmlformats-"
                             "officedocument.wordprocessingml.document"
                         ),
+                        disabled=not bool(hasil_final),
+                        use_container_width=True,
                         key="download_analisis_word"
                     )
 
                 except Exception as e:
-
                     st.warning(
                         f"Ekspor Word belum dapat dibuat: {e}"
                     )
+
+            # =================================================
+            # EKSPOR PDF
+            # =================================================
+            col_pdf, col_csv = st.columns(2)
+
+            with col_pdf:
+
+                try:
+                    from io import BytesIO
+                    from reportlab.lib.pagesizes import A4
+                    from reportlab.lib.styles import getSampleStyleSheet
+                    from reportlab.platypus import (
+                        SimpleDocTemplate,
+                        Paragraph,
+                        Spacer
+                    )
+
+                    buffer_pdf = BytesIO()
+
+                    pdf = SimpleDocTemplate(
+                        buffer_pdf,
+                        pagesize=A4,
+                        rightMargin=50,
+                        leftMargin=50,
+                        topMargin=50,
+                        bottomMargin=50
+                    )
+
+                    styles = getSampleStyleSheet()
+                    isi_pdf = []
+
+                    isi_pdf.append(
+                        Paragraph(
+                            "Analisis Karya Akademik",
+                            styles["Title"]
+                        )
+                    )
+
+                    isi_pdf.append(Spacer(1, 12))
+
+                    isi_pdf.append(
+                        Paragraph(
+                            f"Jenis karya: {jenis}",
+                            styles["Normal"]
+                        )
+                    )
+
+                    isi_pdf.append(
+                        Paragraph(
+                            f"Mode analisis: {mode}",
+                            styles["Normal"]
+                        )
+                    )
+
+                    isi_pdf.append(Spacer(1, 12))
+
+                    isi_pdf.append(
+                        Paragraph(
+                            "Hasil Analisis AI",
+                            styles["Heading2"]
+                        )
+                    )
+
+                    if hasil_final:
+                        for paragraf in hasil_final.split("\n"):
+                            if paragraf.strip():
+                                isi_pdf.append(
+                                    Paragraph(
+                                        paragraf.replace(
+                                            "&", "&amp;"
+                                        ).replace(
+                                            "<", "&lt;"
+                                        ).replace(
+                                            ">", "&gt;"
+                                        ),
+                                        styles["Normal"]
+                                    )
+                                )
+                                isi_pdf.append(
+                                    Spacer(1, 6)
+                                )
+
+                    pdf.build(isi_pdf)
+                    buffer_pdf.seek(0)
+
+                    st.download_button(
+                        "📕 Ekspor PDF",
+                        data=buffer_pdf.getvalue(),
+                        file_name="analisis_karya_akademik.pdf",
+                        mime="application/pdf",
+                        disabled=not bool(hasil_final),
+                        use_container_width=True,
+                        key="download_analisis_pdf"
+                    )
+
+                except Exception:
+                    st.info(
+                        "Ekspor PDF memerlukan reportlab. "
+                        "Jika tombol PDF belum tersedia, "
+                        "kita aktifkan dependensinya."
+                    )
+
+            # =================================================
+            # EKSPOR CSV
+            # =================================================
+            with col_csv:
+
+                data_ekspor = []
+
+                for item in hasil_dokumen:
+                    data_ekspor.append(
+                        {
+                            "Nama File": item["nama"],
+                            "Jenis Karya": jenis,
+                            "Jumlah Kata": item["kata"],
+                            "Ukuran": item["ukuran"],
+                            "Fokus Analisis": "; ".join(
+                                fokus_analisis
+                            ),
+                            "Hasil Analisis AI": hasil_final
+                        }
+                    )
+
+                df_ekspor = pd.DataFrame(data_ekspor)
+
+                st.download_button(
+                    "📊 Ekspor CSV",
+                    data=df_ekspor.to_csv(
+                        index=False
+                    ).encode("utf-8-sig"),
+                    file_name="hasil_analisis_akademik.csv",
+                    mime="text/csv",
+                    disabled=not bool(hasil_final),
+                    use_container_width=True,
+                    key="download_analisis_csv"
+                )
+
+            # =================================================
+            # EKSPOR EXCEL
+            # =================================================
+            try:
+                from io import BytesIO
+
+                buffer_excel = BytesIO()
+
+                with pd.ExcelWriter(
+                    buffer_excel,
+                    engine="openpyxl"
+                ) as writer:
+                    df_ekspor.to_excel(
+                        writer,
+                        sheet_name="Hasil Analisis",
+                        index=False
+                    )
+
+                buffer_excel.seek(0)
+
+                st.download_button(
+                    "📗 Ekspor Excel",
+                    data=buffer_excel.getvalue(),
+                    file_name="hasil_analisis_akademik.xlsx",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    disabled=not bool(hasil_final),
+                    use_container_width=True,
+                    key="download_analisis_excel"
+                )
+
+            except Exception as e:
+                st.info(
+                    f"Ekspor Excel belum tersedia: {e}"
+                )
 
             # =================================================
             # ANALISIS BANYAK DOKUMEN
@@ -1081,18 +1283,11 @@ elif menu == "🔬   # PERSIAPAN AI":
             if banyak:
 
                 st.divider()
-
                 st.header("📚 Matriks Literatur")
-
-                st.caption(
-                    "Setelah AI diaktifkan, setiap dokumen akan "
-                    "dianalisis dan dimasukkan otomatis ke matriks."
-                )
 
                 data_matriks = []
 
                 for item in hasil_dokumen:
-
                     data_matriks.append(
                         {
                             "Nama File": item["nama"],
@@ -1114,7 +1309,9 @@ elif menu == "🔬   # PERSIAPAN AI":
                         }
                     )
 
-                df_matriks = pd.DataFrame(data_matriks)
+                df_matriks = pd.DataFrame(
+                    data_matriks
+                )
 
                 st.dataframe(
                     df_matriks,
@@ -1130,11 +1327,6 @@ elif menu == "🔬   # PERSIAPAN AI":
                     file_name="matriks_literatur.csv",
                     mime="text/csv",
                     key="download_matriks_csv"
-                )
-
-                st.info(
-                    "Ekspor Excel (.xlsx), PDF, RIS dan BibTeX "
-                    "akan ditambahkan pada tahap ekspor lanjutan."
                 )
 # ============================================================
 # TESIS S2
