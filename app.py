@@ -184,23 +184,43 @@ def simpan_karya(nama, jenis, ukuran):
 
 
 # ============================================================
-# KONEKSI AI GEMINI LANGSUNG
+# KONEKSI AI MELALUI 9ROUTER
 # ============================================================
 
 def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
+    """Nama fungsi dipertahankan agar bagian aplikasi lain tidak perlu diubah."""
     try:
-        api_key = st.secrets["GEMINI_API_KEY"]
+        api_key = st.secrets["NINEROUTER_API_KEY"]
     except Exception:
         return {
             "sukses": False,
             "hasil": "",
             "error": (
-                "GEMINI_API_KEY belum ditemukan di Streamlit Secrets. "
-                "Tambahkan API key Gemini terlebih dahulu."
+                "NINEROUTER_API_KEY belum ditemukan di Streamlit Secrets. "
+                "Masukkan API key 9Router (sk-...) tanpa menaruhnya di app.py."
             )
         }
 
-    model_id ="gemini-3.8-flash"
+    try:
+        base_url = st.secrets.get("NINEROUTER_BASE_URL", "").strip().rstrip("/")
+    except Exception:
+        base_url = ""
+
+    if not base_url:
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                "NINEROUTER_BASE_URL belum ditemukan di Streamlit Secrets. "
+                "Isi dengan alamat tunnel 9Router yang berakhiran /v1."
+            )
+        }
+
+    try:
+        model_id = st.secrets.get("NINEROUTER_MODEL", "auto").strip() or "auto"
+    except Exception:
+        model_id = "auto"
+
     teks_dokumen = teks[:60000]
     fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
 
@@ -247,37 +267,54 @@ DOKUMEN:
 """
 
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2}
+        "model": model_id,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
     }
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model_id
-        + ":generateContent?key="
-        + api_key
-    )
+    url = base_url + "/chat/completions"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + api_key
+        },
         method="POST"
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
+        with urllib.request.urlopen(request, timeout=90) as response:
             data = json.loads(response.read().decode("utf-8"))
 
-        kandidat = data.get("candidates", [])
-        if not kandidat:
-            return {"sukses": False, "hasil": "", "error": "Gemini merespons, tetapi tidak memberikan hasil analisis."}
+        choices = data.get("choices", [])
+        if not choices:
+            return {
+                "sukses": False,
+                "hasil": "",
+                "error": "9Router merespons, tetapi tidak memberikan hasil analisis."
+            }
 
-        parts = kandidat[0].get("content", {}).get("parts", [])
-        isi = "\n".join(part.get("text", "") for part in parts if part.get("text")).strip()
+        isi = choices[0].get("message", {}).get("content", "")
+        if isinstance(isi, list):
+            bagian_teks = []
+            for item in isi:
+                if isinstance(item, dict) and item.get("text"):
+                    bagian_teks.append(item.get("text", ""))
+            isi = "\n".join(bagian_teks)
+
+        isi = str(isi or "").strip()
         if not isi:
-            return {"sukses": False, "hasil": "", "error": "Gemini merespons, tetapi hasil analisis kosong."}
+            return {
+                "sukses": False,
+                "hasil": "",
+                "error": "9Router merespons, tetapi hasil analisis kosong."
+            }
 
-        return {"sukses": True, "hasil": isi, "error": "", "model": model_id}
+        model_terpakai = data.get("model", model_id)
+        return {"sukses": True, "hasil": isi, "error": "", "model": model_terpakai}
 
     except urllib.error.HTTPError as e:
         try:
@@ -285,13 +322,22 @@ DOKUMEN:
         except Exception:
             detail = ""
         return {
-            "sukses": False, "hasil": "",
-            "error": f"Gemini belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
+            "sukses": False,
+            "hasil": "",
+            "error": f"9Router belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
         }
     except urllib.error.URLError as e:
-        return {"sukses": False, "hasil": "", "error": f"Tidak dapat terhubung ke Gemini: {e.reason}"}
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": f"Tidak dapat terhubung ke 9Router: {e.reason}"
+        }
     except Exception as e:
-        return {"sukses": False, "hasil": "", "error": f"Terjadi kesalahan saat menjalankan Gemini: {str(e)}"}
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": f"Terjadi kesalahan saat menjalankan 9Router: {str(e)}"
+        }
 
 
 # ============================================================
@@ -639,7 +685,7 @@ elif menu == "🔬 Analisis Karya Akademik":
         st.markdown("### 🔜 Mesin AI")
 
         st.caption(
-            "Analisis semantik penuh menggunakan Gemini langsung. "
+            "Analisis semantik penuh menggunakan AI melalui 9Router. "
             "Struktur aplikasi dan alur analisis disiapkan terlebih dahulu."
         )
 
@@ -763,7 +809,7 @@ elif menu == "🔬 Analisis Karya Akademik":
 
             st.caption(
                 "Kerangka analisis menyesuaikan jenis karya. "
-                "Mesin AI Gemini akan dihubungkan pada tahap integrasi AI."
+                "Mesin AI dihubungkan melalui 9Router agar routing model dan biaya dapat dikendalikan."
             )
 
             # ------------------------------------------------
@@ -947,12 +993,12 @@ elif menu == "🔬 Analisis Karya Akademik":
                 st.write(f"{no}. {item}")
 
                        # =================================================
-            # MESIN ANALISIS AI GEMINI
+            # MESIN ANALISIS AI 9ROUTER
             # =================================================
             st.markdown("### 🤖 Mesin Analisis AI")
 
             st.info(
-                "Dokumen sudah berhasil dibaca. AI Gemini siap "
+                "Dokumen sudah berhasil dibaca. AI melalui 9Router siap "
                 "menganalisis isi dokumen berdasarkan fokus yang dipilih."
             )
 
@@ -974,7 +1020,7 @@ elif menu == "🔬 Analisis Karya Akademik":
                     teks_ai = dokumen_ai["teks"]
 
                     with st.spinner(
-                        "Gemini sedang membaca dan menganalisis dokumen..."
+                        "AI melalui 9Router sedang membaca dan menganalisis dokumen..."
                     ):
                         hasil_ai = analisis_dengan_gemini(
                             teks_ai,
