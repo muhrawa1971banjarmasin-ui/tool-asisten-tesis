@@ -719,6 +719,56 @@ def cocokkan_footnote_ke_library(teks, refs):
             return i,0.70,"Penulis + tahun cocok"
     return None,0.0,"Belum cocok"
 
+def impor_footnote_terverifikasi_ke_library(footnotes):
+    """Baca semua true footnote, cocokkan Library, dan tambahkan HANYA metadata yang terverifikasi.
+    Dokumen Word tidak disentuh. Urutan konservatif: Library -> DOI Crossref -> metadata Gemini + judul Crossref.
+    Footnote pendek/berulang dicoba dicocokkan lagi setelah sumber lengkap sebelumnya masuk Library.
+    """
+    laporan=[]
+    tertunda=[]
+    jumlah_baru=0
+    for no, fn in enumerate(footnotes,1):
+        teks=(fn.get("teks") or "").strip()
+        idx,score,alasan=cocokkan_footnote_ke_library(teks,st.session_state.bank_referensi)
+        if idx is not None:
+            r=st.session_state.bank_referensi[idx]
+            laporan.append({"No":no,"Footnote":teks,"Judul":r.get("Judul",""),"Status":"✅ Sudah ada di Library","Validasi":alasan})
+            continue
+        doi=ekstrak_doi(teks)
+        ref=None
+        validasi=""
+        if doi:
+            ref=cari_crossref_doi(doi)
+            if ref:
+                ref["Status"]="✅ Metadata terverifikasi Crossref"
+                ref["Sumber"]="Footnote Word + Crossref DOI"
+                validasi="DOI terverifikasi Crossref"
+        if ref is None:
+            meta=ekstrak_metadata_gemini(teks,"Footnote Word")
+            if meta and meta.get("Judul"):
+                cand,sc=verifikasi_judul_crossref(meta.get("Judul",""))
+                if cand and sc>=0.82:
+                    ref=cand
+                    ref["Status"]=f"✅ Metadata terverifikasi Crossref (kemiripan judul {sc:.0%})"
+                    ref["Sumber"]="Footnote Word + ekstraksi metadata + Crossref"
+                    validasi=f"Judul terverifikasi Crossref {sc:.0%}"
+        if ref is not None:
+            baru=tambah_bank_referensi(ref)
+            if baru: jumlah_baru+=1
+            laporan.append({"No":no,"Footnote":teks,"Judul":ref.get("Judul",""),"Status":"✅ Masuk Library otomatis" if baru else "✅ Sudah ada di Library","Validasi":validasi})
+        else:
+            tertunda.append((no,teks))
+    # Pass kedua: shortened/repeated note mungkin baru dapat dikenali setelah full note masuk.
+    for no,teks in tertunda:
+        idx,score,alasan=cocokkan_footnote_ke_library(teks,st.session_state.bank_referensi)
+        if idx is not None:
+            r=st.session_state.bank_referensi[idx]
+            laporan.append({"No":no,"Footnote":teks,"Judul":r.get("Judul",""),"Status":"✅ Terhubung ke sumber Library","Validasi":alasan})
+        else:
+            laporan.append({"No":no,"Footnote":teks,"Judul":"","Status":"⚠️ Perlu Verifikasi — tidak dimasukkan otomatis","Validasi":"Belum ada kecocokan bibliografis yang cukup kuat"})
+    laporan.sort(key=lambda x:x["No"])
+    return jumlah_baru,laporan
+
 def _set_run_tnr10(run):
     rpr=run.find(_w("rPr"))
     if rpr is None:
@@ -818,19 +868,17 @@ def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli
                 _set_para_single(p)
                 for r in p.findall(_w("r")): _set_run_tnr10(r)
             laporan.append({"No":fid,"Footnote Asli":old,"Cocok Library":ref.get("Judul","") if ref else "","Kecocokan":f"{score:.0%}" if score else "-","Status":alasan,"Tindakan":aksi})
-        # Nomor/marker footnote di bawah halaman wajib superscript.
+        # Nomor/marker footnote di bawah halaman dibuat superscript.
+        # PENTING: document.xml TIDAK PERNAH diserialisasi ulang.
+        # Dengan demikian cover, tabel, paragraf, style, section, margin,
+        # page break, header/footer, numbering, gambar, dan layout naskah
+        # tetap byte-identik dengan file unggahan.
         _format_footnote_markers_superscript(root)
         xml=ET.tostring(root,encoding="utf-8",xml_declaration=True)
-        # Marker footnote di badan naskah juga dibuat superscript, tanpa mengubah kalimat.
-        doc_xml=None
-        if "word/document.xml" in zin.namelist():
-            doc_xml=_format_document_footnote_refs_superscript(zin.read("word/document.xml"))
         with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 if item.filename=="word/footnotes.xml":
                     payload=xml
-                elif item.filename=="word/document.xml" and doc_xml is not None:
-                    payload=doc_xml
                 else:
                     payload=zin.read(item.filename)
                 zout.writestr(item,payload)
@@ -2586,7 +2634,7 @@ elif menu == "🔎 Literatur & Referensi":
     with tab_pakai:
         st.subheader("✍️ Pakai di Naskah — Proteksi Naskah 100%")
         st.success("🔒 PROTEKSI NASKAH AKTIF: narasi, typo, judul, penomoran, abjad, indentasi, tabel, gambar, margin, header-footer, dan tata letak tidak boleh diubah oleh proses referensi.")
-        st.caption("File asli tidak pernah ditimpa. Perubahan hanya boleh terjadi pada area sitasi/footnote/daftar pustaka yang dipilih pengguna. Bila audit mendeteksi perubahan di luar area izin, file hasil ditolak.")
+        st.caption("File unggahan adalah MASTER dan tidak pernah dibangun ulang. Pada proses Word, word/document.xml dikunci 100%; hanya footnote yang secara eksplisit dipilih boleh berubah. Bila bagian lain berubah, hasil otomatis ditolak.")
 
         # ------------------------------------------------------------
         # SALIN SITASI / FOOTNOTE — fitur ringan, tidak menyentuh Word
@@ -2632,8 +2680,42 @@ elif menu == "🔎 Literatur & Referensi":
 
         if doc_naskah:
             raw=doc_naskah.getvalue()
+
+            st.success("🔒 FORMAT ASLI DIKUNCI: file unggahan menjadi master. Aplikasi tidak membangun ulang naskah.")
+            st.caption("Salinan murni di bawah ini byte-identik dengan file unggahan. Gunakan ini untuk menguji bahwa cover, tabel, font, spasi, margin, halaman, gambar, header/footer, dan seluruh tata letak tetap sama.")
+            nama_salinan_murni=nama_hasil_baru(doc_naskah.name,"SALINAN_ASLI_100")
+            st.download_button(
+                "📥 Unduh SALINAN ASLI 100% — tanpa perubahan",
+                data=raw,
+                file_name=nama_salinan_murni,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="download_salinan_asli_100"
+            )
+
             fns=baca_true_footnotes_docx(raw)
             markers_manual,notes_manual=deteksi_catatan_manual_docx(raw)
+
+            # OTOMATIS SAAT UPLOAD: salin isi true footnote -> verifikasi -> Library.
+            # Tidak ada byte dokumen Word yang diubah pada tahap ini.
+            if fns:
+                import hashlib
+                _sig=hashlib.sha256(raw).hexdigest()
+                _key_sig="auto_footnote_library_sig"
+                if st.session_state.get(_key_sig)!=_sig:
+                    with st.spinner("Membaca semua footnote, memverifikasi sumber, dan memasukkan sumber terverifikasi ke Library..."):
+                        _nbaru,_lapauto=impor_footnote_terverifikasi_ke_library(fns)
+                    st.session_state[_key_sig]=_sig
+                    st.session_state["laporan_auto_footnote_library"]=_lapauto
+                    st.session_state["jumlah_auto_footnote_library"]=_nbaru
+                _nbaru=st.session_state.get("jumlah_auto_footnote_library",0)
+                _lapauto=st.session_state.get("laporan_auto_footnote_library",[])
+                st.success(f"📚 Footnote dibaca otomatis. {_nbaru} sumber terverifikasi baru masuk Library; sumber yang belum cukup kuat tetap ditandai untuk verifikasi.")
+                with st.expander("📚 Hasil otomatis Footnote → Library",expanded=True):
+                    if _lapauto:
+                        st.dataframe(pd.DataFrame(_lapauto),use_container_width=True,hide_index=True)
+                    st.caption("Sumber yang masuk Library otomatis langsung tersedia untuk ekspor RIS/BibTeX/EndNote/CSV ke Zotero, Mendeley, EndNote, RefWorks, Paperpile, Citavi, dan JabRef. Dokumen Word belum diubah.")
+
             st.markdown("#### 👁️ Pratinjau Deteksi")
             c1,c2,c3=st.columns(3)
             c1.metric("True Word footnote",len(fns))
@@ -2670,8 +2752,10 @@ elif menu == "🔎 Literatur & Referensi":
                         mode_internal="Pertahankan format naskah asli"
                     hasil,lap,msg=rapikan_true_footnotes_docx(raw,st.session_state.bank_referensi,mode_internal)
                     if hasil:
-                        # Fungsi saat ini boleh menyentuh document.xml hanya untuk marker true-footnote superscript.
-                        aman,berubah=verifikasi_proteksi_docx(raw,hasil,izinkan_document_xml=True)
+                        # PROTEKSI FORMAT ASLI 100%:
+                        # hanya word/footnotes.xml yang boleh berubah.
+                        # word/document.xml wajib identik dengan file unggahan.
+                        aman,berubah=verifikasi_proteksi_docx(raw,hasil,izinkan_document_xml=False)
                         if aman:
                             st.session_state["docx_siap_ajukan"]=hasil
                             st.session_state["laporan_footnote_word"]=lap
