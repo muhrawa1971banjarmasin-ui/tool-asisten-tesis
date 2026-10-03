@@ -1235,6 +1235,54 @@ st.info(
 # ============================================================
 st.sidebar.title("🎓 ASISTEN AKADEMIK AI")
 
+# ============================================================
+# RESET TOTAL DATA KERJA
+# Membersihkan seluruh data sesi dan cache aplikasi.
+# Tidak menghapus file asli di komputer pengguna dan tidak mengubah kode aplikasi.
+# ============================================================
+if st.session_state.pop("_reset_total_selesai", False):
+    st.sidebar.success("✅ Semua data kerja sudah dikosongkan. Unggah dokumen baru dari awal.")
+
+if "konfirmasi_hapus_semua_data" not in st.session_state:
+    st.session_state.konfirmasi_hapus_semua_data = False
+
+if not st.session_state.konfirmasi_hapus_semua_data:
+    if st.sidebar.button("🗑️ HAPUS SEMUA DATA", key="btn_hapus_semua_data", use_container_width=True):
+        st.session_state.konfirmasi_hapus_semua_data = True
+        st.rerun()
+else:
+    st.sidebar.warning(
+        "Semua data kerja sesi akan dikosongkan: dokumen aktif, hasil analisis, "
+        "audit/validasi, Library Referensi, hasil AI, pilihan naskah, dan status unggahan. "
+        "File Word/PDF asli di komputer TIDAK dihapus."
+    )
+    _reset_yes, _reset_no = st.sidebar.columns(2)
+    with _reset_yes:
+        if st.button("✅ Ya, hapus", key="btn_hapus_semua_data_yes", type="primary", use_container_width=True):
+            # Bersihkan cache hasil komputasi/network agar dokumen lama tidak muncul lagi.
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            try:
+                st.cache_resource.clear()
+            except Exception:
+                pass
+
+            # Hapus SEMUA session state, termasuk state file_uploader lama.
+            for _key in list(st.session_state.keys()):
+                del st.session_state[_key]
+
+            # Flag satu kali untuk memberi konfirmasi setelah rerun.
+            st.session_state["_reset_total_selesai"] = True
+            st.rerun()
+    with _reset_no:
+        if st.button("↩️ Batal", key="btn_hapus_semua_data_no", use_container_width=True):
+            st.session_state.konfirmasi_hapus_semua_data = False
+            st.rerun()
+
+st.sidebar.divider()
+
 st.sidebar.text_input(
     "Proyek Aktif",
     key="proyek_aktif"
