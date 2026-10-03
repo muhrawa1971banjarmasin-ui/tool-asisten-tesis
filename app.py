@@ -750,6 +750,52 @@ def ekstrak_daftar_pustaka(teks):
     return out
 
 
+def ekstrak_daftar_pustaka_docx(file):
+    """
+    Parser utama untuk DOCX. Tidak memecah berdasarkan banyaknya tahun/DOI.
+    Prinsip: satu paragraf bibliografi Word = satu sumber.
+    Baris lanjutan DOI/URL/ISBN digabung ke sumber sebelumnya.
+    """
+    if docx is None:
+        return []
+    try:
+        file.seek(0)
+        d=docx.Document(file)
+        paras=[p.text.strip() for p in d.paragraphs]
+        start=None
+        for i,t in enumerate(paras):
+            if re.fullmatch(r"\s*(DAFTAR\s+PUSTAKA(?:\s+AWAL)?|REFERENCES|BIBLIOGRAPHY)\s*",t,re.I):
+                start=i+1
+        if start is None:
+            return []
+
+        out=[]
+        for t in paras[start:]:
+            t=_bersihkan_entri_daftar_pustaka(t)
+            if not t:
+                continue
+            if re.match(r"^(LAMPIRAN|APPENDIX|BAB\s+[IVXLCDM]+)\b",t,re.I):
+                break
+            if re.match(r"^(https?://|doi\s*:|ISBN(?:-1[03])?\s*:?)",t,re.I) and out:
+                out[-1]=(out[-1]+" "+t).strip()
+                continue
+            # Abaikan heading/non-entri sesudah bibliografi.
+            if len(t)<18:
+                continue
+            out.append(t)
+
+        # Dedup konservatif: DOI, lalu keseluruhan entri ternormalisasi.
+        hasil=[]; seen=set()
+        for e in out:
+            doi=ekstrak_doi(e)
+            key=("doi:"+doi.lower()) if doi else ("txt:"+re.sub(r"[^a-z0-9]+","",e.lower())[:260])
+            if key not in seen:
+                seen.add(key); hasil.append(e)
+        return hasil
+    except Exception:
+        return []
+
+
 def _judul_dari_entri(entri):
     doi=ekstrak_doi(entri)
     if doi:
@@ -794,7 +840,12 @@ def unggah_referensi_ke_bank(files):
     jumlah=0; laporan=[]
     for f in files or []:
         nama=f.name; teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""
-        entries=ekstrak_daftar_pustaka(teks)
+        if nama.lower().endswith(".docx"):
+            entries=ekstrak_daftar_pustaka_docx(f)
+            if not entries:
+                entries=ekstrak_daftar_pustaka(teks)
+        else:
+            entries=ekstrak_daftar_pustaka(teks)
         if entries:
             for no,entri in enumerate(entries,1):
                 ref=verifikasi_entri_bibliografi(entri)
@@ -824,6 +875,14 @@ def unggah_referensi_ke_bank(files):
         added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
         laporan.append({"File":nama,"No.":1,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
     return jumlah,laporan
+
+def ringkasan_laporan_referensi(laporan, jumlah_baru):
+    ditemukan=len(laporan or [])
+    sudah_ada=sum(1 for x in (laporan or []) if x.get("Masuk Library")=="Sudah ada")
+    terv=sum(1 for x in (laporan or []) if str(x.get("Status","")).startswith("✅"))
+    perlu=ditemukan-terv
+    return {"Ditemukan":ditemukan,"Baru masuk Library":jumlah_baru,
+            "Sudah ada":sudah_ada,"Terverifikasi":terv,"Perlu verifikasi":perlu}
 
 def sumber_online_default():
     """
@@ -2025,6 +2084,35 @@ elif menu == "🔎 Literatur & Referensi":
         if refs:
             df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
             st.dataframe(df[kol],use_container_width=True,hide_index=True)
+            st.markdown("#### 🗑️ Kosongkan Library Referensi")
+            st.caption("Gunakan ini sebelum pengujian ulang agar Library kembali 0. File proposal asli tidak ikut terhapus.")
+            if "konfirmasi_reset_library" not in st.session_state:
+                st.session_state.konfirmasi_reset_library=False
+            if not st.session_state.konfirmasi_reset_library:
+                if st.button("🗑️ Kosongkan Library Referensi", key="btn_reset_library", use_container_width=True):
+                    st.session_state.konfirmasi_reset_library=True
+                    st.rerun()
+            else:
+                st.warning("Semua referensi pada Library sesi ini akan dihapus. File proposal tidak akan dihapus.")
+                rc1,rc2=st.columns(2)
+                with rc1:
+                    if st.button("✅ Ya, kosongkan sekarang", key="btn_reset_yes", type="primary", use_container_width=True):
+                        # Kosongkan list referensi tanpa menyentuh dokumen yang diunggah.
+                        for _k in ["bank_referensi","library_referensi","referensi_library","references"]:
+                            if _k in st.session_state and isinstance(st.session_state[_k], list):
+                                st.session_state[_k]=[]
+                        # Kunci utama aplikasi saat ini.
+                        if "bank_referensi" in st.session_state:
+                            st.session_state.bank_referensi=[]
+                        st.session_state.konfirmasi_reset_library=False
+                        st.success("Library Referensi sudah kosong (0). Silakan unggah ulang proposal.")
+                        st.rerun()
+                with rc2:
+                    if st.button("↩️ Batal", key="btn_reset_no", use_container_width=True):
+                        st.session_state.konfirmasi_reset_library=False
+                        st.rerun()
+            st.divider()
+
             st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
             manager=st.selectbox(
                 "Pilih pengelola referensi",
