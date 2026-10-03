@@ -170,21 +170,131 @@ def simpan_karya(nama, jenis, ukuran):
         "Ukuran": ukuran,
         "Tanggal": datetime.now().strftime("%d-%m-%Y %H:%M")
     }
-    st.session_state.bank_karya.append(data)
+    sudah_ada = any(
+        x["Nama File"] == nama
+        and x["Proyek"] == st.session_state.proyek_aktif
+        for x in st.session_state.bank_karya
+    )
+
+    if not sudah_ada:
+        st.session_state.bank_karya.append(data)
+        return True
+
+    return False
+
+
 # ============================================================
 # KONEKSI AI 9ROUTER
 # ============================================================
+
 def analisis_dengan_9router(teks, jenis_karya, fokus_analisis):
     try:
         api_key = st.secrets["NINEROUTER_API_KEY"]
         base_url = st.secrets["NINEROUTER_BASE_URL"].rstrip("/")
     except Exception:
-        return "Konfigurasi 9Router belum ditemukan di Streamlit Secrets."
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": "Konfigurasi 9Router belum ditemukan di Streamlit Secrets."
+        }
 
-    # Batasi teks pada tahap awal agar permintaan tetap stabil
+    # --------------------------------------------------------
+    # 1. Ambil daftar model yang benar-benar tersedia
+    # --------------------------------------------------------
+    try:
+        req_model = urllib.request.Request(
+            base_url + "/models",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            method="GET"
+        )
+
+        with urllib.request.urlopen(req_model, timeout=60) as response:
+            data_model = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        daftar_model = data_model.get("data", [])
+
+        if not daftar_model:
+            return {
+                "sukses": False,
+                "hasil": "",
+                "error": (
+                    "9Router dapat dihubungi, tetapi tidak ada model AI "
+                    "yang tersedia pada akun/provider."
+                )
+            }
+
+        # Prioritaskan model OpenAI jika tersedia.
+        # Jika tidak ada, gunakan model pertama yang tersedia.
+        model_id = None
+
+        for item in daftar_model:
+            kandidat = str(item.get("id", ""))
+            if kandidat.lower().startswith("openai/"):
+                model_id = kandidat
+                break
+
+        if not model_id:
+            model_id = str(
+                daftar_model[0].get("id", "")
+            )
+
+        if not model_id:
+            return {
+                "sukses": False,
+                "hasil": "",
+                "error": "ID model dari 9Router tidak ditemukan."
+            }
+
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8")
+        except Exception:
+            detail = ""
+
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                f"Gagal mengakses daftar model 9Router. "
+                f"HTTP {e.code}. {detail}"
+            )
+        }
+
+    except urllib.error.URLError as e:
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                "Tidak dapat terhubung ke 9Router: "
+                f"{e.reason}"
+            )
+        }
+
+    except Exception as e:
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                "Terjadi kesalahan saat membaca model 9Router: "
+                f"{str(e)}"
+            )
+        }
+
+    # --------------------------------------------------------
+    # 2. Siapkan dokumen
+    # --------------------------------------------------------
     teks_dokumen = teks[:60000]
 
-    fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
+    fokus = (
+        ", ".join(fokus_analisis)
+        if fokus_analisis
+        else "Analisis akademik menyeluruh"
+    )
 
     prompt = f"""
 Anda adalah Asisten Akademik AI untuk mahasiswa S2 dan S3.
@@ -200,15 +310,17 @@ Fokus analisis:
 
 ATURAN WAJIB:
 1. Jangan mengarang informasi.
-2. Jika informasi tidak ditemukan, tulis: "Tidak ditemukan dalam dokumen."
-3. Jangan membuat nama penulis, teori, metode, hasil, referensi, DOI,
-   research gap, atau novelty yang tidak terdapat dalam dokumen.
+2. Jika informasi tidak ditemukan, tulis:
+   "Tidak ditemukan dalam dokumen."
+3. Jangan membuat nama penulis, teori, metode, hasil, referensi,
+   DOI, research gap, atau novelty yang tidak terdapat dalam dokumen.
 4. Bedakan antara novelty yang diklaim penulis dengan novelty yang
    benar-benar telah diverifikasi melalui literatur.
 5. Pada tahap ini Anda hanya menganalisis dokumen, bukan membuktikan
    novelty terhadap seluruh literatur ilmiah.
 6. Gunakan bahasa Indonesia akademik yang jelas.
-7. Berikan bukti atau bagian dokumen yang mendukung analisis jika tersedia.
+7. Berikan bukti atau bagian dokumen yang mendukung analisis
+   jika tersedia.
 
 Susun hasil dengan bagian:
 
@@ -232,12 +344,18 @@ DOKUMEN:
 --------------------
 """
 
+    # --------------------------------------------------------
+    # 3. Kirim ke model 9Router yang tersedia
+    # --------------------------------------------------------
     payload = {
-        "model": "auto",
+        "model": model_id,
         "messages": [
             {
                 "role": "system",
-                "content": "Anda adalah asisten analisis akademik yang akurat dan tidak mengarang data."
+                "content": (
+                    "Anda adalah asisten analisis akademik yang akurat, "
+                    "teliti, dan tidak mengarang data."
+                )
             },
             {
                 "role": "user",
@@ -258,34 +376,114 @@ DOKUMEN:
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=180) as response:
-            hasil = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(
+            request,
+            timeout=180
+        ) as response:
 
-        return hasil["choices"][0]["message"]["content"]
+            hasil = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        isi = (
+            hasil
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+
+        if not isi:
+            return {
+                "sukses": False,
+                "hasil": "",
+                "error": (
+                    "9Router merespons, tetapi hasil analisis kosong."
+                )
+            }
+
+        return {
+            "sukses": True,
+            "hasil": isi,
+            "error": "",
+            "model": model_id
+        }
 
     except urllib.error.HTTPError as e:
         try:
             detail = e.read().decode("utf-8")
         except Exception:
             detail = ""
-        return f"9Router belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
+
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                f"9Router belum berhasil memproses permintaan. "
+                f"HTTP {e.code}. {detail}"
+            )
+        }
 
     except urllib.error.URLError as e:
-        return f"Tidak dapat terhubung ke 9Router: {e.reason}"
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                "Tidak dapat terhubung ke 9Router: "
+                f"{e.reason}"
+            )
+        }
 
     except Exception as e:
-        return f"Terjadi kesalahan saat menjalankan analisis AI: {str(e)}"
-    sudah_ada = any(
-        x["Nama File"] == nama
-        and x["Proyek"] == st.session_state.proyek_aktif
-        for x in st.session_state.bank_karya
+        return {
+            "sukses": False,
+            "hasil": "",
+            "error": (
+                "Terjadi kesalahan saat menjalankan analisis AI: "
+                f"{str(e)}"
+            )
+        }
+
+
+# ============================================================
+# MENJALANKAN DAN MENAMPILKAN HASIL AI
+# ============================================================
+def jalankan_analisis_ai(
+    teks_ai,
+    jenis,
+    fokus_analisis
+):
+    hasil_ai = analisis_dengan_9router(
+        teks_ai,
+        jenis,
+        fokus_analisis
     )
 
-    if not sudah_ada:
-        st.session_state.bank_karya.append(data)
-        return True
+    if hasil_ai["sukses"]:
+        st.session_state.hasil_ai_9router = hasil_ai["hasil"]
 
-    return False
+        st.success(
+            "✅ Analisis AI berhasil."
+        )
+
+        if hasil_ai.get("model"):
+            st.caption(
+                f"Model AI: {hasil_ai['model']}"
+            )
+
+        return hasil_ai["hasil"]
+
+    else:
+        st.session_state.hasil_ai_9router = ""
+
+        st.error(
+            "❌ Analisis AI belum berhasil."
+        )
+
+        st.warning(
+            hasil_ai["error"]
+        )
+
+        return ""
 
 
 # ============================================================
@@ -934,7 +1132,15 @@ elif menu == "🔬 Analisis Karya Akademik":
                             fokus_analisis
                         )
 
-                    st.session_state.hasil_ai_9router = hasil_ai
+                    if hasil_ai.get("sukses"):
+                        st.session_state.hasil_ai_9router = hasil_ai["hasil"]
+                        st.success("✅ Analisis AI berhasil.")
+                        if hasil_ai.get("model"):
+                            st.caption(f"Model AI: {hasil_ai['model']}")
+                    else:
+                        st.session_state.hasil_ai_9router = ""
+                        st.error("❌ Analisis AI belum berhasil.")
+                        st.warning(hasil_ai.get("error", "Terjadi kesalahan yang belum diketahui."))
 
             # =================================================
             # HASIL ANALISIS AI
