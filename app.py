@@ -615,7 +615,48 @@ def format_apa(ref):
 
 def format_referensi(ref,gaya=None):
     gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
-    return format_chicago_bibliography(ref) if gaya.startswith("Chicago") else format_apa(ref)
+    g=gaya.lower()
+    # Formatter aman untuk salin/pratinjau. Tidak pernah mengubah naskah.
+    if "chicago notes" in g or "turabian" in g or "pedoman kampus" in g:
+        return format_chicago_bibliography(ref)
+    if "apa" in g or "harvard" in g or "chicago author" in g or "apsa" in g or "cse" in g:
+        return format_apa(ref)
+    if "ieee" in g or "vancouver" in g or "ama" in g:
+        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
+        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
+        return f'{pen}, “{jud},” {jurnal}, {th}' + (f', doi: {doi}' if doi else '') + '.'
+    if "mla" in g:
+        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
+        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
+        return f'{pen}. “{jud}.” {jurnal}, {th}' + (f', https://doi.org/{doi}' if doi else '') + '.'
+    if "oscola" in g:
+        return format_chicago_bibliography(ref)
+    if "acs" in g:
+        return format_apa(ref)
+    return format_chicago_bibliography(ref)
+
+def rumpun_gaya_sitasi(gaya):
+    g=(gaya or '').lower()
+    if any(x in g for x in ['chicago notes','turabian','oscola','pedoman kampus']): return 'Catatan kaki / notes'
+    if any(x in g for x in ['apa','harvard','chicago author','apsa']): return 'Penulis–tahun di dalam teks'
+    if any(x in g for x in ['ieee','vancouver','ama']): return 'Sitasi bernomor'
+    if 'mla' in g: return 'Penulis–halaman di dalam teks'
+    if any(x in g for x in ['acs','cse']): return 'Ilmiah/disiplin khusus'
+    if 'jurnal' in g: return 'Mengikuti author guidelines jurnal'
+    if 'kustom' in g: return 'Aturan pengguna'
+    return 'Sesuai gaya terpilih'
+
+def saran_gaya_otomatis(jenis_karya, rumpun_ilmu):
+    jk=(jenis_karya or '').lower(); ri=(rumpun_ilmu or '').lower()
+    if 'jurnal' in jk or 'artikel' in jk: return '📰 Ikuti Template/Author Guidelines Jurnal'
+    if 'hukum' in ri: return '⚖️ OSCOLA'
+    if 'kedokteran' in ri or 'kesehatan' in ri: return '🩺 Vancouver'
+    if 'teknik' in ri or 'komputer' in ri: return '📓 IEEE'
+    if 'kimia' in ri: return '🧪 ACS'
+    if 'biologi' in ri or 'sains' in ri: return '🔬 CSE'
+    if 'sastra' in ri or 'bahasa' in ri: return '📕 MLA'
+    if 'tesis' in jk or 'skripsi' in jk or 'disertasi' in jk: return '🎓 Ikuti Pedoman Kampus/Institusi'
+    return '📗 APA 7th Edition'
 
 # ============================================================
 # FOOTNOTE WORD — audit, pencocokan Library, dan perapian aman
@@ -2339,9 +2380,36 @@ elif menu == "🔎 Literatur & Referensi":
     c1,c2=st.columns([2,1])
     with c1: mode_ref=st.radio("Mode Referensi",["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],horizontal=True)
     with c2:
-        gaya_list=["Chicago Notes & Bibliography","APA 7","Harvard","IEEE","MLA"]
-        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(st.session_state.gaya_sitasi))
-    st.caption("Chicago Notes & Bibliography menjadi default. Artikel jurnal tetap mengikuti gaya rumah jurnal/template yang diunggah.")
+        gaya_list=[
+            "Chicago Notes & Bibliography","Pedoman Kampus/Institusi","Chicago Author-Date",
+            "APA 7th Edition","Harvard","MLA","IEEE","Vancouver","AMA","Turabian",
+            "OSCOLA","ACS","CSE","APSA","Ikuti Template/Author Guidelines Jurnal","Format Kustom"
+        ]
+        lama=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
+        alias={"APA 7":"APA 7th Edition"}
+        lama=alias.get(lama,lama)
+        if lama not in gaya_list: lama="Chicago Notes & Bibliography"
+        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(lama))
+    st.caption("Chicago Notes & Bibliography menjadi default. Bentuk sitasi mengikuti gaya yang dipilih; tidak semua gaya menggunakan footnote.")
+
+    with st.expander("💡 Saran Otomatis Gaya Sitasi", expanded=False):
+        sc1,sc2=st.columns(2)
+        with sc1:
+            jenis_saran=st.selectbox("Jenis karya",["Tesis","Skripsi","Disertasi","Artikel/Jurnal","Makalah/Tugas","Buku"],key="jenis_saran_gaya")
+        with sc2:
+            rumpun_saran=st.selectbox("Rumpun ilmu",["Pendidikan/PAI","Sosial/Humaniora","Hukum","Kedokteran/Kesehatan","Teknik/Komputer","Kimia","Biologi/Sains","Bahasa/Sastra","Lainnya"],key="rumpun_saran_gaya")
+        saran=saran_gaya_otomatis(jenis_saran,rumpun_saran)
+        st.info(f"💡 Saran otomatis: **{saran}** — {rumpun_gaya_sitasi(saran)}. Saran tidak mengubah dokumen sampai Anda memilih dan menerapkannya.")
+        if st.button("Gunakan Saran Ini",key="pakai_saran_gaya"):
+            bersih=re.sub(r"^[^A-Za-z0-9]+\s*","",saran)
+            if bersih in gaya_list:
+                st.session_state.gaya_sitasi=bersih
+                st.rerun()
+
+    cari_gaya=st.text_input("🔎 Cari Gaya Sitasi",placeholder="Contoh: Vancouver, OSCOLA, IEEE, APA...",key="cari_gaya_sitasi")
+    if cari_gaya.strip():
+        cocok=[g for g in gaya_list if cari_gaya.lower() in g.lower()]
+        st.caption("Ditemukan: "+(" • ".join(cocok) if cocok else "belum ada gaya yang cocok"))
     tab_cari,tab_online,tab_upload,tab_bank,tab_pakai,tab_audit=st.tabs(["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","✅ Audit Sitasi"])
 
     with tab_cari:
