@@ -640,23 +640,102 @@ def status_sitasi(teks,refs):
         rows.append({"Sitasi":f"({author}, {year})","Status":"✅ Ada di Library" if cocok else "⚠️ Belum cocok dengan Library","Referensi":cocok[0].get("Judul","") if cocok else ""})
     return rows
 
+
+def _bersihkan_entri_daftar_pustaka(x):
+    x=re.sub(r"\s+"," ",x or "").strip()
+    return re.sub(r"^\s*(?:\[\d+\]|\d+[\.\)]|[-•▪■])\s*","",x).strip()
+
+def ekstrak_daftar_pustaka(teks):
+    """Ambil seluruh entri pada DAFTAR PUSTAKA/REFERENCES dari satu dokumen."""
+    if not teks or teks.startswith("ERROR:"): return []
+    raw=teks.replace("\r","\n")
+    m=re.search(r"(?im)^\s*(DAFTAR\s+PUSTAKA|REFERENCES|BIBLIOGRAPHY)\s*$",raw)
+    if not m: return []
+    bagian=raw[m.end():]
+    bagian=re.split(r"(?im)^\s*(LAMPIRAN|APPENDIX|BAB\s+[IVXLCDM]+)\b",bagian,maxsplit=1)[0]
+    lines=[ln.strip() for ln in bagian.splitlines()]
+    entries=[]; buf=""; yearpat=r"(?:19|20)\d{2}|n\.d\."
+    for ln in lines:
+        if not ln:
+            if buf: entries.append(_bersihkan_entri_daftar_pustaka(buf)); buf=""
+            continue
+        ln=_bersihkan_entri_daftar_pustaka(ln)
+        looks_new=bool(re.search(yearpat,ln,re.I)) and (
+            bool(re.match(r"^[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.\- ]{1,80},",ln)) or
+            bool(re.match(r"^[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.\- ]{2,100}\.",ln)))
+        if buf and looks_new:
+            entries.append(_bersihkan_entri_daftar_pustaka(buf)); buf=ln
+        else: buf=(buf+" "+ln).strip()
+    if buf: entries.append(_bersihkan_entri_daftar_pustaka(buf))
+    out=[]; seen=set()
+    for e in entries:
+        if len(e)<25 or not re.search(yearpat,e,re.I): continue
+        k=re.sub(r"[^a-z0-9]+","",e.lower())[:180]
+        if k and k not in seen: seen.add(k); out.append(e)
+    return out
+
+def _judul_dari_entri(entri):
+    doi=ekstrak_doi(entri)
+    if doi:
+        r=cari_crossref_doi(doi)
+        if r: return r.get("Judul","")
+    x=re.sub(r"^.*?(?:19|20)\d{2}[a-z]?\.\s*","",entri,count=1,flags=re.I).strip()
+    q=re.search(r'[“"]([^”"]{8,300})[”"]',x)
+    if q: return q.group(1).strip()
+    return re.split(r"\.\s+",x)[0].strip(" .“”\"")[:300]
+
+def verifikasi_entri_bibliografi(entri):
+    doi=ekstrak_doi(entri)
+    if doi:
+        r=cari_crossref_doi(doi)
+        if r:
+            r["Sumber"]="Daftar Pustaka dokumen + Crossref"; r["Status"]="✅ Metadata terverifikasi Crossref"; return r
+    judul=_judul_dari_entri(entri)
+    if judul:
+        cand,score=verifikasi_judul_crossref(judul)
+        if cand and score>=0.82:
+            cand["Sumber"]="Daftar Pustaka dokumen + Crossref"
+            cand["Status"]=f"✅ Metadata terverifikasi Crossref (kemiripan judul {score:.0%})"
+            return cand
+    th=re.search(r"\b((?:19|20)\d{2})\b",entri)
+    return {"Judul":judul or entri[:220],"Penulis":"","Tahun":th.group(1) if th else "",
+            "Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":doi,"URL":"",
+            "Sumber":"Daftar Pustaka dokumen","Status":"🔍 Belum terverifikasi — cek metadata/sumber asli",
+            "Entri Asli":entri}
+
 def unggah_referensi_ke_bank(files):
     jumlah=0; laporan=[]
     for f in files or []:
-        nama=f.name; teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""; ref=None; doi=ekstrak_doi(teks)
+        nama=f.name; teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""
+        entries=ekstrak_daftar_pustaka(teks)
+        if entries:
+            for no,entri in enumerate(entries,1):
+                ref=verifikasi_entri_bibliografi(entri)
+                ref["Nama File"]=nama; ref["Entri Asli"]=entri; ref["Cuplikan"]=entri[:1500]
+                added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
+                laporan.append({"File":nama,"No.":no,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),
+                                "Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
+            continue
+        # Jika file adalah satu artikel/buku, tetap gunakan alur lama.
+        ref=None; doi=ekstrak_doi(teks)
         if doi: ref=cari_crossref_doi(doi)
-        if ref: ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
+        if ref:
+            ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
         else:
             meta=ekstrak_metadata_gemini(teks,nama)
             if meta:
                 doi2=ekstrak_doi(meta.get("DOI","")); ref=cari_crossref_doi(doi2) if doi2 else None
                 if not ref:
                     cand,score=verifikasi_judul_crossref(meta.get("Judul","")); ref=cand if cand and score>=0.82 else None
-                if ref: ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
-                else: ref=dict(meta); ref.update({"Sumber":"Unggahan pengguna + ekstraksi AI","Status":"🔍 Metadata belum terverifikasi — cek manual"})
-            else: ref={"Judul":nama.rsplit(".",1)[0],"Penulis":"","Tahun":"","Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"","URL":"","Sumber":"Unggahan pengguna","Status":"🔍 Metadata belum terbaca — cek manual"}
-        ref["Nama File"]=nama; ref["Cuplikan"]=(teks[:5000] if teks and not teks.startswith("ERROR:") else ""); added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
-        laporan.append({"File":nama,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
+                if ref:
+                    ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
+                else:
+                    ref=dict(meta); ref.update({"Sumber":"Unggahan pengguna + ekstraksi AI","Status":"🔍 Metadata belum terverifikasi — cek manual"})
+            else:
+                ref={"Judul":nama.rsplit(".",1)[0],"Penulis":"","Tahun":"","Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"","URL":"","Sumber":"Unggahan pengguna","Status":"🔍 Metadata belum terbaca — cek manual"}
+        ref["Nama File"]=nama; ref["Cuplikan"]=teks[:5000] if teks and not teks.startswith("ERROR:") else ""
+        added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
+        laporan.append({"File":nama,"No.":1,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
     return jumlah,laporan
 
 def sumber_online_default():
