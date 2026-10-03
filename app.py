@@ -200,7 +200,7 @@ def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
             )
         }
 
-    model_id = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model_id ="gemini-3.8-flash"
     teks_dokumen = teks[:60000]
     fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
 
