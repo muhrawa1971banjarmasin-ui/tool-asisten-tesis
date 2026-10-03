@@ -702,6 +702,30 @@ def _set_para_single(p):
     sp.set(_w("line"),"240"); sp.set(_w("lineRule"),"auto")
     sp.set(_w("before"),"0"); sp.set(_w("after"),"0")
 
+def _set_run_superscript(run):
+    """Jadikan marker footnote Word superscript tanpa mengubah teks narasi."""
+    rpr=run.find(_w("rPr"))
+    if rpr is None:
+        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
+    va=rpr.find(_w("vertAlign"))
+    if va is None:
+        va=ET.SubElement(rpr,_w("vertAlign"))
+    va.set(_w("val"),"superscript")
+
+def _format_document_footnote_refs_superscript(xml_bytes):
+    """Format hanya run yang memuat w:footnoteReference pada document.xml."""
+    root=ET.fromstring(xml_bytes)
+    for r in root.iter(_w("r")):
+        if r.find(_w("footnoteReference")) is not None:
+            _set_run_superscript(r)
+    return ET.tostring(root,encoding="utf-8",xml_declaration=True)
+
+def _format_footnote_markers_superscript(root):
+    """Format marker w:footnoteRef di area catatan kaki sebagai superscript."""
+    for r in root.iter(_w("r")):
+        if r.find(_w("footnoteRef")) is not None:
+            _set_run_superscript(r)
+
 def _short_chicago_note(ref):
     pen=_nama_chicago(ref.get("Penulis"))
     jud=(ref.get("Judul") or "Tanpa judul").strip()
@@ -753,10 +777,21 @@ def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli
                 _set_para_single(p)
                 for r in p.findall(_w("r")): _set_run_tnr10(r)
             laporan.append({"No":fid,"Footnote Asli":old,"Cocok Library":ref.get("Judul","") if ref else "","Kecocokan":f"{score:.0%}" if score else "-","Status":alasan,"Tindakan":aksi})
+        # Nomor/marker footnote di bawah halaman wajib superscript.
+        _format_footnote_markers_superscript(root)
         xml=ET.tostring(root,encoding="utf-8",xml_declaration=True)
+        # Marker footnote di badan naskah juga dibuat superscript, tanpa mengubah kalimat.
+        doc_xml=None
+        if "word/document.xml" in zin.namelist():
+            doc_xml=_format_document_footnote_refs_superscript(zin.read("word/document.xml"))
         with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
-                payload=xml if item.filename=="word/footnotes.xml" else zin.read(item.filename)
+                if item.filename=="word/footnotes.xml":
+                    payload=xml
+                elif item.filename=="word/document.xml" and doc_xml is not None:
+                    payload=doc_xml
+                else:
+                    payload=zin.read(item.filename)
                 zout.writestr(item,payload)
     return out.getvalue(),laporan,"OK"
 
@@ -2384,7 +2419,13 @@ elif menu == "🔎 Literatur & Referensi":
             st.markdown("#### ✅ Laporan Footnote")
             st.dataframe(pd.DataFrame(st.session_state["laporan_footnote_word"]),use_container_width=True,hide_index=True)
         if st.session_state.get("docx_siap_ajukan"):
-            nama="NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx"
+            # Selalu beri nama BARU; jangan pernah menggunakan nama file asli.
+            if doc_naskah is not None:
+                base=re.sub(r"(?i)\.docx$","",doc_naskah.name or "NASKAH")
+                nama=f"{base}_HASIL_VALIDASI_SIAP_AJUKAN.docx"
+            else:
+                nama="NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx"
+            st.caption(f"File hasil akan diunduh sebagai file baru: {nama}")
             st.download_button("📥 Unduh Word — SIAP_AJUKAN",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
 
         st.divider()
