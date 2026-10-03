@@ -2267,47 +2267,52 @@ elif menu == "🔎 Literatur & Referensi":
             st.dataframe(df[kol],use_container_width=True,hide_index=True)
 
             st.markdown("#### 🧰 Kelola Referensi Satu per Satu")
-            st.caption("Hapus hanya referensi yang dipilih, atau cari ulang metadata referensi yang belum terverifikasi. Parser Daftar Pustaka tidak diubah.")
+            st.caption("Tombol 🗑️ Hapus sekarang selalu terlihat pada setiap referensi. Parser Daftar Pustaka 13/13 tidak diubah.")
             for _i,_r in enumerate(list(refs)):
                 _judul=_r.get("Judul","") or f"Referensi {_i+1}"
                 _status=str(_r.get("Status","") or "")
-                with st.expander(f"{_i+1}. {_judul[:110]}"):
-                    st.write(f"**Status:** {_status or 'Belum ada status'}")
-                    if _r.get("DOI"): st.write(f"**DOI:** {_r.get('DOI')}")
-                    _a,_b=st.columns(2)
-                    with _a:
-                        if st.button("🗑️ Hapus referensi ini",key=f"hapus_ref_{_i}",use_container_width=True):
-                            st.session_state[f"konfirmasi_hapus_ref_{_i}"]=True
+                _c1,_c2,_c3=st.columns([7,1.5,2.2])
+                with _c1:
+                    st.markdown(f"**{_i+1}. {_judul[:115]}**")
+                    _meta=[]
+                    if _r.get("Tahun"): _meta.append(str(_r.get("Tahun")))
+                    if _r.get("DOI"): _meta.append(f"DOI: {_r.get('DOI')}")
+                    if _status: _meta.append(_status)
+                    if _meta: st.caption(" • ".join(_meta))
+                with _c2:
+                    if st.button("🗑️ Hapus",key=f"hapus_ref_{_i}",use_container_width=True):
+                        st.session_state[f"konfirmasi_hapus_ref_{_i}"]=True
+                        st.rerun()
+                with _c3:
+                    if st.button("🔧 Cari & Perbaiki",key=f"perbaiki_ref_{_i}",use_container_width=True):
+                        _cand=None; _score=0.0
+                        if _r.get("DOI"):
+                            _cand=cari_crossref_doi(_r.get("DOI"))
+                            _score=1.0 if _cand else 0.0
+                        if not _cand and _judul:
+                            _cand,_score=verifikasi_judul_crossref(_judul)
+                        if _cand and _score>=0.82:
+                            st.session_state[f"calon_perbaikan_ref_{_i}"]=_cand
+                        else:
+                            st.session_state[f"calon_perbaikan_ref_{_i}"]=None
+                            st.warning(f"Referensi {_i+1}: belum ditemukan metadata Crossref yang cukup cocok. Tidak dipaksakan menjadi valid.")
+                if st.session_state.get(f"konfirmasi_hapus_ref_{_i}"):
+                    st.warning(f"Hapus referensi {_i+1}: {_judul[:90]}? Dokumen unggahan dan naskah asli tidak dihapus.")
+                    _h1,_h2=st.columns(2)
+                    with _h1:
+                        if st.button("✅ Ya, hapus",key=f"hapus_ref_yes_{_i}",type="primary",use_container_width=True):
+                            if _i < len(st.session_state.bank_referensi):
+                                st.session_state.bank_referensi.pop(_i)
+                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
+                            st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
                             st.rerun()
-                    with _b:
-                        if st.button("🔧 Cari & Perbaiki Metadata",key=f"perbaiki_ref_{_i}",use_container_width=True):
-                            _cand=None; _score=0.0
-                            if _r.get("DOI"):
-                                _cand=cari_crossref_doi(_r.get("DOI"))
-                                _score=1.0 if _cand else 0.0
-                            if not _cand and _judul:
-                                _cand,_score=verifikasi_judul_crossref(_judul)
-                            if _cand and _score>=0.82:
-                                st.session_state[f"calon_perbaikan_ref_{_i}"]=_cand
-                            else:
-                                st.session_state[f"calon_perbaikan_ref_{_i}"]=None
-                                st.warning("Belum ditemukan metadata Crossref yang cukup cocok. Referensi tidak dipaksakan menjadi valid.")
-                    if st.session_state.get(f"konfirmasi_hapus_ref_{_i}"):
-                        st.warning("Hanya referensi ini yang akan dihapus dari Library. Dokumen unggahan tidak dihapus.")
-                        _h1,_h2=st.columns(2)
-                        with _h1:
-                            if st.button("✅ Ya, hapus",key=f"hapus_ref_yes_{_i}",type="primary",use_container_width=True):
-                                if _i < len(st.session_state.bank_referensi):
-                                    st.session_state.bank_referensi.pop(_i)
-                                st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
-                                st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
-                                st.rerun()
-                        with _h2:
-                            if st.button("↩️ Batal",key=f"hapus_ref_no_{_i}",use_container_width=True):
-                                st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
-                                st.rerun()
-                    _cand=st.session_state.get(f"calon_perbaikan_ref_{_i}")
-                    if _cand:
+                    with _h2:
+                        if st.button("↩️ Batal",key=f"hapus_ref_no_{_i}",use_container_width=True):
+                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
+                            st.rerun()
+                _cand=st.session_state.get(f"calon_perbaikan_ref_{_i}")
+                if _cand:
+                    with st.container(border=True):
                         st.success("Metadata pembanding ditemukan. Periksa sebelum mengganti.")
                         st.write("**Data sekarang:**", format_referensi(_r))
                         st.write("**Hasil Crossref:**", format_referensi(_cand))
@@ -2326,6 +2331,7 @@ elif menu == "🔎 Literatur & Referensi":
                             if st.button("❌ Jangan ganti",key=f"batal_perbaikan_{_i}",use_container_width=True):
                                 st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
                                 st.rerun()
+                st.divider()
 
             st.markdown("#### 🗑️ Kosongkan Library Referensi")
             st.caption("Gunakan ini sebelum pengujian ulang agar Library kembali 0. File proposal asli tidak ikut terhapus.")
