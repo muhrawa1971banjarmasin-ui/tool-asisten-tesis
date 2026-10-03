@@ -184,117 +184,25 @@ def simpan_karya(nama, jenis, ukuran):
 
 
 # ============================================================
-# KONEKSI AI 9ROUTER
+# KONEKSI AI GEMINI LANGSUNG
 # ============================================================
 
-def analisis_dengan_9router(teks, jenis_karya, fokus_analisis):
+def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
     try:
-        api_key = st.secrets["NINEROUTER_API_KEY"]
-        base_url = st.secrets["NINEROUTER_BASE_URL"].rstrip("/")
+        api_key = st.secrets["GEMINI_API_KEY"]
     except Exception:
         return {
             "sukses": False,
             "hasil": "",
-            "error": "Konfigurasi 9Router belum ditemukan di Streamlit Secrets."
-        }
-
-    # --------------------------------------------------------
-    # 1. Ambil daftar model yang benar-benar tersedia
-    # --------------------------------------------------------
-    try:
-        req_model = urllib.request.Request(
-            base_url + "/models",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            method="GET"
-        )
-
-        with urllib.request.urlopen(req_model, timeout=60) as response:
-            data_model = json.loads(
-                response.read().decode("utf-8")
-            )
-
-        daftar_model = data_model.get("data", [])
-
-        if not daftar_model:
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": (
-                    "9Router dapat dihubungi, tetapi tidak ada model AI "
-                    "yang tersedia pada akun/provider."
-                )
-            }
-
-        # Prioritaskan model OpenAI jika tersedia.
-        # Jika tidak ada, gunakan model pertama yang tersedia.
-        model_id = None
-
-        for item in daftar_model:
-            kandidat = str(item.get("id", ""))
-            if kandidat.lower().startswith("openai/"):
-                model_id = kandidat
-                break
-
-        if not model_id:
-            model_id = str(
-                daftar_model[0].get("id", "")
-            )
-
-        if not model_id:
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": "ID model dari 9Router tidak ditemukan."
-            }
-
-    except urllib.error.HTTPError as e:
-        try:
-            detail = e.read().decode("utf-8")
-        except Exception:
-            detail = ""
-
-        return {
-            "sukses": False,
-            "hasil": "",
             "error": (
-                f"Gagal mengakses daftar model 9Router. "
-                f"HTTP {e.code}. {detail}"
+                "GEMINI_API_KEY belum ditemukan di Streamlit Secrets. "
+                "Tambahkan API key Gemini terlebih dahulu."
             )
         }
 
-    except urllib.error.URLError as e:
-        return {
-            "sukses": False,
-            "hasil": "",
-            "error": (
-                "Tidak dapat terhubung ke 9Router: "
-                f"{e.reason}"
-            )
-        }
-
-    except Exception as e:
-        return {
-            "sukses": False,
-            "hasil": "",
-            "error": (
-                "Terjadi kesalahan saat membaca model 9Router: "
-                f"{str(e)}"
-            )
-        }
-
-    # --------------------------------------------------------
-    # 2. Siapkan dokumen
-    # --------------------------------------------------------
+    model_id = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
     teks_dokumen = teks[:60000]
-
-    fokus = (
-        ", ".join(fokus_analisis)
-        if fokus_analisis
-        else "Analisis akademik menyeluruh"
-    )
+    fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
 
     prompt = f"""
 Anda adalah Asisten Akademik AI untuk mahasiswa S2 dan S3.
@@ -310,20 +218,14 @@ Fokus analisis:
 
 ATURAN WAJIB:
 1. Jangan mengarang informasi.
-2. Jika informasi tidak ditemukan, tulis:
-   "Tidak ditemukan dalam dokumen."
-3. Jangan membuat nama penulis, teori, metode, hasil, referensi,
-   DOI, research gap, atau novelty yang tidak terdapat dalam dokumen.
-4. Bedakan antara novelty yang diklaim penulis dengan novelty yang
-   benar-benar telah diverifikasi melalui literatur.
-5. Pada tahap ini Anda hanya menganalisis dokumen, bukan membuktikan
-   novelty terhadap seluruh literatur ilmiah.
+2. Jika informasi tidak ditemukan, tulis: "Tidak ditemukan dalam dokumen."
+3. Jangan membuat nama penulis, teori, metode, hasil, referensi, DOI, research gap, atau novelty yang tidak terdapat dalam dokumen.
+4. Bedakan novelty yang diklaim penulis dengan novelty yang benar-benar telah diverifikasi melalui literatur.
+5. Pada tahap ini hanya analisis dokumen, bukan pembuktian novelty terhadap seluruh literatur ilmiah.
 6. Gunakan bahasa Indonesia akademik yang jelas.
-7. Berikan bukti atau bagian dokumen yang mendukung analisis
-   jika tersedia.
+7. Berikan bukti atau bagian dokumen yang mendukung analisis jika tersedia.
 
 Susun hasil dengan bagian:
-
 A. IDENTITAS DAN JENIS DOKUMEN
 B. TOPIK UTAMA
 C. LATAR BELAKANG / MASALAH
@@ -344,104 +246,52 @@ DOKUMEN:
 --------------------
 """
 
-    # --------------------------------------------------------
-    # 3. Kirim ke model 9Router yang tersedia
-    # --------------------------------------------------------
     payload = {
-        "model": model_id,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Anda adalah asisten analisis akademik yang akurat, "
-                    "teliti, dan tidak mengarang data."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.2
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2}
     }
 
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + model_id
+        + ":generateContent?key="
+        + api_key
+    )
     request = urllib.request.Request(
-        base_url + "/chat/completions",
+        url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
+        headers={"Content-Type": "application/json"},
         method="POST"
     )
 
     try:
-        with urllib.request.urlopen(
-            request,
-            timeout=180
-        ) as response:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            data = json.loads(response.read().decode("utf-8"))
 
-            hasil = json.loads(
-                response.read().decode("utf-8")
-            )
+        kandidat = data.get("candidates", [])
+        if not kandidat:
+            return {"sukses": False, "hasil": "", "error": "Gemini merespons, tetapi tidak memberikan hasil analisis."}
 
-        isi = (
-            hasil
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-
+        parts = kandidat[0].get("content", {}).get("parts", [])
+        isi = "\n".join(part.get("text", "") for part in parts if part.get("text")).strip()
         if not isi:
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": (
-                    "9Router merespons, tetapi hasil analisis kosong."
-                )
-            }
+            return {"sukses": False, "hasil": "", "error": "Gemini merespons, tetapi hasil analisis kosong."}
 
-        return {
-            "sukses": True,
-            "hasil": isi,
-            "error": "",
-            "model": model_id
-        }
+        return {"sukses": True, "hasil": isi, "error": "", "model": model_id}
 
     except urllib.error.HTTPError as e:
         try:
             detail = e.read().decode("utf-8")
         except Exception:
             detail = ""
-
         return {
-            "sukses": False,
-            "hasil": "",
-            "error": (
-                f"9Router belum berhasil memproses permintaan. "
-                f"HTTP {e.code}. {detail}"
-            )
+            "sukses": False, "hasil": "",
+            "error": f"Gemini belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
         }
-
     except urllib.error.URLError as e:
-        return {
-            "sukses": False,
-            "hasil": "",
-            "error": (
-                "Tidak dapat terhubung ke 9Router: "
-                f"{e.reason}"
-            )
-        }
-
+        return {"sukses": False, "hasil": "", "error": f"Tidak dapat terhubung ke Gemini: {e.reason}"}
     except Exception as e:
-        return {
-            "sukses": False,
-            "hasil": "",
-            "error": (
-                "Terjadi kesalahan saat menjalankan analisis AI: "
-                f"{str(e)}"
-            )
-        }
+        return {"sukses": False, "hasil": "", "error": f"Terjadi kesalahan saat menjalankan Gemini: {str(e)}"}
 
 
 # ============================================================
@@ -452,14 +302,14 @@ def jalankan_analisis_ai(
     jenis,
     fokus_analisis
 ):
-    hasil_ai = analisis_dengan_9router(
+    hasil_ai = analisis_dengan_gemini(
         teks_ai,
         jenis,
         fokus_analisis
     )
 
     if hasil_ai["sukses"]:
-        st.session_state.hasil_ai_9router = hasil_ai["hasil"]
+        st.session_state.hasil_ai_gemini = hasil_ai["hasil"]
 
         st.success(
             "✅ Analisis AI berhasil."
@@ -473,7 +323,7 @@ def jalankan_analisis_ai(
         return hasil_ai["hasil"]
 
     else:
-        st.session_state.hasil_ai_9router = ""
+        st.session_state.hasil_ai_gemini = ""
 
         st.error(
             "❌ Analisis AI belum berhasil."
@@ -789,7 +639,7 @@ elif menu == "🔬 Analisis Karya Akademik":
         st.markdown("### 🔜 Mesin AI")
 
         st.caption(
-            "Analisis semantik penuh akan menggunakan 9Router. "
+            "Analisis semantik penuh menggunakan Gemini langsung. "
             "Struktur aplikasi dan alur analisis disiapkan terlebih dahulu."
         )
 
@@ -913,7 +763,7 @@ elif menu == "🔬 Analisis Karya Akademik":
 
             st.caption(
                 "Kerangka analisis menyesuaikan jenis karya. "
-                "Mesin AI 9Router akan dihubungkan pada tahap integrasi AI."
+                "Mesin AI Gemini akan dihubungkan pada tahap integrasi AI."
             )
 
             # ------------------------------------------------
@@ -1097,23 +947,23 @@ elif menu == "🔬 Analisis Karya Akademik":
                 st.write(f"{no}. {item}")
 
                        # =================================================
-            # MESIN ANALISIS AI 9ROUTER
+            # MESIN ANALISIS AI GEMINI
             # =================================================
             st.markdown("### 🤖 Mesin Analisis AI")
 
             st.info(
-                "Dokumen sudah berhasil dibaca. AI 9Router siap "
+                "Dokumen sudah berhasil dibaca. AI Gemini siap "
                 "menganalisis isi dokumen berdasarkan fokus yang dipilih."
             )
 
-            if "hasil_ai_9router" not in st.session_state:
-                st.session_state.hasil_ai_9router = ""
+            if "hasil_ai_gemini" not in st.session_state:
+                st.session_state.hasil_ai_gemini = ""
 
             if st.button(
                 "🤖 Analisis dengan AI",
                 type="primary",
                 use_container_width=True,
-                key="tombol_analisis_9router"
+                key="tombol_analisis_gemini"
             ):
                 if not hasil_dokumen:
                     st.warning(
@@ -1124,21 +974,21 @@ elif menu == "🔬 Analisis Karya Akademik":
                     teks_ai = dokumen_ai["teks"]
 
                     with st.spinner(
-                        "9Router sedang membaca dan menganalisis dokumen..."
+                        "Gemini sedang membaca dan menganalisis dokumen..."
                     ):
-                        hasil_ai = analisis_dengan_9router(
+                        hasil_ai = analisis_dengan_gemini(
                             teks_ai,
                             jenis,
                             fokus_analisis
                         )
 
                     if hasil_ai.get("sukses"):
-                        st.session_state.hasil_ai_9router = hasil_ai["hasil"]
+                        st.session_state.hasil_ai_gemini = hasil_ai["hasil"]
                         st.success("✅ Analisis AI berhasil.")
                         if hasil_ai.get("model"):
                             st.caption(f"Model AI: {hasil_ai['model']}")
                     else:
-                        st.session_state.hasil_ai_9router = ""
+                        st.session_state.hasil_ai_gemini = ""
                         st.error("❌ Analisis AI belum berhasil.")
                         st.warning(hasil_ai.get("error", "Terjadi kesalahan yang belum diketahui."))
 
@@ -1147,18 +997,18 @@ elif menu == "🔬 Analisis Karya Akademik":
             # =================================================
             st.markdown("### 📝 Hasil Analisis")
 
-            if st.session_state.hasil_ai_9router:
+            if st.session_state.hasil_ai_gemini:
 
                 st.success("✅ Analisis AI selesai.")
 
                 hasil_edit = st.text_area(
                     "Hasil analisis dapat diedit sebelum diekspor",
-                    value=st.session_state.hasil_ai_9router,
+                    value=st.session_state.hasil_ai_gemini,
                     height=600,
-                    key="editor_hasil_ai_9router"
+                    key="editor_hasil_ai_gemini"
                 )
 
-                st.session_state.hasil_ai_9router = hasil_edit
+                st.session_state.hasil_ai_gemini = hasil_edit
 
             else:
                 st.text_area(
@@ -1174,7 +1024,7 @@ elif menu == "🔬 Analisis Karya Akademik":
             st.markdown("### 💾 Simpan & Ekspor")
 
             hasil_final = st.session_state.get(
-                "hasil_ai_9router",
+                "hasil_ai_gemini",
                 ""
             )
 
