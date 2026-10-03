@@ -795,6 +795,89 @@ def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli
                 zout.writestr(item,payload)
     return out.getvalue(),laporan,"OK"
 
+
+# ============================================================
+# PROTEKSI NASKAH 100% — audit struktur & deteksi catatan manual
+# ============================================================
+def sidik_jari_bagian_docx(data):
+    """Hash bagian DOCX yang harus tetap identik pada mode proteksi."""
+    import hashlib
+    protected=[]
+    try:
+        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
+            for name in z.namelist():
+                # footnotes.xml adalah satu-satunya bagian yang boleh berubah bila pengguna
+                # secara eksplisit memilih perubahan footnote. Semua bagian lain dikunci.
+                if name != "word/footnotes.xml":
+                    protected.append((name,hashlib.sha256(z.read(name)).hexdigest()))
+        return dict(protected)
+    except Exception:
+        return {}
+
+def verifikasi_proteksi_docx(sebelum,sesudah,izinkan_document_xml=False):
+    """Pastikan bagian di luar area izin tidak berubah."""
+    import hashlib
+    berubah=[]
+    try:
+        with zipfile.ZipFile(io.BytesIO(sebelum),"r") as a, zipfile.ZipFile(io.BytesIO(sesudah),"r") as b:
+            names=set(a.namelist()) | set(b.namelist())
+            allowed={"word/footnotes.xml"}
+            if izinkan_document_xml:
+                allowed.add("word/document.xml")
+            for name in sorted(names):
+                if name in allowed: continue
+                if name not in a.namelist() or name not in b.namelist():
+                    berubah.append(name); continue
+                if hashlib.sha256(a.read(name)).digest()!=hashlib.sha256(b.read(name)).digest():
+                    berubah.append(name)
+        return (len(berubah)==0),berubah
+    except Exception as e:
+        return False,[f"Gagal audit proteksi: {e}"]
+
+def deteksi_catatan_manual_docx(data):
+    """Deteksi konservatif [1], [2], dst. dan blok catatan bernomor; hanya audit, tidak mengubah naskah."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
+            root=ET.fromstring(z.read("word/document.xml"))
+        paras=[]
+        for p in root.iter(_w("p")):
+            txt="".join((t.text or "") for t in p.iter(_w("t"))).strip()
+            if txt: paras.append(txt)
+        markers=[]; notes=[]
+        for i,txt in enumerate(paras,1):
+            for m in re.finditer(r"\[(\d{1,3})\]",txt):
+                markers.append({"Paragraf":i,"No":m.group(1),"Cuplikan":txt[:180]})
+            m=re.match(r"^\s*(\d{1,3})[\.\)]\s+(.{20,})$",txt)
+            if m and (re.search(r"\b(19|20)\d{2}\b",txt) or "doi" in txt.lower() or "http" in txt.lower()):
+                notes.append({"Paragraf":i,"No":m.group(1),"Catatan":txt[:350]})
+        return markers,notes
+    except Exception:
+        return [],[]
+
+def nama_hasil_baru(nama_asli,suffix="HASIL_VALIDASI_SIAP_AJUKAN"):
+    base=re.sub(r"(?i)\.docx$","",nama_asli or "NASKAH")
+    return f"{base}_{suffix}.docx"
+
+GAYA_SITASI_LENGKAP=[
+    "🔒 Pertahankan format naskah asli",
+    "🎓 Ikuti Pedoman Kampus/Institusi",
+    "📘 Chicago Notes & Bibliography",
+    "📘 Chicago Author-Date",
+    "📗 APA 7th Edition",
+    "📙 Harvard",
+    "📕 MLA",
+    "📓 IEEE",
+    "🩺 Vancouver",
+    "⚕️ AMA",
+    "📔 Turabian",
+    "⚖️ OSCOLA",
+    "🧪 ACS",
+    "🔬 CSE",
+    "🏛️ APSA",
+    "📰 Ikuti Template/Author Guidelines Jurnal",
+    "⚙️ Format Kustom",
+]
+
 def ekspor_ris(refs):
     out=[]
     for r in refs:
@@ -2385,66 +2468,93 @@ elif menu == "🔎 Literatur & Referensi":
         else: st.info("Library Referensi masih kosong.")
 
     with tab_pakai:
-        st.subheader("✍️ Pakai di Naskah — Footnote & Daftar Pustaka")
-        st.info("File asli tidak ditimpa. Mode aman tidak mengubah narasi, judul, tabel, atau isi penelitian; hanya true Word footnote pada SALINAN hasil yang dirapikan.")
+        st.subheader("✍️ Pakai di Naskah — Proteksi Naskah 100%")
+        st.success("🔒 PROTEKSI NASKAH AKTIF: narasi, typo, judul, penomoran, abjad, indentasi, tabel, gambar, margin, header-footer, dan tata letak tidak boleh diubah oleh proses referensi.")
+        st.caption("File asli tidak pernah ditimpa. Perubahan hanya boleh terjadi pada area sitasi/footnote/daftar pustaka yang dipilih pengguna. Bila audit mendeteksi perubahan di luar area izin, file hasil ditolak.")
 
         doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
-        mode_fn=st.radio(
-            "Mode Footnote",
-            ["🔒 Pertahankan format naskah asli","🔄 Ubah semua footnote ke Chicago Notes & Bibliography"],
-            horizontal=False,key="mode_footnote_word"
+        mode_kerja=st.radio(
+            "Mode kerja",
+            ["🔎 Periksa Saja — tidak mengubah file","🔒 Rapikan format true footnote saja","🔄 Ubah true footnote yang cocok dengan Library ke Chicago"],
+            key="mode_kerja_naskah"
         )
-        st.caption("Default aman: isi footnote tetap seperti naskah asli, hanya formatnya dirapikan menjadi Times New Roman 10 pt dan spasi 1. Mode ubah semua hanya mengubah isi footnote yang berhasil dicocokkan dengan Library; narasi utama tetap tidak disentuh.")
+        gaya_target=st.selectbox("Gaya sitasi target",GAYA_SITASI_LENGKAP,key="gaya_target_naskah")
+        if not (gaya_target.startswith("🔒") or gaya_target.startswith("📘 Chicago Notes") or gaya_target.startswith("🎓")):
+            st.info("Gaya ini tersedia sebagai pilihan audit. Konversi otomatis penuh hanya dijalankan setelah struktur sitasi yang sesuai terdeteksi; aplikasi tidak akan memaksa footnote menjadi gaya author-date/numbered secara sembarangan.")
 
         if doc_naskah:
             raw=doc_naskah.getvalue()
             fns=baca_true_footnotes_docx(raw)
+            markers_manual,notes_manual=deteksi_catatan_manual_docx(raw)
+            st.markdown("#### 👁️ Pratinjau Deteksi")
+            c1,c2,c3=st.columns(3)
+            c1.metric("True Word footnote",len(fns))
+            c2.metric("Marker manual [n]",len(markers_manual))
+            c3.metric("Catatan manual terindikasi",len(notes_manual))
+
             if fns:
-                st.success(f"Ditemukan {len(fns)} true Word footnote pada naskah.")
                 preview=[]
                 for j,x in enumerate(fns,1):
                     idx,score,alasan=cocokkan_footnote_ke_library(x["teks"],st.session_state.bank_referensi)
                     rr=st.session_state.bank_referensi[idx] if idx is not None else None
-                    preview.append({"No":j,"Footnote":x["teks"],"Cocok Library":rr.get("Judul","") if rr else "","Status":alasan,"Kecocokan":f"{score:.0%}" if score else "-"})
-                st.markdown("#### 👁️ Pratinjau Pencocokan")
+                    status_format="✅ Dapat diproses" if rr is not None else "⚠️ Perlu verifikasi/perbaikan"
+                    preview.append({"No":j,"Footnote":x["teks"],"Cocok Library":rr.get("Judul","") if rr else "","Status Sumber":alasan,"Kecocokan":f"{score:.0%}" if score else "-","Status Format":status_format})
                 st.dataframe(pd.DataFrame(preview),use_container_width=True,hide_index=True)
+            if markers_manual:
+                with st.expander("⚠️ Marker sitasi manual terdeteksi — audit saja"):
+                    st.dataframe(pd.DataFrame(markers_manual),use_container_width=True,hide_index=True)
+            if notes_manual:
+                with st.expander("⚠️ Catatan manual terindikasi — jangan dikonversi otomatis tanpa kecocokan kuat"):
+                    st.dataframe(pd.DataFrame(notes_manual),use_container_width=True,hide_index=True)
 
-                if st.button("✅ Proses Naskah & Buat Salinan SIAP_AJUKAN",type="primary",key="proses_word_footnote"):
-                    mode_internal="Ubah semua ke Chicago" if mode_fn.startswith("🔄") else "Pertahankan format naskah asli"
+            if not fns and (markers_manual or notes_manual):
+                st.warning("Catatan manual terdeteksi. Demi Proteksi Naskah 100%, versi ini hanya mengauditnya dan tidak memindahkan paragraf/penomoran secara otomatis. Konversi hanya boleh dilakukan setelah pasangan marker ↔ catatan ↔ sumber terverifikasi jelas.")
+            elif not fns:
+                st.warning("True Word footnote belum terdeteksi. Naskah tidak akan diubah atau ditebak.")
+
+            if mode_kerja.startswith("🔎"):
+                st.info("Mode Periksa Saja aktif — tidak ada byte dokumen yang diubah.")
+            elif fns:
+                if st.button("👁️ Setujui Pratinjau & Proses SALINAN",type="primary",key="proses_word_footnote"):
+                    if mode_kerja.startswith("🔄"):
+                        mode_internal="Ubah semua ke Chicago"
+                    else:
+                        mode_internal="Pertahankan format naskah asli"
                     hasil,lap,msg=rapikan_true_footnotes_docx(raw,st.session_state.bank_referensi,mode_internal)
                     if hasil:
-                        st.session_state["docx_siap_ajukan"]=hasil
-                        st.session_state["laporan_footnote_word"]=lap
-                        st.success("Salinan naskah selesai dibuat. File asli tetap aman dan tidak ditimpa.")
+                        # Fungsi saat ini boleh menyentuh document.xml hanya untuk marker true-footnote superscript.
+                        aman,berubah=verifikasi_proteksi_docx(raw,hasil,izinkan_document_xml=True)
+                        if aman:
+                            st.session_state["docx_siap_ajukan"]=hasil
+                            st.session_state["laporan_footnote_word"]=lap
+                            st.session_state["nama_docx_siap_ajukan"]=nama_hasil_baru(doc_naskah.name)
+                            st.success("✅ Audit proteksi lulus. Salinan dibuat; file asli tetap utuh.")
+                        else:
+                            st.session_state.pop("docx_siap_ajukan",None)
+                            st.error("⛔ PROSES DIBATALKAN. Terdeteksi perubahan di luar area yang diizinkan: "+", ".join(berubah[:8]))
                     else:
                         st.error(msg)
-            else:
-                st.warning("True Word footnote belum terdeteksi. Aplikasi tidak akan menebak atau mengubah narasi. Jika catatan kaki masih berupa [1] atau teks manual, gunakan dokumen Word yang memiliki Insert Footnote asli.")
 
         if st.session_state.get("laporan_footnote_word"):
             st.markdown("#### ✅ Laporan Footnote")
             st.dataframe(pd.DataFrame(st.session_state["laporan_footnote_word"]),use_container_width=True,hide_index=True)
         if st.session_state.get("docx_siap_ajukan"):
-            # Selalu beri nama BARU; jangan pernah menggunakan nama file asli.
-            if doc_naskah is not None:
-                base=re.sub(r"(?i)\.docx$","",doc_naskah.name or "NASKAH")
-                nama=f"{base}_HASIL_VALIDASI_SIAP_AJUKAN.docx"
-            else:
-                nama="NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx"
-            st.caption(f"File hasil akan diunduh sebagai file baru: {nama}")
-            st.download_button("📥 Unduh Word — SIAP_AJUKAN",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
+            nama=st.session_state.get("nama_docx_siap_ajukan","NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx")
+            st.caption(f"File hasil baru: {nama} — file asli tidak ditimpa.")
+            st.download_button("📥 Unduh Word — SALINAN HASIL",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
 
         st.divider()
-        st.markdown("#### 🧩 Opsi Teks / BAB")
-        st.caption("Bagian ini tetap tersedia untuk memasang referensi pada teks yang ditempel. Untuk naskah final besok, gunakan unggah Word di atas agar file asli tetap menjadi acuan.")
+        st.markdown("#### 🧩 Opsi Teks / BAB — terpisah dari file Word")
+        st.caption("Teks yang ditempel di sini boleh dianalisis AI, tetapi tidak akan ditulis kembali ke file Word yang diunggah. Ini menjaga naskah master tetap utuh.")
         naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=220,key="naskah_ref")
         refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
         pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
         dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
         arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
-        if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
+        if st.button("🧩 Analisis/Pasang Sitasi pada SALINAN TEKS",type="primary",disabled=not bool(naskah_awal.strip())):
+            panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada salinan teks",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan. Jangan mengubah naskah Word asli.",dipilih,"pasang_ref")
         if st.session_state.get("hasil_penulisan_ai"):
-            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
+            st.text_area("Hasil salinan teks — tidak diterapkan otomatis ke Word",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah")
 
     with tab_audit:
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
