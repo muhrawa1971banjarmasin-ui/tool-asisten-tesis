@@ -501,9 +501,9 @@ elif menu == "📚 Perkuliahan":
 # ============================================================
 # ANALISIS KARYA AKADEMIK
 # ============================================================
-elif menu == "🔬   # PERSIAPAN AI":
+elif menu == "🔬 Analisis Karya Akademik":
 
-    st.header("🔬 # SIMPAN DAN EKSPOR")
+    st.header("🔬 Analisis Karya Akademik")
 
     st.caption(
         "Analisis satu atau banyak karya akademik. "
