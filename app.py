@@ -10,6 +10,9 @@ import re
 import html
 import difflib
 import csv
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 try:
     import docx
 except ImportError:
@@ -613,6 +616,149 @@ def format_apa(ref):
 def format_referensi(ref,gaya=None):
     gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
     return format_chicago_bibliography(ref) if gaya.startswith("Chicago") else format_apa(ref)
+
+# ============================================================
+# FOOTNOTE WORD — audit, pencocokan Library, dan perapian aman
+# Prinsip: narasi/document.xml tidak ditulis ulang. Yang disentuh
+# hanya word/footnotes.xml pada SALINAN dokumen hasil.
+# ============================================================
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+ET.register_namespace("w", W_NS)
+
+def _w(tag):
+    return "{%s}%s" % (W_NS, tag)
+
+def _norm_match(x):
+    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).strip()
+
+def _footnote_text(fn):
+    return " ".join((t.text or "") for t in fn.iter(_w("t"))).strip()
+
+def baca_true_footnotes_docx(data):
+    """Baca true Word footnotes tanpa mengubah dokumen."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as z:
+            if "word/footnotes.xml" not in z.namelist():
+                return []
+            root=ET.fromstring(z.read("word/footnotes.xml"))
+            out=[]
+            for fn in root.findall(_w("footnote")):
+                fid=fn.get(_w("id"), "")
+                if str(fid) in ("-1","0"): continue
+                teks=_footnote_text(fn)
+                if teks: out.append({"id":str(fid),"teks":teks})
+            return out
+    except Exception:
+        return []
+
+def cocokkan_footnote_ke_library(teks, refs):
+    """DOI exact > kemiripan judul > penulis+tahun. Konservatif."""
+    low=(teks or "").lower()
+    doi_m=re.search(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", low, re.I)
+    doi=(doi_m.group(0).rstrip(".,;)") if doi_m else "").lower()
+    if doi:
+        for i,r in enumerate(refs):
+            if (r.get("DOI") or "").strip().lower()==doi:
+                return i,1.0,"DOI cocok"
+    best_i=None; best=0.0
+    nt=_norm_match(teks)
+    for i,r in enumerate(refs):
+        title=_norm_match(r.get("Judul",""))
+        if len(title)>=12:
+            score=difflib.SequenceMatcher(None,title,nt).ratio()
+            if title in nt: score=max(score,0.96)
+            if score>best: best_i,best=i,score
+    if best_i is not None and best>=0.62:
+        return best_i,best,"Judul cocok"
+    for i,r in enumerate(refs):
+        year=str(r.get("Tahun") or "")
+        author=_norm_match(r.get("Penulis") or "").split(" ")[0] if r.get("Penulis") else ""
+        if year and author and year in low and author in nt:
+            return i,0.70,"Penulis + tahun cocok"
+    return None,0.0,"Belum cocok"
+
+def _set_run_tnr10(run):
+    rpr=run.find(_w("rPr"))
+    if rpr is None:
+        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
+    rf=rpr.find(_w("rFonts"))
+    if rf is None:
+        rf=ET.SubElement(rpr,_w("rFonts"))
+    for a in ("ascii","hAnsi","eastAsia","cs"): rf.set(_w(a),"Times New Roman")
+    sz=rpr.find(_w("sz"))
+    if sz is None: sz=ET.SubElement(rpr,_w("sz"))
+    sz.set(_w("val"),"20")
+    szcs=rpr.find(_w("szCs"))
+    if szcs is None: szcs=ET.SubElement(rpr,_w("szCs"))
+    szcs.set(_w("val"),"20")
+
+def _set_para_single(p):
+    ppr=p.find(_w("pPr"))
+    if ppr is None:
+        ppr=ET.Element(_w("pPr")); p.insert(0,ppr)
+    sp=ppr.find(_w("spacing"))
+    if sp is None: sp=ET.SubElement(ppr,_w("spacing"))
+    sp.set(_w("line"),"240"); sp.set(_w("lineRule"),"auto")
+    sp.set(_w("before"),"0"); sp.set(_w("after"),"0")
+
+def _short_chicago_note(ref):
+    pen=_nama_chicago(ref.get("Penulis"))
+    jud=(ref.get("Judul") or "Tanpa judul").strip()
+    if len(jud)>70: jud=jud[:67].rstrip()+"…"
+    return f'{pen}, “{jud}.”'
+
+def _replace_note_text(fn, new_text):
+    """Pertahankan marker true-footnote; ganti hanya teks catatan."""
+    ps=fn.findall(_w("p"))
+    if not ps:
+        p=ET.SubElement(fn,_w("p")); ps=[p]
+    p0=ps[0]
+    # hapus paragraf tambahan agar satu note bersih; marker dipertahankan
+    for p in ps[1:]: fn.remove(p)
+    keep=[]
+    for r in p0.findall(_w("r")):
+        if r.find(_w("footnoteRef")) is not None:
+            keep.append(r)
+    for child in list(p0):
+        if child.tag != _w("pPr"): p0.remove(child)
+    if keep:
+        p0.append(keep[0])
+    else:
+        rr=ET.SubElement(p0,_w("r")); ET.SubElement(rr,_w("footnoteRef"))
+    sep=ET.SubElement(p0,_w("r")); tt=ET.SubElement(sep,_w("t")); tt.set("{%s}space"%XML_NS,"preserve"); tt.text=" "
+    rr=ET.SubElement(p0,_w("r")); tt=ET.SubElement(rr,_w("t")); tt.text=new_text
+
+def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli"):
+    """Hasilkan SALINAN DOCX. document.xml/narasi tidak diubah."""
+    src=io.BytesIO(data); out=io.BytesIO(); laporan=[]
+    with zipfile.ZipFile(src,"r") as zin:
+        if "word/footnotes.xml" not in zin.namelist():
+            return None,[],"Dokumen tidak memiliki true Word footnote."
+        root=ET.fromstring(zin.read("word/footnotes.xml"))
+        seen=set()
+        for fn in root.findall(_w("footnote")):
+            fid=str(fn.get(_w("id"),""))
+            if fid in ("-1","0"): continue
+            old=_footnote_text(fn)
+            idx,score,alasan=cocokkan_footnote_ke_library(old,refs)
+            ref=refs[idx] if idx is not None else None
+            aksi="Format dipertahankan"
+            if mode.startswith("Ubah semua") and ref is not None:
+                key=kunci_ref(ref)
+                new=_short_chicago_note(ref) if key in seen else format_chicago_note(ref)
+                _replace_note_text(fn,new); seen.add(key); aksi="Diubah ke Chicago"
+            # format visual selalu dirapikan; teks hanya berubah pada mode ubah semua
+            for p in fn.findall(_w("p")):
+                _set_para_single(p)
+                for r in p.findall(_w("r")): _set_run_tnr10(r)
+            laporan.append({"No":fid,"Footnote Asli":old,"Cocok Library":ref.get("Judul","") if ref else "","Kecocokan":f"{score:.0%}" if score else "-","Status":alasan,"Tindakan":aksi})
+        xml=ET.tostring(root,encoding="utf-8",xml_declaration=True)
+        with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                payload=xml if item.filename=="word/footnotes.xml" else zin.read(item.filename)
+                zout.writestr(item,payload)
+    return out.getvalue(),laporan,"OK"
 
 def ekspor_ris(refs):
     out=[]
@@ -2198,15 +2344,60 @@ elif menu == "🔎 Literatur & Referensi":
         else: st.info("Library Referensi masih kosong.")
 
     with tab_pakai:
-        st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
-        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=300,key="naskah_ref")
+        st.subheader("✍️ Pakai di Naskah — Footnote & Daftar Pustaka")
+        st.info("File asli tidak ditimpa. Mode aman tidak mengubah narasi, judul, tabel, atau isi penelitian; hanya true Word footnote pada SALINAN hasil yang dirapikan.")
+
+        doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
+        mode_fn=st.radio(
+            "Mode Footnote",
+            ["🔒 Pertahankan format naskah asli","🔄 Ubah semua footnote ke Chicago Notes & Bibliography"],
+            horizontal=False,key="mode_footnote_word"
+        )
+        st.caption("Default aman: isi footnote tetap seperti naskah asli, hanya formatnya dirapikan menjadi Times New Roman 10 pt dan spasi 1. Mode ubah semua hanya mengubah isi footnote yang berhasil dicocokkan dengan Library; narasi utama tetap tidak disentuh.")
+
+        if doc_naskah:
+            raw=doc_naskah.getvalue()
+            fns=baca_true_footnotes_docx(raw)
+            if fns:
+                st.success(f"Ditemukan {len(fns)} true Word footnote pada naskah.")
+                preview=[]
+                for j,x in enumerate(fns,1):
+                    idx,score,alasan=cocokkan_footnote_ke_library(x["teks"],st.session_state.bank_referensi)
+                    rr=st.session_state.bank_referensi[idx] if idx is not None else None
+                    preview.append({"No":j,"Footnote":x["teks"],"Cocok Library":rr.get("Judul","") if rr else "","Status":alasan,"Kecocokan":f"{score:.0%}" if score else "-"})
+                st.markdown("#### 👁️ Pratinjau Pencocokan")
+                st.dataframe(pd.DataFrame(preview),use_container_width=True,hide_index=True)
+
+                if st.button("✅ Proses Naskah & Buat Salinan SIAP_AJUKAN",type="primary",key="proses_word_footnote"):
+                    mode_internal="Ubah semua ke Chicago" if mode_fn.startswith("🔄") else "Pertahankan format naskah asli"
+                    hasil,lap,msg=rapikan_true_footnotes_docx(raw,st.session_state.bank_referensi,mode_internal)
+                    if hasil:
+                        st.session_state["docx_siap_ajukan"]=hasil
+                        st.session_state["laporan_footnote_word"]=lap
+                        st.success("Salinan naskah selesai dibuat. File asli tetap aman dan tidak ditimpa.")
+                    else:
+                        st.error(msg)
+            else:
+                st.warning("True Word footnote belum terdeteksi. Aplikasi tidak akan menebak atau mengubah narasi. Jika catatan kaki masih berupa [1] atau teks manual, gunakan dokumen Word yang memiliki Insert Footnote asli.")
+
+        if st.session_state.get("laporan_footnote_word"):
+            st.markdown("#### ✅ Laporan Footnote")
+            st.dataframe(pd.DataFrame(st.session_state["laporan_footnote_word"]),use_container_width=True,hide_index=True)
+        if st.session_state.get("docx_siap_ajukan"):
+            nama="NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx"
+            st.download_button("📥 Unduh Word — SIAP_AJUKAN",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
+
+        st.divider()
+        st.markdown("#### 🧩 Opsi Teks / BAB")
+        st.caption("Bagian ini tetap tersedia untuk memasang referensi pada teks yang ditempel. Untuk naskah final besok, gunakan unggah Word di atas agar file asli tetap menjadi acuan.")
+        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=220,key="naskah_ref")
         refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
         pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
         dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
         arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
         if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
         if st.session_state.get("hasil_penulisan_ai"):
-            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
+            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
 
     with tab_audit:
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
