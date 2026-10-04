@@ -1123,17 +1123,35 @@ elif menu == "📚 Perkuliahan & OBE":
     )
 
     # ========================================================
+    # DATA MATA KULIAH TAMBAHAN
+    # ========================================================
+    if "mata_kuliah_tambahan" not in st.session_state:
+        st.session_state.mata_kuliah_tambahan = []
+
+    mata_kuliah_bawaan = [
+        "Seminar Proposal Tesis",
+        "Kepemimpinan dan Supervisi PAI"
+    ]
+
+    daftar_mata_kuliah = []
+
+    for nama in (
+        mata_kuliah_bawaan
+        + st.session_state.mata_kuliah_tambahan
+    ):
+        if nama and nama not in daftar_mata_kuliah:
+            daftar_mata_kuliah.append(nama)
+
+    daftar_mata_kuliah.append("➕ Tambah Mata Kuliah")
+
+    # ========================================================
     # MATA KULIAH SAYA
     # ========================================================
     st.subheader("📚 Mata Kuliah Saya")
 
     mata_kuliah = st.selectbox(
         "Pilih Mata Kuliah",
-        [
-            "Seminar Proposal Tesis",
-            "Kepemimpinan dan Supervisi PAI",
-            "➕ Tambah Mata Kuliah"
-        ],
+        daftar_mata_kuliah,
         key="pilih_mata_kuliah"
     )
 
@@ -1146,36 +1164,59 @@ elif menu == "📚 Perkuliahan & OBE":
 
         nama_mk = st.text_input(
             "Nama Mata Kuliah",
+            placeholder="Contoh: Filsafat Pendidikan Islam",
             key="nama_mata_kuliah_baru"
         )
 
         if st.button(
-            "Tambahkan Mata Kuliah",
-            key="tambah_mata_kuliah"
+            "➕ Tambahkan Mata Kuliah",
+            key="tambah_mata_kuliah",
+            use_container_width=True
         ):
-            if nama_mk.strip():
-                st.success(
-                    f"Mata kuliah '{nama_mk.strip()}' siap ditambahkan."
-                )
-            else:
+
+            nama_baru = nama_mk.strip()
+
+            if not nama_baru:
                 st.warning(
                     "Masukkan nama mata kuliah terlebih dahulu."
                 )
+
+            elif nama_baru in daftar_mata_kuliah:
+                st.warning(
+                    "Mata kuliah tersebut sudah ada."
+                )
+
+            else:
+                st.session_state.mata_kuliah_tambahan.append(
+                    nama_baru
+                )
+
+                st.success(
+                    f"✅ Mata kuliah '{nama_baru}' berhasil ditambahkan."
+                )
+
+                st.rerun()
+
+        st.info(
+            "Mata kuliah yang ditambahkan pada tahap ini tersimpan "
+            "selama sesi aplikasi aktif. Penyimpanan permanen "
+            "akan menggunakan database pada tahap berikutnya."
+        )
 
     # ========================================================
     # RUANG KERJA MATA KULIAH
     # ========================================================
     else:
 
-        if mata_kuliah == "Seminar Proposal Tesis":
-            st.markdown("### 🎓 Seminar Proposal Tesis")
-        else:
-            st.markdown("### 👨‍🏫 Kepemimpinan dan Supervisi PAI")
+        st.markdown(
+            f"### 📘 {mata_kuliah}"
+        )
 
         st.info(
             "Pilih Tugas Saya untuk membuat tugas perkuliahan. "
-            "RPS dan materi kuliah dapat disimpan sebagai bahan pendukung, "
-            "tetapi tidak perlu dimasukkan setiap kali membuat tugas."
+            "RPS dan materi kuliah dapat disimpan sebagai bahan "
+            "pendukung, tetapi tidak perlu dimasukkan setiap kali "
+            "membuat tugas."
         )
 
         bagian = st.selectbox(
@@ -1227,13 +1268,7 @@ elif menu == "📚 Perkuliahan & OBE":
                 type=[
                     "pdf",
                     "docx",
-                    "txt",
-                    "csv",
-                    "xlsx",
-                    "pptx",
-                    "jpg",
-                    "jpeg",
-                    "png"
+                    "txt"
                 ],
                 accept_multiple_files=True,
                 key="upload_tugas_mata_kuliah"
@@ -1244,7 +1279,7 @@ elif menu == "📚 Perkuliahan & OBE":
             if files_tugas:
 
                 st.success(
-                    f"{len(files_tugas)} file berhasil dipilih."
+                    f"✅ {len(files_tugas)} file berhasil dipilih."
                 )
 
                 for file in files_tugas:
@@ -1254,37 +1289,48 @@ elif menu == "📚 Perkuliahan & OBE":
                         f"{format_ukuran(file.size)}"
                     )
 
-                    if file.name.lower().endswith(
-                        (".pdf", ".docx", ".txt")
-                    ):
-                        teks_file = ekstrak_teks(file)
+                    teks_file = ekstrak_teks(file)
 
-                        if (
-                            teks_file
-                            and not teks_file.startswith("ERROR:")
-                        ):
-                            bahan_teks += (
-                                f"\n\n===== {file.name} =====\n"
-                                + teks_file
-                            )
+                    if (
+                        teks_file
+                        and not teks_file.startswith("ERROR:")
+                    ):
+                        bahan_teks += (
+                            f"\n\n===== {file.name} =====\n"
+                            + teks_file
+                        )
+
+                    elif teks_file.startswith("ERROR:"):
+                        st.warning(
+                            f"{file.name}: {teks_file}"
+                        )
 
             # =================================================
-            # REFERENSI OTOMATIS
+            # REFERENSI AKADEMIK
             # =================================================
             st.divider()
 
             st.markdown("## 🔎 Referensi Akademik")
 
             st.caption(
-                "Akademia AI dapat mencari metadata referensi ilmiah "
-                "dari sumber yang sudah terhubung dengan aplikasi. "
-                "Referensi tidak dibuat atau dikarang oleh AI."
+                "Akademia AI mencari metadata referensi dari "
+                "Crossref, OpenAlex, Semantic Scholar dan sumber "
+                "yang sudah terhubung. Referensi tidak dibuat "
+                "atau dikarang oleh AI."
             )
+
+            if "hasil_ref_tugas" not in st.session_state:
+                st.session_state.hasil_ref_tugas = []
+
+            if "signature_ref_tugas" not in st.session_state:
+                st.session_state.signature_ref_tugas = ""
 
             kata_kunci_ref = st.text_input(
                 "Kata Kunci Pencarian Referensi",
                 value=judul_tugas,
-                placeholder="Contoh: kepemimpinan pendidikan Islam",
+                placeholder=(
+                    "Contoh: kepemimpinan pendidikan Islam"
+                ),
                 key="kata_kunci_ref_tugas"
             )
 
@@ -1297,9 +1343,6 @@ elif menu == "📚 Perkuliahan & OBE":
                 key="jumlah_ref_tugas"
             )
 
-            if "hasil_ref_tugas" not in st.session_state:
-                st.session_state.hasil_ref_tugas = []
-
             if st.button(
                 "🔎 Cari Referensi Ilmiah",
                 key="cari_ref_tugas",
@@ -1309,7 +1352,7 @@ elif menu == "📚 Perkuliahan & OBE":
                 if not kata_kunci_ref.strip():
 
                     st.warning(
-                        "Masukkan judul/tema atau kata kunci terlebih dahulu."
+                        "Masukkan judul atau kata kunci terlebih dahulu."
                     )
 
                 else:
@@ -1318,137 +1361,181 @@ elif menu == "📚 Perkuliahan & OBE":
                         "Mencari referensi ilmiah..."
                     ):
 
-                        hasil_ref = cari_multi_sumber(
+                        hasil_pencarian = cari_multi_sumber(
                             kata_kunci_ref,
                             jumlah_ref
                         )
 
-                    st.session_state.hasil_ref_tugas = hasil_ref
+                    st.session_state.hasil_ref_tugas = (
+                        hasil_pencarian
+                    )
 
-                    if hasil_ref:
+                    st.session_state.signature_ref_tugas = (
+                        kata_kunci_ref.strip().lower()
+                    )
+
+                    if hasil_pencarian:
                         st.success(
-                            f"✅ Ditemukan {len(hasil_ref)} "
-                            "referensi yang dapat diperiksa."
+                            f"✅ Ditemukan "
+                            f"{len(hasil_pencarian)} referensi."
                         )
                     else:
                         st.warning(
-                            "Referensi belum ditemukan. "
-                            "Coba gunakan kata kunci yang lebih spesifik."
+                            "Belum ditemukan referensi yang sesuai."
                         )
+
+            referensi_dipilih = []
 
             hasil_ref = st.session_state.get(
                 "hasil_ref_tugas",
                 []
             )
 
-            referensi_dipilih = []
-
             if hasil_ref:
 
-                st.markdown("### 📚 Hasil Pencarian")
-
-                st.caption(
-                    "Centang referensi yang ingin digunakan dalam tugas."
+                st.markdown(
+                    "### 📚 Hasil Pencarian Referensi"
                 )
 
-                for i, ref in enumerate(hasil_ref):
+                st.caption(
+                    "Centang referensi yang akan digunakan "
+                    "dalam tugas."
+                )
+
+                for i, ref in enumerate(
+                    hasil_ref,
+                    start=1
+                ):
 
                     judul_ref = (
                         ref.get("Judul")
                         or "Tanpa judul"
                     )
 
+                    penulis_ref = (
+                        ref.get("Penulis")
+                        or "Penulis belum tersedia"
+                    )
+
                     tahun_ref = (
                         ref.get("Tahun")
-                        or "Tanpa tahun"
+                        or "Tahun belum tersedia"
                     )
 
                     sumber_ref = (
                         ref.get("Sumber")
-                        or "Sumber tidak diketahui"
+                        or ""
                     )
 
                     status_ref = (
                         ref.get("Status")
-                        or "Belum terverifikasi"
+                        or ""
                     )
 
                     label_ref = (
-                        f"{judul_ref} "
+                        f"{i}. {judul_ref} "
                         f"({tahun_ref})"
                     )
 
-                    pilih_ref = st.checkbox(
+                    dipilih = st.checkbox(
                         label_ref,
                         key=f"pilih_ref_tugas_{i}"
                     )
 
                     st.caption(
-                        f"{sumber_ref} | {status_ref}"
+                        f"{penulis_ref} | "
+                        f"{sumber_ref} | "
+                        f"{status_ref}"
                     )
 
-                    if ref.get("Penulis"):
-                        st.write(
-                            f"**Penulis:** {ref.get('Penulis')}"
-                        )
-
-                    if ref.get("Jurnal"):
-                        st.write(
-                            f"**Jurnal/Sumber:** "
-                            f"{ref.get('Jurnal')}"
-                        )
-
                     if ref.get("DOI"):
-                        st.write(
-                            f"**DOI:** {ref.get('DOI')}"
+                        st.caption(
+                            f"DOI: {ref.get('DOI')}"
                         )
 
-                    if pilih_ref:
-                        referensi_dipilih.append(ref)
+                    if dipilih:
+                        referensi_dipilih.append(
+                            ref
+                        )
 
-                    st.divider()
+                if referensi_dipilih:
+
+                    if st.button(
+                        "📚 Simpan Referensi Terpilih ke Bank Referensi",
+                        key="simpan_ref_tugas",
+                        use_container_width=True
+                    ):
+
+                        jumlah_baru = 0
+
+                        for ref in referensi_dipilih:
+
+                            if tambah_bank_referensi(ref):
+                                jumlah_baru += 1
+
+                        if jumlah_baru:
+                            st.success(
+                                f"✅ {jumlah_baru} referensi baru "
+                                "masuk ke Bank Referensi."
+                            )
+                        else:
+                            st.info(
+                                "Referensi terpilih sudah ada "
+                                "di Bank Referensi."
+                            )
 
             # =================================================
             # REFERENSI DARI BANK REFERENSI
             # =================================================
-            st.markdown("### 📚 Bank Referensi")
+            st.divider()
 
-            bank_ref = st.session_state.get(
-                "bank_referensi",
-                []
+            st.markdown(
+                "### 📖 Gunakan Bank Referensi"
             )
 
-            if bank_ref:
+            refs_bank = st.session_state.bank_referensi
 
-                st.caption(
-                    "Referensi yang sebelumnya sudah disimpan "
-                    "juga dapat digunakan."
+            if refs_bank:
+
+                gunakan_bank = st.checkbox(
+                    "Tambahkan referensi yang sudah tersimpan "
+                    "di Bank Referensi",
+                    value=False,
+                    key="gunakan_bank_ref_tugas"
                 )
 
-                pilihan_bank = []
+                if gunakan_bank:
 
-                for i, ref in enumerate(bank_ref):
-
-                    label = (
-                        f"{ref.get('Judul', 'Tanpa judul')} "
-                        f"({ref.get('Tahun', 'n.d.')})"
-                    )
-
-                    if st.checkbox(
-                        label,
-                        key=f"bank_ref_tugas_{i}"
+                    for i, ref in enumerate(
+                        refs_bank,
+                        start=1
                     ):
-                        pilihan_bank.append(ref)
 
-                for ref in pilihan_bank:
-                    if (
-                        kunci_ref(ref)
-                        not in [
-                            kunci_ref(x)
-                            for x in referensi_dipilih
-                        ]
-                    ):
-                        referensi_dipilih.append(ref)
+                        judul_bank = (
+                            ref.get("Judul")
+                            or "Tanpa judul"
+                        )
+
+                        tahun_bank = (
+                            ref.get("Tahun")
+                            or "n.d."
+                        )
+
+                        pilih_bank = st.checkbox(
+                            f"{judul_bank} ({tahun_bank})",
+                            key=f"bank_ref_tugas_{i}"
+                        )
+
+                        if pilih_bank:
+
+                            if not any(
+                                kunci_ref(x)
+                                == kunci_ref(ref)
+                                for x in referensi_dipilih
+                            ):
+                                referensi_dipilih.append(
+                                    ref
+                                )
 
             else:
 
@@ -1458,154 +1545,37 @@ elif menu == "📚 Perkuliahan & OBE":
                 )
 
             # =================================================
-            # SIMPAN REFERENSI TERPILIH
-            # =================================================
-            if referensi_dipilih:
-
-                st.success(
-                    f"{len(referensi_dipilih)} referensi "
-                    "dipilih untuk tugas ini."
-                )
-
-                if st.button(
-                    "💾 Simpan Referensi Terpilih ke Bank Referensi",
-                    key="simpan_ref_tugas",
-                    use_container_width=True
-                ):
-
-                    jumlah_baru = 0
-
-                    for ref in referensi_dipilih:
-                        if tambah_bank_referensi(ref):
-                            jumlah_baru += 1
-
-                    if jumlah_baru:
-                        st.success(
-                            f"✅ {jumlah_baru} referensi baru "
-                            "masuk ke Bank Referensi."
-                        )
-                    else:
-                        st.info(
-                            "Referensi tersebut sudah ada "
-                            "di Bank Referensi."
-                        )
-
-            # =================================================
-            # PENYUSUNAN TUGAS
+            # PEMBUATAN TUGAS DENGAN GEMINI
             # =================================================
             st.divider()
 
-            st.markdown("## 🤖 Penyusunan Tugas dengan AI")
+            st.markdown("## 🤖 Susun Tugas dengan AI")
+
+            st.caption(
+                "Gemini menyusun naskah berdasarkan tema, "
+                "bahan yang diunggah dan referensi yang tersedia. "
+                "Referensi, DOI, data dan kutipan tidak boleh "
+                "dikarang."
+            )
 
             if jenis_tugas == "Makalah":
 
-                st.info(
-                    "Makalah akan disusun lengkap mulai dari cover, "
-                    "kata pengantar, daftar isi, BAB I, BAB II, BAB III, "
-                    "catatan kaki/sitasi, sampai daftar pustaka."
-                )
+                instruksi_tugas = """
+Susun MAKALAH AKADEMIK yang utuh dan sistematis.
 
-            elif jenis_tugas == "Paper":
-
-                st.info(
-                    "Paper akan disusun dalam format akademik "
-                    "sesuai tema dan bahan yang tersedia."
-                )
-
-            elif jenis_tugas == "Resume":
-
-                st.info(
-                    "Resume akan merangkum bahan secara sistematis "
-                    "tanpa mengubah substansi utama."
-                )
-
-            elif jenis_tugas == "Review Jurnal":
-
-                st.info(
-                    "Review akan membahas identitas artikel, masalah, "
-                    "metode, temuan, kekuatan, kelemahan, dan kesimpulan."
-                )
-
-            elif jenis_tugas == "Review Buku":
-
-                st.info(
-                    "Review akan membahas identitas buku, isi utama, "
-                    "kelebihan, kekurangan, analisis, dan kesimpulan."
-                )
-
-            elif jenis_tugas == "Critical Review":
-
-                st.info(
-                    "Critical review akan menekankan analisis kritis, "
-                    "argumentasi, kekuatan, kelemahan, dan relevansi."
-                )
-
-            elif jenis_tugas == "Studi Kasus":
-
-                st.info(
-                    "Studi kasus akan disusun dari masalah, analisis, "
-                    "alternatif solusi, rekomendasi, dan kesimpulan."
-                )
-
-            elif jenis_tugas == "Presentasi":
-
-                st.info(
-                    "Hasil akan disusun menjadi kerangka presentasi "
-                    "yang ringkas dan sistematis."
-                )
-
-            # =================================================
-            # GENERATE AI
-            # =================================================
-            if st.button(
-                "✨ Susun Tugas Lengkap",
-                type="primary",
-                key="generate_tugas_lengkap",
-                use_container_width=True
-            ):
-
-                if not judul_tugas.strip():
-
-                    st.warning(
-                        "Masukkan judul atau tema tugas terlebih dahulu."
-                    )
-
-                else:
-
-                    konteks_tugas = (
-                        f"MATA KULIAH:\n{mata_kuliah}\n\n"
-                        f"JENIS TUGAS:\n{jenis_tugas}\n\n"
-                        f"JUDUL/TEMA:\n{judul_tugas}\n\n"
-                    )
-
-                    if bahan_teks.strip():
-
-                        konteks_tugas += (
-                            "BAHAN DARI PENGGUNA:\n"
-                            + bahan_teks[:60000]
-                            + "\n\n"
-                        )
-
-                    if jenis_tugas == "Makalah":
-
-                        instruksi_ai = """
-Susun MAKALAH AKADEMIK LENGKAP berdasarkan judul,
-bahan pengguna, dan referensi yang tersedia.
-
-STRUKTUR WAJIB:
-
+STRUKTUR:
 1. COVER
    - Judul makalah
    - Mata kuliah
-   - Sediakan tempat untuk nama mahasiswa
-   - Sediakan tempat untuk NIM
-   - Sediakan tempat untuk nama dosen
-   - Sediakan tempat untuk program studi/institusi
+   - Identitas mahasiswa dibuat sebagai tempat isian
+   - Institusi dibuat sebagai tempat isian
    - Tahun
 
 2. KATA PENGANTAR
 
 3. DAFTAR ISI
+   Buat struktur daftar isi yang dapat disesuaikan
+   setelah naskah dipindahkan ke Word.
 
 4. BAB I PENDAHULUAN
    A. Latar Belakang
@@ -1613,175 +1583,380 @@ STRUKTUR WAJIB:
    C. Tujuan Penulisan
 
 5. BAB II PEMBAHASAN
-   - Buat subbab berdasarkan fokus pembahasan.
-   - Pembahasan harus akademik, sistematis, dan mendalam.
-   - Hubungkan teori dengan tema makalah.
-   - Gunakan referensi yang tersedia untuk mendukung klaim akademik.
+   - Susun subbab sesuai tema.
+   - Jelaskan konsep secara akademik.
+   - Hubungkan teori dengan konteks pembahasan.
+   - Gunakan referensi yang tersedia.
+   - Setiap klaim ilmiah penting harus memiliki
+     dukungan referensi jika referensinya tersedia.
+   - Jangan membuat sumber yang tidak tersedia.
 
 6. BAB III PENUTUP
    A. Kesimpulan
    B. Saran
 
-7. CATATAN KAKI bila gaya sitasi menggunakan
+7. CATATAN KAKI jika gaya sitasi menggunakan
    Chicago Notes & Bibliography.
 
 8. DAFTAR PUSTAKA
+   Hanya masukkan sumber yang benar-benar digunakan.
 
-ATURAN AKADEMIK WAJIB:
-- Jangan mengarang sumber.
+ATURAN:
+- Jangan mengarang referensi.
 - Jangan mengarang DOI.
-- Jangan mengarang nama penulis.
 - Jangan mengarang nomor halaman.
-- Jangan membuat kutipan langsung jika teks asli sumber
-  tidak tersedia.
-- Bila nomor halaman tidak tersedia, beri tanda
+- Jangan membuat kutipan langsung jika teks asli
+  dan halaman sumber tidak tersedia.
+- Jika halaman kutipan diperlukan tetapi belum
+  terverifikasi, beri tanda:
   [halaman perlu verifikasi].
-- Gunakan hanya referensi yang diberikan sistem.
-- Setiap sumber dalam daftar pustaka harus benar-benar
-  digunakan dalam naskah.
-- Jangan memasukkan sumber yang tidak digunakan.
-- Jangan membuat data penelitian fiktif.
-- Gunakan bahasa Indonesia akademik tingkat pascasarjana.
-- Hasil harus berupa makalah utuh dan dapat diedit,
-  bukan sekadar jawaban singkat.
+- Jika referensi tidak cukup, beri tanda:
+  [PERLU REFERENSI TERVERIFIKASI].
 """
 
-                    elif jenis_tugas == "Paper":
+            elif jenis_tugas == "Paper":
 
-                        instruksi_ai = """
-Susun paper akademik lengkap berdasarkan judul,
-bahan, dan referensi yang tersedia.
-Bangun argumentasi yang sistematis, analitis,
-dan menggunakan referensi yang benar-benar tersedia.
-Jangan mengarang referensi, DOI, kutipan, halaman,
-atau data penelitian.
+                instruksi_tugas = """
+Susun paper akademik berdasarkan tema dan bahan yang
+tersedia.
+
+Struktur utama:
+- Judul
+- Pendahuluan
+- Permasalahan atau fokus pembahasan
+- Kajian konsep/teori
+- Analisis dan pembahasan
+- Kesimpulan
+- Daftar pustaka
+
+Gunakan referensi yang tersedia dan jangan membuat
+referensi, DOI, kutipan, data atau nomor halaman
+yang tidak terverifikasi.
 """
 
-                    elif jenis_tugas == "Resume":
+            elif jenis_tugas == "Resume":
 
-                        instruksi_ai = """
+                instruksi_tugas = """
 Susun resume akademik yang sistematis.
-Pertahankan gagasan utama bahan.
-Jangan menambahkan fakta atau sumber yang tidak tersedia.
-Buat bagian pokok bahasan, uraian inti,
-dan kesimpulan.
+
+Tampilkan:
+- Identitas/topik bahan
+- Pokok-pokok pembahasan
+- Konsep penting
+- Penjelasan ringkas setiap pokok
+- Kesimpulan
+
+Resume harus setia pada bahan yang tersedia.
+Jangan menambahkan fakta yang tidak didukung bahan.
 """
 
-                    elif jenis_tugas == "Review Jurnal":
+            elif jenis_tugas == "Review Jurnal":
 
-                        instruksi_ai = """
-Susun review jurnal akademik yang meliputi:
-identitas artikel jika tersedia, masalah penelitian,
-tujuan, teori, metode, hasil, kekuatan,
-kelemahan, analisis kritis, relevansi,
-dan kesimpulan.
-Jangan mengarang informasi yang tidak ada
-dalam bahan atau referensi.
+                instruksi_tugas = """
+Susun review jurnal akademik.
+
+Struktur:
+- Identitas artikel
+- Latar belakang
+- Tujuan penelitian
+- Teori/konsep
+- Metode
+- Hasil/temuan
+- Kekuatan artikel
+- Keterbatasan artikel
+- Analisis kritis
+- Relevansi
+- Kesimpulan
+
+Jangan mengarang identitas, metode, hasil atau
+temuan yang tidak terdapat pada bahan.
 """
 
-                    elif jenis_tugas == "Review Buku":
+            elif jenis_tugas == "Review Buku":
 
-                        instruksi_ai = """
-Susun review buku akademik yang meliputi:
-identitas buku jika tersedia, pokok isi,
-gagasan utama, kekuatan, kelemahan,
-analisis kritis, relevansi, dan kesimpulan.
-Jangan mengarang isi buku yang tidak tersedia.
+                instruksi_tugas = """
+Susun review buku akademik.
+
+Struktur:
+- Identitas buku
+- Gambaran umum
+- Pokok isi
+- Konsep utama
+- Kekuatan
+- Keterbatasan
+- Analisis kritis
+- Relevansi akademik
+- Kesimpulan
+
+Gunakan hanya informasi yang tersedia dalam bahan.
 """
 
-                    elif jenis_tugas == "Critical Review":
+            elif jenis_tugas == "Critical Review":
 
-                        instruksi_ai = """
+                instruksi_tugas = """
 Susun critical review akademik.
-Bedakan ringkasan isi dengan analisis kritis.
-Bahas argumentasi, kekuatan, kelemahan,
-relevansi, dan kontribusi.
-Gunakan hanya bahan dan referensi yang tersedia.
+
+Struktur:
+- Identitas karya
+- Ringkasan gagasan utama
+- Analisis argumentasi
+- Analisis teori
+- Analisis metodologis jika relevan
+- Kekuatan
+- Kelemahan
+- Posisi kritis penulis review
+- Implikasi
+- Kesimpulan
+
+Pisahkan dengan jelas isi sumber dan analisis kritis.
+Jangan membuat fakta atau sumber yang tidak tersedia.
 """
 
-                    elif jenis_tugas == "Studi Kasus":
+            elif jenis_tugas == "Studi Kasus":
 
-                        instruksi_ai = """
-Susun studi kasus akademik dengan struktur:
-latar kasus, identifikasi masalah,
-analisis masalah, landasan teori,
-alternatif solusi, solusi yang direkomendasikan,
-alasan pemilihan solusi, dan kesimpulan.
-Jangan menciptakan fakta kasus yang tidak diberikan.
+                instruksi_tugas = """
+Susun studi kasus akademik.
+
+Struktur:
+- Judul
+- Latar belakang kasus
+- Deskripsi kasus
+- Identifikasi masalah
+- Analisis akar masalah
+- Kajian teori yang relevan
+- Alternatif solusi
+- Solusi yang direkomendasikan
+- Rencana tindak lanjut
+- Kesimpulan
+- Daftar pustaka
+
+Bedakan fakta kasus dengan analisis.
+Jangan membuat data kasus yang tidak diberikan.
 """
 
-                    elif jenis_tugas == "Laporan":
+            elif jenis_tugas == "Laporan":
 
-                        instruksi_ai = """
-Susun laporan akademik secara sistematis
-berdasarkan bahan yang tersedia.
-Gunakan struktur pendahuluan, isi/hasil,
-pembahasan, kesimpulan, dan rekomendasi
-sesuai konteks tugas.
-Jangan menciptakan data.
+                instruksi_tugas = """
+Susun laporan akademik secara sistematis.
+
+Struktur disesuaikan dengan bahan:
+- Judul
+- Pendahuluan
+- Tujuan
+- Pelaksanaan/kegiatan
+- Temuan atau hasil
+- Pembahasan
+- Kesimpulan
+- Rekomendasi
+- Lampiran bila diperlukan
+
+Jangan membuat kegiatan, data atau hasil yang
+tidak tersedia.
 """
 
-                    elif jenis_tugas == "Mini Riset":
+            elif jenis_tugas == "Mini Riset":
 
-                        instruksi_ai = """
-Susun kerangka mini riset akademik berdasarkan
-informasi yang tersedia.
-Jangan menciptakan data penelitian atau hasil penelitian.
-Jika data belum tersedia, buat rancangan analisis
-dan tandai bagian yang masih harus diisi pengguna.
+                instruksi_tugas = """
+Susun naskah mini riset akademik.
+
+Struktur:
+- Judul
+- Latar belakang
+- Identifikasi masalah
+- Rumusan masalah
+- Tujuan
+- Kajian teori
+- Metode
+- Kerangka analisis
+- Hasil/temuan jika data tersedia
+- Pembahasan
+- Kesimpulan
+- Rekomendasi
+- Daftar pustaka
+
+Jika data penelitian belum tersedia, jangan
+menciptakan hasil penelitian. Buat struktur
+analisis dan tandai bagian yang memerlukan data.
 """
 
-                    elif jenis_tugas == "Presentasi":
+            else:
 
-                        instruksi_ai = """
-Susun materi presentasi akademik.
-Buat urutan slide yang logis mulai dari judul,
-latar belakang, pokok pembahasan,
-analisis, kesimpulan, dan referensi.
-Isi setiap slide harus ringkas dan siap dipindahkan
-ke PowerPoint.
+                instruksi_tugas = """
+Susun bahan presentasi akademik berdasarkan tema,
+bahan dan referensi yang tersedia.
+
+Buat:
+- Judul presentasi
+- Tujuan
+- Latar belakang
+- Pokok materi
+- Konsep/teori utama
+- Analisis
+- Contoh atau studi kasus jika tersedia
+- Kesimpulan
+- Rekomendasi
+- Referensi
+
+Susun per slide dengan narasi singkat dan jelas.
+Jangan membuat data atau referensi yang tidak
+tersedia.
 """
 
-                    else:
+            konteks_tugas = (
+                f"MATA KULIAH:\n{mata_kuliah}\n\n"
+                f"JENIS TUGAS:\n{jenis_tugas}\n\n"
+                f"JUDUL/TEMA:\n"
+                f"{judul_tugas if judul_tugas else '[belum diisi]'}"
+            )
 
-                        instruksi_ai = (
-                            "Susun tugas akademik lengkap berdasarkan "
-                            "judul, bahan, dan referensi yang tersedia. "
-                            "Jangan mengarang sumber atau data."
+            if bahan_teks:
+
+                konteks_tugas += (
+                    "\n\nBAHAN DARI DOSEN / "
+                    "BAHAN PENDUKUNG:\n"
+                    + bahan_teks[:50000]
+                )
+
+            if referensi_dipilih:
+
+                konteks_tugas += (
+                    "\n\nREFERENSI TERPILIH TERSEDIA "
+                    "PADA SISTEM."
+                )
+
+            if st.button(
+                f"✨ Buat {jenis_tugas} dengan Gemini",
+                key="buat_tugas_gemini",
+                type="primary",
+                use_container_width=True
+            ):
+
+                if (
+                    not judul_tugas.strip()
+                    and not bahan_teks.strip()
+                ):
+
+                    st.warning(
+                        "Masukkan judul/tema atau unggah "
+                        "bahan tugas terlebih dahulu."
+                    )
+
+                else:
+
+                    # -----------------------------------------
+                    # CARI REFERENSI OTOMATIS BILA DIPERLUKAN
+                    # -----------------------------------------
+                    if (
+                        not referensi_dipilih
+                        and judul_tugas.strip()
+                        and jenis_tugas in [
+                            "Makalah",
+                            "Paper",
+                            "Studi Kasus",
+                            "Mini Riset",
+                            "Presentasi"
+                        ]
+                    ):
+
+                        with st.spinner(
+                            "Mencari referensi ilmiah "
+                            "yang relevan..."
+                        ):
+
+                            refs_otomatis = cari_multi_sumber(
+                                judul_tugas,
+                                10
+                            )
+
+                        refs_layak = []
+
+                        for ref in refs_otomatis:
+
+                            status = str(
+                                ref.get("Status", "")
+                            )
+
+                            if (
+                                ref.get("DOI")
+                                or status.startswith("✅")
+                            ):
+                                refs_layak.append(ref)
+
+                        referensi_dipilih = (
+                            refs_layak[:8]
                         )
 
+                        for ref in referensi_dipilih:
+                            tambah_bank_referensi(ref)
+
+                        if referensi_dipilih:
+
+                            st.success(
+                                f"✅ {len(referensi_dipilih)} "
+                                "referensi ilmiah ditemukan "
+                                "dan dihubungkan dengan tugas."
+                            )
+
+                        else:
+
+                            st.warning(
+                                "Belum ditemukan referensi "
+                                "terverifikasi yang cukup. "
+                                "Gemini tidak diperbolehkan "
+                                "mengarang sumber."
+                            )
+
                     panel_ai_penulisan(
-                        konteks_tugas,
-                        jenis_tugas,
-                        instruksi_ai,
-                        referensi_dipilih,
-                        "tugas_mata_kuliah"
+                        konteks=konteks_tugas,
+                        jenis_output=(
+                            f"{jenis_tugas} untuk mata kuliah "
+                            f"{mata_kuliah}"
+                        ),
+                        instruksi=instruksi_tugas,
+                        referensi=referensi_dipilih,
+                        key="ai_tugas_perkuliahan"
                     )
 
             # =================================================
             # HASIL TUGAS
             # =================================================
-            if st.session_state.get(
-                "hasil_penulisan_ai"
-            ):
+            hasil_tugas = st.session_state.get(
+                "hasil_penulisan_ai",
+                ""
+            )
+
+            if hasil_tugas:
 
                 st.divider()
 
-                st.markdown("## 📄 Hasil Tugas")
+                st.markdown("## ✍️ Hasil Tugas")
 
                 hasil_edit = st.text_area(
-                    "Hasil dapat diedit",
-                    st.session_state.hasil_penulisan_ai,
+                    "Naskah dapat diedit",
+                    value=hasil_tugas,
                     height=700,
-                    key="hasil_tugas_mata_kuliah"
+                    key="edit_hasil_tugas"
                 )
 
-                st.session_state.naskah_aktif = hasil_edit
+                st.session_state.naskah_aktif = (
+                    hasil_edit
+                )
 
-                st.caption(
-                    "Periksa kembali nama, NIM, dosen, institusi, "
-                    "kutipan, halaman sumber, dan ketentuan tugas "
-                    "sebelum digunakan sebagai naskah final."
+                st.download_button(
+                    "⬇️ Unduh Naskah TXT",
+                    data=hasil_edit,
+                    file_name=(
+                        f"{jenis_tugas}_"
+                        f"{mata_kuliah}.txt"
+                    ),
+                    mime="text/plain",
+                    key="download_tugas_txt",
+                    use_container_width=True
+                )
+
+                st.success(
+                    "Naskah aktif sudah terhubung dengan "
+                    "ruang kerja Akademia AI."
                 )
 
         # ====================================================
@@ -1791,15 +1966,19 @@ ke PowerPoint.
 
             st.markdown("## 📄 RPS / Modul")
 
-            st.info(
-                "Bagian ini untuk menyimpan atau membaca RPS dan modul "
-                "mata kuliah sebagai bahan pendukung. "
-                "RPS tidak perlu dimasukkan setiap kali membuat tugas."
+            st.caption(
+                "RPS atau modul disimpan sebagai bahan "
+                "pendukung mata kuliah. Tidak perlu diunggah "
+                "setiap kali membuat tugas."
             )
 
             files_rps = st.file_uploader(
                 "Unggah RPS / Modul",
-                type=["pdf", "docx", "txt"],
+                type=[
+                    "pdf",
+                    "docx",
+                    "txt"
+                ],
                 accept_multiple_files=True,
                 key="upload_rps_mata_kuliah"
             )
@@ -1813,36 +1992,39 @@ ke PowerPoint.
                         f"{format_ukuran(file.size)}"
                     )
 
-                    if st.button(
-                        f"💾 Simpan {file.name} ke Bank Karya",
-                        key=f"simpan_rps_{file.name}"
-                    ):
+                    baru = simpan_karya(
+                        file.name,
+                        f"RPS / Modul - {mata_kuliah}",
+                        format_ukuran(file.size)
+                    )
 
-                        berhasil = simpan_karya(
-                            file.name,
-                            f"RPS/Modul - {mata_kuliah}",
-                            format_ukuran(file.size)
+                    if baru:
+                        st.success(
+                            f"✅ {file.name} disimpan "
+                            "ke Bank Karya."
                         )
-
-                        if berhasil:
-                            st.success(
-                                "Dokumen tercatat di Bank Karya."
-                            )
-                        else:
-                            st.info(
-                                "Dokumen sudah tercatat."
-                            )
+                    else:
+                        st.info(
+                            f"{file.name} sudah ada "
+                            "di Bank Karya."
+                        )
 
         # ====================================================
         # MATERI PERKULIAHAN
         # ====================================================
         elif bagian == "📚 Materi Perkuliahan":
 
-            st.markdown("## 📚 Materi Perkuliahan")
+            st.markdown(
+                "## 📚 Materi Perkuliahan"
+            )
 
             files_materi = st.file_uploader(
                 "Unggah materi kuliah",
-                type=["pdf", "docx", "txt", "pptx"],
+                type=[
+                    "pdf",
+                    "docx",
+                    "txt"
+                ],
                 accept_multiple_files=True,
                 key="upload_materi_mata_kuliah"
             )
@@ -1856,6 +2038,22 @@ ke PowerPoint.
                         f"{format_ukuran(file.size)}"
                     )
 
+                    baru = simpan_karya(
+                        file.name,
+                        f"Materi - {mata_kuliah}",
+                        format_ukuran(file.size)
+                    )
+
+                    if baru:
+                        st.success(
+                            f"✅ {file.name} disimpan "
+                            "ke Bank Karya."
+                        )
+                    else:
+                        st.info(
+                            f"{file.name} sudah tersimpan."
+                        )
+
         # ====================================================
         # CATATAN DOSEN
         # ====================================================
@@ -1863,47 +2061,83 @@ ke PowerPoint.
 
             st.markdown("## 📌 Catatan Dosen")
 
-            st.text_area(
-                "Catatan, arahan, atau revisi dari dosen",
-                height=300,
-                key="catatan_dosen_mata_kuliah"
+            kunci_catatan = (
+                "catatan_dosen_"
+                + re.sub(
+                    r"[^a-zA-Z0-9]+",
+                    "_",
+                    mata_kuliah
+                ).lower()
             )
+
+            if kunci_catatan not in st.session_state:
+                st.session_state[kunci_catatan] = ""
+
+            catatan = st.text_area(
+                "Catatan penting dari dosen",
+                value=st.session_state[kunci_catatan],
+                height=350,
+                key=f"input_{kunci_catatan}"
+            )
+
+            if st.button(
+                "💾 Simpan Catatan",
+                key=f"simpan_{kunci_catatan}",
+                use_container_width=True
+            ):
+
+                st.session_state[kunci_catatan] = (
+                    catatan
+                )
+
+                st.success(
+                    "✅ Catatan dosen tersimpan "
+                    "dalam sesi."
+                )
 
         # ====================================================
         # REFERENSI MATA KULIAH
         # ====================================================
         elif bagian == "📖 Referensi Mata Kuliah":
 
-            st.markdown("## 📖 Referensi Mata Kuliah")
-
-            st.info(
-                "Referensi mata kuliah menggunakan Bank Referensi "
-                "yang sama dengan menu Literatur & Referensi."
+            st.markdown(
+                "## 📖 Referensi Mata Kuliah"
             )
 
-            refs_mk = st.session_state.get(
-                "bank_referensi",
-                []
-            )
+            refs = st.session_state.bank_referensi
 
-            if refs_mk:
+            if refs:
 
-                for i, ref in enumerate(refs_mk, 1):
+                st.success(
+                    f"📚 Tersedia {len(refs)} referensi "
+                    "dalam Bank Referensi."
+                )
+
+                for i, ref in enumerate(
+                    refs,
+                    start=1
+                ):
 
                     st.markdown(
-                        f"**{i}. {ref.get('Judul', 'Tanpa judul')}**"
+                        f"**{i}. "
+                        f"{ref.get('Judul', 'Tanpa judul')}**"
+                    )
+
+                    st.caption(
+                        f"{ref.get('Penulis', '')} | "
+                        f"{ref.get('Tahun', '')} | "
+                        f"{ref.get('Sumber', '')} | "
+                        f"{ref.get('Status', '')}"
                     )
 
                     st.write(
                         format_referensi(ref)
                     )
 
-                    st.caption(
-                        ref.get(
-                            "Status",
-                            "Status belum tersedia"
+                    if ref.get("DOI"):
+                        st.caption(
+                            f"DOI: {ref.get('DOI')}"
                         )
-                    )
 
                     st.divider()
 
@@ -1911,8 +2145,9 @@ ke PowerPoint.
 
                 st.info(
                     "Bank Referensi masih kosong. "
-                    "Gunakan pencarian referensi pada Tugas Saya "
-                    "atau menu Literatur & Referensi."
+                    "Gunakan pencarian referensi pada "
+                    "Tugas Saya atau menu "
+                    "Literatur & Referensi."
                 )
 # ============================================================
 # ANALISIS KARYA AKADEMIK
