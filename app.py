@@ -446,9 +446,11 @@ def panggil_gemini(prompt, temperature=0.25):
             detail = ""
             try: detail = e.read().decode("utf-8")
             except Exception: pass
-            if e.code in {429,500,502,503,504} and percobaan < 2:
+            if e.code == 429:
+                return {"sukses":False,"hasil":"","error":"⚠️ Kuota AI sementara habis. Fitur Library, Crossref, validasi metadata, sitasi, dan dokumen tetap dapat digunakan. Silakan gunakan fitur AI kembali setelah kuota tersedia."}
+            if e.code in {500,502,503,504} and percobaan < 2:
                 time.sleep(3*(percobaan+1)); continue
-            return {"sukses":False,"hasil":"","error":f"Gemini HTTP {e.code}. {detail}"}
+            return {"sukses":False,"hasil":"","error":f"Layanan AI sementara belum tersedia (HTTP {e.code}). Silakan coba lagi nanti."}
         except Exception as e:
             if percobaan < 2:
                 time.sleep(2*(percobaan+1)); continue
@@ -718,56 +720,6 @@ def cocokkan_footnote_ke_library(teks, refs):
         if year and author and year in low and author in nt:
             return i,0.70,"Penulis + tahun cocok"
     return None,0.0,"Belum cocok"
-
-def impor_footnote_terverifikasi_ke_library(footnotes):
-    """Baca semua true footnote, cocokkan Library, dan tambahkan HANYA metadata yang terverifikasi.
-    Dokumen Word tidak disentuh. Urutan konservatif: Library -> DOI Crossref -> metadata Gemini + judul Crossref.
-    Footnote pendek/berulang dicoba dicocokkan lagi setelah sumber lengkap sebelumnya masuk Library.
-    """
-    laporan=[]
-    tertunda=[]
-    jumlah_baru=0
-    for no, fn in enumerate(footnotes,1):
-        teks=(fn.get("teks") or "").strip()
-        idx,score,alasan=cocokkan_footnote_ke_library(teks,st.session_state.bank_referensi)
-        if idx is not None:
-            r=st.session_state.bank_referensi[idx]
-            laporan.append({"No":no,"Footnote":teks,"Judul":r.get("Judul",""),"Status":"✅ Sudah ada di Library","Validasi":alasan})
-            continue
-        doi=ekstrak_doi(teks)
-        ref=None
-        validasi=""
-        if doi:
-            ref=cari_crossref_doi(doi)
-            if ref:
-                ref["Status"]="✅ Metadata terverifikasi Crossref"
-                ref["Sumber"]="Footnote Word + Crossref DOI"
-                validasi="DOI terverifikasi Crossref"
-        if ref is None:
-            meta=ekstrak_metadata_gemini(teks,"Footnote Word")
-            if meta and meta.get("Judul"):
-                cand,sc=verifikasi_judul_crossref(meta.get("Judul",""))
-                if cand and sc>=0.82:
-                    ref=cand
-                    ref["Status"]=f"✅ Metadata terverifikasi Crossref (kemiripan judul {sc:.0%})"
-                    ref["Sumber"]="Footnote Word + ekstraksi metadata + Crossref"
-                    validasi=f"Judul terverifikasi Crossref {sc:.0%}"
-        if ref is not None:
-            baru=tambah_bank_referensi(ref)
-            if baru: jumlah_baru+=1
-            laporan.append({"No":no,"Footnote":teks,"Judul":ref.get("Judul",""),"Status":"✅ Masuk Library otomatis" if baru else "✅ Sudah ada di Library","Validasi":validasi})
-        else:
-            tertunda.append((no,teks))
-    # Pass kedua: shortened/repeated note mungkin baru dapat dikenali setelah full note masuk.
-    for no,teks in tertunda:
-        idx,score,alasan=cocokkan_footnote_ke_library(teks,st.session_state.bank_referensi)
-        if idx is not None:
-            r=st.session_state.bank_referensi[idx]
-            laporan.append({"No":no,"Footnote":teks,"Judul":r.get("Judul",""),"Status":"✅ Terhubung ke sumber Library","Validasi":alasan})
-        else:
-            laporan.append({"No":no,"Footnote":teks,"Judul":"","Status":"⚠️ Perlu Verifikasi — tidak dimasukkan otomatis","Validasi":"Belum ada kecocokan bibliografis yang cukup kuat"})
-    laporan.sort(key=lambda x:x["No"])
-    return jumlah_baru,laporan
 
 def _set_run_tnr10(run):
     rpr=run.find(_w("rPr"))
@@ -1189,6 +1141,24 @@ def verifikasi_entri_bibliografi(entri):
             "Sumber":"Daftar Pustaka dokumen","Status":status,
             "Entri Asli":entri}
 
+def kekuatan_validasi_ref(ref):
+    """Menjelaskan kekuatan validasi bibliografis, bukan kekuatan isi/argumen penelitian."""
+    status=str(ref.get("Status","") or "")
+    doi=(ref.get("DOI","") or "").strip()
+    if status.startswith("✅") and doi:
+        if "kemiripan judul" in status.lower():
+            m=re.search(r"(\d+)%",status)
+            pct=int(m.group(1)) if m else 90
+            return "Sangat Kuat" if pct>=95 else "Kuat"
+        return "Sangat Kuat"
+    if status.startswith("✅"):
+        return "Kuat"
+    if status.startswith("📘") or status.startswith("🏛️"):
+        return "Sedang — identitas sumber terdeteksi, perlu cek katalog/ISBN"
+    if status.startswith("🔎") or status.startswith("⚠️"):
+        return "Lemah — perlu verifikasi"
+    return "Belum dinilai"
+
 def unggah_referensi_ke_bank(files):
     jumlah=0; laporan=[]
     for f in files or []:
@@ -1205,7 +1175,7 @@ def unggah_referensi_ke_bank(files):
                 ref["Nama File"]=nama; ref["Entri Asli"]=entri; ref["Cuplikan"]=entri[:1500]
                 added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
                 laporan.append({"File":nama,"No.":no,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),
-                                "Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
+                                "Status":ref.get("Status",""),"Kekuatan Validasi":kekuatan_validasi_ref(ref),"Masuk Library":"Ya" if added else "Sudah ada"})
             continue
         # Jika file adalah satu artikel/buku, tetap gunakan alur lama.
         ref=None; doi=ekstrak_doi(teks)
@@ -1226,7 +1196,7 @@ def unggah_referensi_ke_bank(files):
                 ref={"Judul":nama.rsplit(".",1)[0],"Penulis":"","Tahun":"","Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"","URL":"","Sumber":"Unggahan pengguna","Status":"🔍 Metadata belum terbaca — cek manual"}
         ref["Nama File"]=nama; ref["Cuplikan"]=teks[:5000] if teks and not teks.startswith("ERROR:") else ""
         added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
-        laporan.append({"File":nama,"No.":1,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
+        laporan.append({"File":nama,"No.":1,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Kekuatan Validasi":kekuatan_validasi_ref(ref),"Masuk Library":"Ya" if added else "Sudah ada"})
     return jumlah,laporan
 
 def ringkasan_laporan_referensi(laporan, jumlah_baru):
@@ -2460,6 +2430,19 @@ elif menu == "🔎 Literatur & Referensi":
         st.caption("Ditemukan: "+(" • ".join(cocok) if cocok else "belum ada gaya yang cocok"))
     tab_cari,tab_online,tab_upload,tab_bank,tab_pakai,tab_audit=st.tabs(["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","✅ Audit Sitasi"])
 
+    st.markdown("### 📄 Dokumen Aktif — Unggah Cukup Satu Kali")
+    st.caption("Dokumen ini dipakai bersama oleh Unggah Referensi, Pakai di Naskah, dan Audit Sitasi. Tidak perlu unggah ulang di setiap tab.")
+    _master=st.file_uploader("Pilih naskah utama PDF/DOCX/TXT",type=["pdf","docx","txt"],key="dokumen_aktif_tunggal")
+    if _master is not None:
+        _master_bytes=_master.getvalue()
+        st.session_state["dokumen_aktif_bytes"]=_master_bytes
+        st.session_state["dokumen_aktif_nama"]=_master.name
+        st.session_state["dokumen_aktif_tipe"]=_master.type
+        st.success(f"✅ Dokumen aktif: {_master.name}. File yang sama dipakai otomatis di seluruh proses referensi/sitasi.")
+    _aktif_bytes=st.session_state.get("dokumen_aktif_bytes")
+    _aktif_nama=st.session_state.get("dokumen_aktif_nama","")
+
+
     with tab_cari:
         q=st.text_input("Topik / judul / kata kunci",key="q_ref")
         if st.button("🔎 Cari 4 Sumber Terintegrasi",type="primary",disabled=not bool(q.strip())):
@@ -2499,18 +2482,34 @@ elif menu == "🔎 Literatur & Referensi":
             a,b=st.columns([3,1]); a.write("**"+x["Nama"]+"**"); b.link_button("Buka",x["URL"],use_container_width=True)
 
     with tab_upload:
-        uprefs=st.file_uploader("Unggah satu atau banyak PDF/DOCX/TXT referensi",type=["pdf","docx","txt"],accept_multiple_files=True,key="upload_refs")
+        st.subheader("📤 Baca & Validasi Referensi dari Dokumen Aktif")
+        st.caption("Tidak ada upload kedua. Aplikasi membaca dokumen aktif di atas. Untuk DOCX dengan Daftar Pustaka, parser stabil membaca satu paragraf bibliografi sebagai satu sumber.")
         st.checkbox("Utamakan referensi yang saya unggah",value=True,key="prioritas_upload")
-        st.caption("Otomatis: baca dokumen → cari DOI → verifikasi Crossref. Jika DOI tidak terbaca, Gemini mengekstrak metadata lalu judul diverifikasi kembali.")
-        if st.button("📥 Baca, Verifikasi & Masukkan ke Library",type="primary",disabled=not bool(uprefs)):
-            with st.spinner("Membaca dan memverifikasi metadata..."): n,lap=unggah_referensi_ke_bank(uprefs)
-            st.session_state.laporan_upload_ref=lap; st.success(f"{n} referensi baru masuk Library.")
-        if st.session_state.get("laporan_upload_ref"): st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
+        if not _aktif_bytes:
+            st.info("Unggah dokumen sekali pada bagian 📄 Dokumen Aktif di atas.")
+        else:
+            st.write(f"**Dokumen:** {_aktif_nama}")
+            if st.button("📥 Baca, Verifikasi & Masukkan ke Library",type="primary",key="baca_master_ke_library"):
+                import io
+                class _UF:
+                    def __init__(self,name,data): self.name=name; self._b=io.BytesIO(data)
+                    def read(self,*a,**k): return self._b.read(*a,**k)
+                    def seek(self,*a,**k): return self._b.seek(*a,**k)
+                    def getvalue(self): return self._b.getvalue()
+                with st.spinner("Membaca dan memverifikasi metadata..."):
+                    n,lap=unggah_referensi_ke_bank([_UF(_aktif_nama,_aktif_bytes)])
+                st.session_state.laporan_upload_ref=lap
+                ring=ringkasan_laporan_referensi(lap,n)
+                st.success(f"Ditemukan {ring['Ditemukan']} referensi • {ring['Baru masuk Library']} baru masuk Library • {ring['Terverifikasi']} terverifikasi • {ring['Perlu verifikasi']} perlu verifikasi.")
+        if st.session_state.get("laporan_upload_ref"):
+            st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
 
     with tab_bank:
         refs=st.session_state.bank_referensi
         if refs:
-            df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
+            for _rr in refs:
+                _rr["Kekuatan Validasi"]=kekuatan_validasi_ref(_rr)
+            df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status","Kekuatan Validasi"] if x in df.columns]
             st.dataframe(df[kol],use_container_width=True,hide_index=True)
 
             st.markdown("#### 🧰 Kelola Referensi Satu per Satu")
@@ -2668,7 +2667,18 @@ elif menu == "🔎 Literatur & Referensi":
 
         st.divider()
         st.markdown("#### 📄 Periksa / Proses Salinan Word")
-        doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
+        doc_naskah=None
+        if _aktif_bytes and _aktif_nama.lower().endswith(".docx"):
+            import io
+            class _DocAktif:
+                def __init__(self,name,data): self.name=name; self._data=data
+                def getvalue(self): return self._data
+            doc_naskah=_DocAktif(_aktif_nama,_aktif_bytes)
+            st.success(f"✅ Menggunakan dokumen aktif: {_aktif_nama} — tidak perlu upload ulang.")
+        elif _aktif_bytes:
+            st.warning("Pakai di Naskah untuk true Word footnote memerlukan dokumen aktif berformat DOCX. Dokumen aktif saat ini bukan DOCX.")
+        else:
+            st.info("Unggah dokumen sekali pada bagian 📄 Dokumen Aktif di atas.")
         mode_kerja=st.radio(
             "Mode kerja",
             ["🔎 Periksa Saja — tidak mengubah file","🔒 Rapikan format true footnote saja","🔄 Ubah true footnote yang cocok dengan Library ke Chicago"],
@@ -2695,27 +2705,6 @@ elif menu == "🔎 Literatur & Referensi":
 
             fns=baca_true_footnotes_docx(raw)
             markers_manual,notes_manual=deteksi_catatan_manual_docx(raw)
-
-            # OTOMATIS SAAT UPLOAD: salin isi true footnote -> verifikasi -> Library.
-            # Tidak ada byte dokumen Word yang diubah pada tahap ini.
-            if fns:
-                import hashlib
-                _sig=hashlib.sha256(raw).hexdigest()
-                _key_sig="auto_footnote_library_sig"
-                if st.session_state.get(_key_sig)!=_sig:
-                    with st.spinner("Membaca semua footnote, memverifikasi sumber, dan memasukkan sumber terverifikasi ke Library..."):
-                        _nbaru,_lapauto=impor_footnote_terverifikasi_ke_library(fns)
-                    st.session_state[_key_sig]=_sig
-                    st.session_state["laporan_auto_footnote_library"]=_lapauto
-                    st.session_state["jumlah_auto_footnote_library"]=_nbaru
-                _nbaru=st.session_state.get("jumlah_auto_footnote_library",0)
-                _lapauto=st.session_state.get("laporan_auto_footnote_library",[])
-                st.success(f"📚 Footnote dibaca otomatis. {_nbaru} sumber terverifikasi baru masuk Library; sumber yang belum cukup kuat tetap ditandai untuk verifikasi.")
-                with st.expander("📚 Hasil otomatis Footnote → Library",expanded=True):
-                    if _lapauto:
-                        st.dataframe(pd.DataFrame(_lapauto),use_container_width=True,hide_index=True)
-                    st.caption("Sumber yang masuk Library otomatis langsung tersedia untuk ekspor RIS/BibTeX/EndNote/CSV ke Zotero, Mendeley, EndNote, RefWorks, Paperpile, Citavi, dan JabRef. Dokumen Word belum diubah.")
-
             st.markdown("#### 👁️ Pratinjau Deteksi")
             c1,c2,c3=st.columns(3)
             c1.metric("True Word footnote",len(fns))
@@ -2789,8 +2778,15 @@ elif menu == "🔎 Literatur & Referensi":
             st.text_area("Hasil salinan teks — tidak diterapkan otomatis ke Word",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah")
 
     with tab_audit:
-        naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
-        if naskah:
+        st.subheader("✅ Audit Sitasi — memakai Dokumen Aktif")
+        if _aktif_bytes:
+            import io
+            class _AuditAktif:
+                def __init__(self,name,data): self.name=name; self._b=io.BytesIO(data)
+                def read(self,*a,**k): return self._b.read(*a,**k)
+                def seek(self,*a,**k): return self._b.seek(*a,**k)
+            naskah=_AuditAktif(_aktif_nama,_aktif_bytes)
+            st.success(f"✅ Audit menggunakan: {_aktif_nama} — tidak perlu upload ulang.")
             teks=ekstrak_teks(naskah); rows=status_sitasi(teks,st.session_state.bank_referensi)
             if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
             else: st.info("Untuk Chicago footnote, gunakan Audit Semantik.")
@@ -2798,7 +2794,9 @@ elif menu == "🔎 Literatur & Referensi":
                 refs="\n".join(format_referensi(r) for r in st.session_state.bank_referensi)
                 h=panggil_gemini("Audit sitasi/footnote. Jangan menyatakan sumber mendukung klaim bila isi sumber tidak tersedia. Jangan membuat DOI/referensi.\nNASKAH:\n"+teks[:60000]+"\nLIBRARY:\n"+refs)
                 if h["sukses"]: st.text_area("Hasil Audit",h["hasil"],height=500)
-                else: st.error(h["error"])
+                else: st.warning(h["error"])
+        else:
+            st.info("Unggah dokumen sekali pada bagian 📄 Dokumen Aktif di atas.")
 
 # ============================================================
 # PENELITIAN S1-S3 TERPADU
