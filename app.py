@@ -3048,33 +3048,174 @@ elif menu == "🔎 Literatur & Referensi":
             st.session_state.laporan_upload_ref=lap; st.success(f"{n} referensi baru masuk Library.")
         if st.session_state.get("laporan_upload_ref"): st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
 
-    with tab_bank:
-        refs=st.session_state.bank_referensi
+        with tab_bank:
+        st.subheader("📚 Library Referensi")
+
+        refs = st.session_state.bank_referensi
+
         if refs:
-            df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
-            st.dataframe(df[kol],use_container_width=True,hide_index=True)
+            st.success(f"📚 Tersimpan {len(refs)} referensi di Library.")
+
+            # ==================================================
+            # DAFTAR REFERENSI + HAPUS
+            # ==================================================
+            st.markdown("### 📖 Daftar Referensi")
+
+            for i, r in enumerate(list(refs)):
+                judul = r.get("Judul", "Tanpa judul")
+                penulis = r.get("Penulis", "") or "-"
+                tahun = r.get("Tahun", "") or "-"
+                jurnal = r.get("Jurnal", "") or "-"
+                doi = r.get("DOI", "") or ""
+                sumber = r.get("Sumber", "") or "-"
+                status = r.get("Status", "") or "-"
+
+                with st.expander(
+                    f"{i + 1}. {judul} ({tahun})"
+                ):
+                    st.write(f"**Penulis:** {penulis}")
+                    st.write(f"**Jurnal:** {jurnal}")
+                    st.write(f"**Sumber:** {sumber}")
+                    st.write(f"**Status:** {status}")
+
+                    if doi:
+                        st.write(f"**DOI:** {doi}")
+
+                    st.markdown("**Format Referensi:**")
+                    st.write(format_referensi(r))
+
+                    if st.button(
+                        "🗑️ Hapus Referensi",
+                        key=f"hapus_library_ref_{i}",
+                        use_container_width=True
+                    ):
+                        st.session_state.bank_referensi.pop(i)
+                        st.success("✅ Referensi berhasil dihapus.")
+                        st.rerun()
+
+            # ==================================================
+            # TABEL LIBRARY
+            # ==================================================
+            st.divider()
+            st.markdown("### 📋 Tabel Library")
+
+            df = pd.DataFrame(
+                st.session_state.bank_referensi
+            )
+
+            kol = [
+                x for x in [
+                    "Judul",
+                    "Penulis",
+                    "Tahun",
+                    "Jurnal",
+                    "DOI",
+                    "Sumber",
+                    "Status"
+                ]
+                if x in df.columns
+            ]
+
+            if kol:
+                st.dataframe(
+                    df[kol],
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            # ==================================================
+            # PENGELOLA & EKSPOR REFERENSI
+            # ==================================================
+            st.divider()
             st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
-            manager=st.selectbox(
+
+            manager = st.selectbox(
                 "Pilih pengelola referensi",
-                ["Zotero","Mendeley","EndNote","RefWorks","Paperpile","Citavi","JabRef","Lainnya / format universal"],
+                [
+                    "Zotero",
+                    "Mendeley",
+                    "EndNote",
+                    "RefWorks",
+                    "Paperpile",
+                    "Citavi",
+                    "JabRef",
+                    "Lainnya / format universal"
+                ],
                 key="reference_manager"
             )
-            st.caption("Aplikasi menyiapkan file impor standar. Zotero, Mendeley, EndNote, RefWorks, Paperpile, Citavi, dan JabRef tetap merupakan pengelola referensi; Chicago/APA/IEEE/Harvard/MLA adalah gaya sitasi.")
-            c1,c2,c3=st.columns(3)
-            with c1:
-                st.download_button("📥 RIS (universal)",ekspor_ris(refs).encode("utf-8"),"library_referensi.ris","application/x-research-info-systems",use_container_width=True)
-            with c2:
-                st.download_button("📥 BibTeX",ekspor_bibtex(refs).encode("utf-8"),"library_referensi.bib","application/x-bibtex",use_container_width=True)
-            with c3:
-                st.download_button("📥 EndNote Tagged",ekspor_endnote_tagged(refs).encode("utf-8"),"library_referensi.enw","text/plain",use_container_width=True)
-            c4,c5=st.columns(2)
-            with c4:
-                st.download_button("📥 CSV Metadata",ekspor_csv_referensi(refs).encode("utf-8-sig"),"library_referensi.csv","text/csv",use_container_width=True)
-            with c5:
-                st.download_button("📥 Daftar Pustaka — "+st.session_state.gaya_sitasi,"\n\n".join(format_referensi(r) for r in refs).encode("utf-8"),"daftar_pustaka.txt","text/plain",use_container_width=True)
-            st.info(f"Pilihan aktif: {manager}. Gunakan RIS sebagai pilihan paling umum; BibTeX cocok untuk JabRef/LaTeX, dan EndNote Tagged untuk EndNote. Metadata yang belum terverifikasi tetap ditandai agar tidak dianggap valid otomatis.")
-        else: st.info("Library Referensi masih kosong.")
 
+            st.caption(
+                "Aplikasi menyiapkan file impor standar. "
+                "Zotero, Mendeley, EndNote, RefWorks, Paperpile, "
+                "Citavi, dan JabRef merupakan pengelola referensi. "
+                "Chicago, APA, IEEE, Harvard, dan MLA adalah gaya sitasi."
+            )
+
+            refs_ekspor = st.session_state.bank_referensi
+
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.download_button(
+                    "📥 RIS (universal)",
+                    ekspor_ris(refs_ekspor).encode("utf-8"),
+                    "library_referensi.ris",
+                    "application/x-research-info-systems",
+                    use_container_width=True
+                )
+
+            with c2:
+                st.download_button(
+                    "📥 BibTeX",
+                    ekspor_bibtex(refs_ekspor).encode("utf-8"),
+                    "library_referensi.bib",
+                    "application/x-bibtex",
+                    use_container_width=True
+                )
+
+            with c3:
+                st.download_button(
+                    "📥 EndNote Tagged",
+                    ekspor_endnote_tagged(refs_ekspor).encode("utf-8"),
+                    "library_referensi.enw",
+                    "text/plain",
+                    use_container_width=True
+                )
+
+            c4, c5 = st.columns(2)
+
+            with c4:
+                st.download_button(
+                    "📥 CSV Metadata",
+                    ekspor_csv_referensi(refs_ekspor).encode("utf-8-sig"),
+                    "library_referensi.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+
+            with c5:
+                daftar_pustaka = "\n\n".join(
+                    format_referensi(r)
+                    for r in refs_ekspor
+                )
+
+                st.download_button(
+                    "📥 Daftar Pustaka — " + st.session_state.gaya_sitasi,
+                    daftar_pustaka.encode("utf-8"),
+                    "daftar_pustaka.txt",
+                    "text/plain",
+                    use_container_width=True
+                )
+
+            st.info(
+                f"Pilihan aktif: {manager}. "
+                "Gunakan RIS sebagai pilihan paling umum; "
+                "BibTeX cocok untuk JabRef/LaTeX dan "
+                "EndNote Tagged untuk EndNote."
+            )
+
+        else:
+            st.info("Library Referensi masih kosong.")
     with tab_pakai:
         st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
         naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=300,key="naskah_ref")
