@@ -2993,30 +2993,22 @@ elif menu == "🔎 Literatur & Referensi":
 # PENELITIAN S1-S3 TERPADU
 # ============================================================
 elif menu == "🎓 Penelitian S1 • S2 • S3":
-    st.header("🎓 Skripsi • Tesis • Disertasi")
-    c1,c2,c3=st.columns(3)
-    with c1:
-        jenjang=st.selectbox("Jenjang",["S1 — Skripsi","S2 — Tesis","S3 — Disertasi"])
-    with c2:
-        metode=st.selectbox("Jenis Penelitian",[
-            "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
-            "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
-            "Systematic Literature Review (SLR)","Penelitian Evaluatif",
-            "Analisis Dokumen / Analisis Isi"
-        ])
-    with c3:
-        tahap=st.selectbox("Tahap",[
-            "Rekonstruksi & Pengembangan Penelitian","Ide & Topik","Judul",
-            "BAB I — Pendahuluan","BAB II — Kajian Teori","BAB III — Metode",
-            "Instrumen Penelitian","BAB IV — Hasil & Pembahasan",
-            "BAB V — Penutup","Naskah Lengkap","Paket Bimbingan"
-        ])
-    pedoman=st.file_uploader("📄 Pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_kampus")
-    sumber=st.file_uploader(
-        "📚 Unggah tesis/skripsi/disertasi referensi, bahan, atau data",
-        type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="riset_terpadu"
-    )
-    arah=st.text_area("Masalah, topik, arahan pembimbing, atau pengembangan yang diinginkan")
+    st.header("🎓 Asisten Skripsi S1")
+    metode=st.selectbox("Jenis Penelitian",[
+        "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
+        "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
+        "Systematic Literature Review (SLR)","Penelitian Evaluatif","Analisis Dokumen / Analisis Isi"
+    ], key="metode_s1")
+    tahap=st.selectbox("Tahap Skripsi",[
+        "Ide & Topik","Identifikasi Masalah","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian",
+        "Research Gap","BAB I — Pendahuluan","BAB II — Kajian Teori","Kerangka Berpikir",
+        "Hipotesis / Fokus Penelitian","BAB III — Metode","Instrumen Penelitian",
+        "Pengumpulan Data","BAB IV — Hasil & Pembahasan","BAB V — Penutup",
+        "Skripsi Lengkap","Bimbingan & Revisi","Presentasi","Persiapan Sidang"
+    ], key="tahap_s1")
+    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s1")
+    sumber=st.file_uploader("📚 Unggah bahan/referensi/data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="sumber_s1")
+    arah=st.text_area("Ide, masalah, arahan dosen, atau pekerjaan yang ingin dibuat",key="arah_s1")
     konteks=""
     if pedoman:
         t=ekstrak_teks(pedoman)
@@ -3024,18 +3016,17 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
     for f in sumber or []:
         if f.name.lower().endswith((".pdf",".docx",".txt")):
             t=ekstrak_teks(f)
-            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n"+t
-    st.info("BAB IV hanya disusun dari data penelitian nyata. Jika data belum tersedia, AI membuat struktur analisis, bukan data fiktif.")
-    if st.button("🚀 Susun dengan Asisten Penelitian AI",type="primary"):
-        instr=f"""Jenjang: {jenjang}
+            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
+    st.info("BAB IV hanya dibuat dari data nyata. AI tidak boleh menciptakan data penelitian.")
+    if st.button("🤖 Generate AI Skripsi S1",type="primary",key="generate_s1"):
+        instr=f"""Jenjang: S1 — Skripsi
 Metode: {metode}
 Tahap: {tahap}
 Arahan: {arah}
-Jika tahap rekonstruksi, jangan menyalin penelitian lama sebagai karya baru. Analisis penelitian lama, identifikasi keterbatasan/gap, lalu kembangkan rancangan baru.
-Ikuti pedoman kampus bila tersedia."""
-        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"riset")
+Gunakan pedoman kampus bila tersedia. Gunakan hanya referensi yang tersedia/terverifikasi. Jangan membuat data, DOI, kutipan, atau nomor halaman palsu."""
+        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s1")
     if st.session_state.get("hasil_penulisan_ai"):
-        edit=st.text_area("Draf penelitian — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="edit_riset")
+        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s1")
         st.session_state.naskah_aktif=edit
 
 
@@ -3090,106 +3081,66 @@ TEKS:
 # TESIS S2
 # ============================================================
 elif menu == "🎓 Tesis S2":
-
     st.header("🎓 Asisten Tesis S2")
-
-    tahap = st.selectbox(
-        "Tahap Tesis",
-        [
-            "Ide & Topik",
-            "Identifikasi Masalah",
-            "Research Gap",
-            "State of the Art",
-            "Novelty",
-            "Alternatif Judul",
-            "Rumusan Masalah",
-            "Tujuan Penelitian",
-            "BAB I",
-            "BAB II",
-            "Kerangka Berpikir",
-            "Hipotesis / Fokus Penelitian",
-            "BAB III",
-            "Instrumen",
-            "Pengumpulan Data",
-            "BAB IV",
-            "BAB V",
-            "Tesis Lengkap",
-            "Persiapan Sidang"
-        ]
-    )
-
-    st.subheader(tahap)
-
-    st.text_area(
-        "Tuliskan ide, masalah, atau kebutuhan Anda"
-    )
-
-    st.file_uploader(
-        "Unggah bahan tesis",
-        type=[
-            "pdf", "docx", "txt",
-            "csv", "xlsx",
-            "jpg", "jpeg", "png"
-        ],
-        accept_multiple_files=True,
-        key="tesis"
-    )
-
-    st.info(
-        "Penulisan AI nantinya menggunakan alur "
-        "outline → sumber → draf → sitasi → verifikasi → revisi."
-    )
+    tahap=st.selectbox("Tahap Tesis",[
+        "Ide & Topik","Identifikasi Masalah","Research Gap","State of the Art","Novelty","Alternatif Judul",
+        "Rumusan Masalah","Tujuan Penelitian","BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian",
+        "BAB III","Instrumen","Pengumpulan Data","BAB IV","BAB V","Tesis Lengkap","Bimbingan & Revisi",
+        "Presentasi","Persiapan Sidang"
+    ],key="tahap_s2")
+    metode=st.selectbox("Jenis Penelitian",["Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods","R&D / Pengembangan","PTK","Studi Literatur / Library Research","SLR","Evaluatif","Analisis Isi"],key="metode_s2")
+    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s2")
+    sumber=st.file_uploader("📚 Unggah tesis terdahulu, jurnal, bahan, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="tesis")
+    arah=st.text_area("Ide, masalah, arahan pembimbing, atau pekerjaan yang ingin dibuat",key="arah_s2")
+    konteks=""
+    if pedoman:
+        t=ekstrak_teks(pedoman)
+        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
+    for f in sumber or []:
+        if f.name.lower().endswith((".pdf",".docx",".txt")):
+            t=ekstrak_teks(f)
+            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
+    st.info("AI menggunakan alur sumber → analisis → draf → sitasi → verifikasi → revisi. BAB IV hanya dari data nyata.")
+    if st.button("🤖 Generate AI Tesis S2",type="primary",key="generate_s2"):
+        instr=f"""Jenjang: S2 — Tesis
+Metode: {metode}
+Tahap: {tahap}
+Arahan: {arah}
+Tunjukkan kedalaman analisis tingkat magister. Untuk gap/novelty, dasarkan pada bahan dan referensi yang tersedia. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
+        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s2")
+    if st.session_state.get("hasil_penulisan_ai"):
+        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s2")
+        st.session_state.naskah_aktif=edit
 
 
 # ============================================================
 # DISERTASI S3
 # ============================================================
 elif menu == "🧑‍🎓 Disertasi S3":
-
     st.header("🧑‍🎓 Asisten Disertasi S3")
-
-    tahap = st.selectbox(
-        "Tahap Disertasi",
-        [
-            "Jembatan Tesis S2 → S3",
-            "Analisis Tesis S2",
-            "Keterbatasan Penelitian S2",
-            "Pertanyaan Penelitian Lanjutan",
-            "Topik Doktoral",
-            "State of the Art",
-            "Research Gap",
-            "Novelty Doktoral",
-            "Kontribusi Teoretis",
-            "Kontribusi Metodologis",
-            "Kontribusi Praktis",
-            "Proposal Disertasi",
-            "Metodologi Doktoral",
-            "Instrumen",
-            "Pengumpulan Data",
-            "Analisis Data",
-            "Penulisan Disertasi",
-            "Publikasi",
-            "Persiapan Ujian Doktoral"
-        ]
-    )
-
-    st.subheader(tahap)
-
-    st.file_uploader(
-        "Unggah tesis S2, artikel, jurnal atau bahan S3",
-        type=[
-            "pdf", "docx", "txt",
-            "csv", "xlsx"
-        ],
-        accept_multiple_files=True,
-        key="disertasi"
-    )
-
-    st.info(
-        "Untuk S3, aplikasi nantinya tidak hanya mencari gap, "
-        "tetapi membantu menelusuri dasar bukti untuk novelty "
-        "dan kontribusi doktoral."
-    )
+    tahap=st.selectbox("Tahap Disertasi",[
+        "Jembatan Tesis S2 → S3","Analisis Tesis S2","Keterbatasan Penelitian S2","Pertanyaan Penelitian Lanjutan",
+        "Topik Doktoral","State of the Art","Research Gap","Novelty Doktoral","Kontribusi Teoretis",
+        "Kontribusi Metodologis","Kontribusi Praktis","Proposal Disertasi","Metodologi Doktoral","Instrumen",
+        "Pengumpulan Data","Analisis Data","Penulisan Disertasi","Publikasi","Bimbingan & Revisi","Presentasi","Persiapan Ujian Doktoral"
+    ],key="tahap_s3")
+    sumber=st.file_uploader("📚 Unggah tesis S2, artikel, jurnal, pedoman, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="disertasi")
+    arah=st.text_area("Masalah doktoral, arahan promotor, atau pekerjaan yang ingin dibuat",key="arah_s3")
+    konteks=""
+    for f in sumber or []:
+        if f.name.lower().endswith((".pdf",".docx",".txt")):
+            t=ekstrak_teks(f)
+            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
+    st.info("Novelty dan kontribusi doktoral harus ditelusuri dari bukti/sumber yang tersedia, bukan dibuat oleh AI.")
+    if st.button("🤖 Generate AI Disertasi S3",type="primary",key="generate_s3"):
+        instr=f"""Jenjang: S3 — Disertasi
+Tahap: {tahap}
+Arahan: {arah}
+Gunakan analisis doktoral yang kritis. Bedakan state of the art, research gap, novelty, serta kontribusi teoretis/metodologis/praktis. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
+        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s3")
+    if st.session_state.get("hasil_penulisan_ai"):
+        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s3")
+        st.session_state.naskah_aktif=edit
 
 
 # ============================================================
