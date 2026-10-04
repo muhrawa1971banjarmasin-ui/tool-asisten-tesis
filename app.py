@@ -10,6 +10,9 @@ import re
 import html
 import difflib
 import csv
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 try:
     import docx
 except ImportError:
@@ -612,7 +615,307 @@ def format_apa(ref):
 
 def format_referensi(ref,gaya=None):
     gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
-    return format_chicago_bibliography(ref) if gaya.startswith("Chicago") else format_apa(ref)
+    g=gaya.lower()
+    # Formatter aman untuk salin/pratinjau. Tidak pernah mengubah naskah.
+    if "chicago notes" in g or "turabian" in g or "pedoman kampus" in g:
+        return format_chicago_bibliography(ref)
+    if "apa" in g or "harvard" in g or "chicago author" in g or "apsa" in g or "cse" in g:
+        return format_apa(ref)
+    if "ieee" in g or "vancouver" in g or "ama" in g:
+        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
+        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
+        return f'{pen}, “{jud},” {jurnal}, {th}' + (f', doi: {doi}' if doi else '') + '.'
+    if "mla" in g:
+        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
+        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
+        return f'{pen}. “{jud}.” {jurnal}, {th}' + (f', https://doi.org/{doi}' if doi else '') + '.'
+    if "oscola" in g:
+        return format_chicago_bibliography(ref)
+    if "acs" in g:
+        return format_apa(ref)
+    return format_chicago_bibliography(ref)
+
+def rumpun_gaya_sitasi(gaya):
+    g=(gaya or '').lower()
+    if any(x in g for x in ['chicago notes','turabian','oscola','pedoman kampus']): return 'Catatan kaki / notes'
+    if any(x in g for x in ['apa','harvard','chicago author','apsa']): return 'Penulis–tahun di dalam teks'
+    if any(x in g for x in ['ieee','vancouver','ama']): return 'Sitasi bernomor'
+    if 'mla' in g: return 'Penulis–halaman di dalam teks'
+    if any(x in g for x in ['acs','cse']): return 'Ilmiah/disiplin khusus'
+    if 'jurnal' in g: return 'Mengikuti author guidelines jurnal'
+    if 'kustom' in g: return 'Aturan pengguna'
+    return 'Sesuai gaya terpilih'
+
+def saran_gaya_otomatis(jenis_karya, rumpun_ilmu):
+    jk=(jenis_karya or '').lower(); ri=(rumpun_ilmu or '').lower()
+    if 'jurnal' in jk or 'artikel' in jk: return '📰 Ikuti Template/Author Guidelines Jurnal'
+    if 'hukum' in ri: return '⚖️ OSCOLA'
+    if 'kedokteran' in ri or 'kesehatan' in ri: return '🩺 Vancouver'
+    if 'teknik' in ri or 'komputer' in ri: return '📓 IEEE'
+    if 'kimia' in ri: return '🧪 ACS'
+    if 'biologi' in ri or 'sains' in ri: return '🔬 CSE'
+    if 'sastra' in ri or 'bahasa' in ri: return '📕 MLA'
+    if 'tesis' in jk or 'skripsi' in jk or 'disertasi' in jk: return '🎓 Ikuti Pedoman Kampus/Institusi'
+    return '📗 APA 7th Edition'
+
+# ============================================================
+# FOOTNOTE WORD — audit, pencocokan Library, dan perapian aman
+# Prinsip: narasi/document.xml tidak ditulis ulang. Yang disentuh
+# hanya word/footnotes.xml pada SALINAN dokumen hasil.
+# ============================================================
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+ET.register_namespace("w", W_NS)
+
+def _w(tag):
+    return "{%s}%s" % (W_NS, tag)
+
+def _norm_match(x):
+    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).strip()
+
+def _footnote_text(fn):
+    return " ".join((t.text or "") for t in fn.iter(_w("t"))).strip()
+
+def baca_true_footnotes_docx(data):
+    """Baca true Word footnotes tanpa mengubah dokumen."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as z:
+            if "word/footnotes.xml" not in z.namelist():
+                return []
+            root=ET.fromstring(z.read("word/footnotes.xml"))
+            out=[]
+            for fn in root.findall(_w("footnote")):
+                fid=fn.get(_w("id"), "")
+                if str(fid) in ("-1","0"): continue
+                teks=_footnote_text(fn)
+                if teks: out.append({"id":str(fid),"teks":teks})
+            return out
+    except Exception:
+        return []
+
+def cocokkan_footnote_ke_library(teks, refs):
+    """DOI exact > kemiripan judul > penulis+tahun. Konservatif."""
+    low=(teks or "").lower()
+    doi_m=re.search(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", low, re.I)
+    doi=(doi_m.group(0).rstrip(".,;)") if doi_m else "").lower()
+    if doi:
+        for i,r in enumerate(refs):
+            if (r.get("DOI") or "").strip().lower()==doi:
+                return i,1.0,"DOI cocok"
+    best_i=None; best=0.0
+    nt=_norm_match(teks)
+    for i,r in enumerate(refs):
+        title=_norm_match(r.get("Judul",""))
+        if len(title)>=12:
+            score=difflib.SequenceMatcher(None,title,nt).ratio()
+            if title in nt: score=max(score,0.96)
+            if score>best: best_i,best=i,score
+    if best_i is not None and best>=0.62:
+        return best_i,best,"Judul cocok"
+    for i,r in enumerate(refs):
+        year=str(r.get("Tahun") or "")
+        author=_norm_match(r.get("Penulis") or "").split(" ")[0] if r.get("Penulis") else ""
+        if year and author and year in low and author in nt:
+            return i,0.70,"Penulis + tahun cocok"
+    return None,0.0,"Belum cocok"
+
+def _set_run_tnr10(run):
+    rpr=run.find(_w("rPr"))
+    if rpr is None:
+        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
+    rf=rpr.find(_w("rFonts"))
+    if rf is None:
+        rf=ET.SubElement(rpr,_w("rFonts"))
+    for a in ("ascii","hAnsi","eastAsia","cs"): rf.set(_w(a),"Times New Roman")
+    sz=rpr.find(_w("sz"))
+    if sz is None: sz=ET.SubElement(rpr,_w("sz"))
+    sz.set(_w("val"),"20")
+    szcs=rpr.find(_w("szCs"))
+    if szcs is None: szcs=ET.SubElement(rpr,_w("szCs"))
+    szcs.set(_w("val"),"20")
+
+def _set_para_single(p):
+    ppr=p.find(_w("pPr"))
+    if ppr is None:
+        ppr=ET.Element(_w("pPr")); p.insert(0,ppr)
+    sp=ppr.find(_w("spacing"))
+    if sp is None: sp=ET.SubElement(ppr,_w("spacing"))
+    sp.set(_w("line"),"240"); sp.set(_w("lineRule"),"auto")
+    sp.set(_w("before"),"0"); sp.set(_w("after"),"0")
+
+def _set_run_superscript(run):
+    """Jadikan marker footnote Word superscript tanpa mengubah teks narasi."""
+    rpr=run.find(_w("rPr"))
+    if rpr is None:
+        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
+    va=rpr.find(_w("vertAlign"))
+    if va is None:
+        va=ET.SubElement(rpr,_w("vertAlign"))
+    va.set(_w("val"),"superscript")
+
+def _format_document_footnote_refs_superscript(xml_bytes):
+    """Format hanya run yang memuat w:footnoteReference pada document.xml."""
+    root=ET.fromstring(xml_bytes)
+    for r in root.iter(_w("r")):
+        if r.find(_w("footnoteReference")) is not None:
+            _set_run_superscript(r)
+    return ET.tostring(root,encoding="utf-8",xml_declaration=True)
+
+def _format_footnote_markers_superscript(root):
+    """Format marker w:footnoteRef di area catatan kaki sebagai superscript."""
+    for r in root.iter(_w("r")):
+        if r.find(_w("footnoteRef")) is not None:
+            _set_run_superscript(r)
+
+def _short_chicago_note(ref):
+    pen=_nama_chicago(ref.get("Penulis"))
+    jud=(ref.get("Judul") or "Tanpa judul").strip()
+    if len(jud)>70: jud=jud[:67].rstrip()+"…"
+    return f'{pen}, “{jud}.”'
+
+def _replace_note_text(fn, new_text):
+    """Pertahankan marker true-footnote; ganti hanya teks catatan."""
+    ps=fn.findall(_w("p"))
+    if not ps:
+        p=ET.SubElement(fn,_w("p")); ps=[p]
+    p0=ps[0]
+    # hapus paragraf tambahan agar satu note bersih; marker dipertahankan
+    for p in ps[1:]: fn.remove(p)
+    keep=[]
+    for r in p0.findall(_w("r")):
+        if r.find(_w("footnoteRef")) is not None:
+            keep.append(r)
+    for child in list(p0):
+        if child.tag != _w("pPr"): p0.remove(child)
+    if keep:
+        p0.append(keep[0])
+    else:
+        rr=ET.SubElement(p0,_w("r")); ET.SubElement(rr,_w("footnoteRef"))
+    sep=ET.SubElement(p0,_w("r")); tt=ET.SubElement(sep,_w("t")); tt.set("{%s}space"%XML_NS,"preserve"); tt.text=" "
+    rr=ET.SubElement(p0,_w("r")); tt=ET.SubElement(rr,_w("t")); tt.text=new_text
+
+def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli"):
+    """Hasilkan SALINAN DOCX. document.xml/narasi tidak diubah."""
+    src=io.BytesIO(data); out=io.BytesIO(); laporan=[]
+    with zipfile.ZipFile(src,"r") as zin:
+        if "word/footnotes.xml" not in zin.namelist():
+            return None,[],"Dokumen tidak memiliki true Word footnote."
+        root=ET.fromstring(zin.read("word/footnotes.xml"))
+        seen=set()
+        for fn in root.findall(_w("footnote")):
+            fid=str(fn.get(_w("id"),""))
+            if fid in ("-1","0"): continue
+            old=_footnote_text(fn)
+            idx,score,alasan=cocokkan_footnote_ke_library(old,refs)
+            ref=refs[idx] if idx is not None else None
+            aksi="Format dipertahankan"
+            if mode.startswith("Ubah semua") and ref is not None:
+                key=kunci_ref(ref)
+                new=_short_chicago_note(ref) if key in seen else format_chicago_note(ref)
+                _replace_note_text(fn,new); seen.add(key); aksi="Diubah ke Chicago"
+            # format visual selalu dirapikan; teks hanya berubah pada mode ubah semua
+            for p in fn.findall(_w("p")):
+                _set_para_single(p)
+                for r in p.findall(_w("r")): _set_run_tnr10(r)
+            laporan.append({"No":fid,"Footnote Asli":old,"Cocok Library":ref.get("Judul","") if ref else "","Kecocokan":f"{score:.0%}" if score else "-","Status":alasan,"Tindakan":aksi})
+        # Nomor/marker footnote di bawah halaman dibuat superscript.
+        # PENTING: document.xml TIDAK PERNAH diserialisasi ulang.
+        # Dengan demikian cover, tabel, paragraf, style, section, margin,
+        # page break, header/footer, numbering, gambar, dan layout naskah
+        # tetap byte-identik dengan file unggahan.
+        _format_footnote_markers_superscript(root)
+        xml=ET.tostring(root,encoding="utf-8",xml_declaration=True)
+        with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                if item.filename=="word/footnotes.xml":
+                    payload=xml
+                else:
+                    payload=zin.read(item.filename)
+                zout.writestr(item,payload)
+    return out.getvalue(),laporan,"OK"
+
+
+# ============================================================
+# PROTEKSI NASKAH 100% — audit struktur & deteksi catatan manual
+# ============================================================
+def sidik_jari_bagian_docx(data):
+    """Hash bagian DOCX yang harus tetap identik pada mode proteksi."""
+    import hashlib
+    protected=[]
+    try:
+        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
+            for name in z.namelist():
+                # footnotes.xml adalah satu-satunya bagian yang boleh berubah bila pengguna
+                # secara eksplisit memilih perubahan footnote. Semua bagian lain dikunci.
+                if name != "word/footnotes.xml":
+                    protected.append((name,hashlib.sha256(z.read(name)).hexdigest()))
+        return dict(protected)
+    except Exception:
+        return {}
+
+def verifikasi_proteksi_docx(sebelum,sesudah,izinkan_document_xml=False):
+    """Pastikan bagian di luar area izin tidak berubah."""
+    import hashlib
+    berubah=[]
+    try:
+        with zipfile.ZipFile(io.BytesIO(sebelum),"r") as a, zipfile.ZipFile(io.BytesIO(sesudah),"r") as b:
+            names=set(a.namelist()) | set(b.namelist())
+            allowed={"word/footnotes.xml"}
+            if izinkan_document_xml:
+                allowed.add("word/document.xml")
+            for name in sorted(names):
+                if name in allowed: continue
+                if name not in a.namelist() or name not in b.namelist():
+                    berubah.append(name); continue
+                if hashlib.sha256(a.read(name)).digest()!=hashlib.sha256(b.read(name)).digest():
+                    berubah.append(name)
+        return (len(berubah)==0),berubah
+    except Exception as e:
+        return False,[f"Gagal audit proteksi: {e}"]
+
+def deteksi_catatan_manual_docx(data):
+    """Deteksi konservatif [1], [2], dst. dan blok catatan bernomor; hanya audit, tidak mengubah naskah."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
+            root=ET.fromstring(z.read("word/document.xml"))
+        paras=[]
+        for p in root.iter(_w("p")):
+            txt="".join((t.text or "") for t in p.iter(_w("t"))).strip()
+            if txt: paras.append(txt)
+        markers=[]; notes=[]
+        for i,txt in enumerate(paras,1):
+            for m in re.finditer(r"\[(\d{1,3})\]",txt):
+                markers.append({"Paragraf":i,"No":m.group(1),"Cuplikan":txt[:180]})
+            m=re.match(r"^\s*(\d{1,3})[\.\)]\s+(.{20,})$",txt)
+            if m and (re.search(r"\b(19|20)\d{2}\b",txt) or "doi" in txt.lower() or "http" in txt.lower()):
+                notes.append({"Paragraf":i,"No":m.group(1),"Catatan":txt[:350]})
+        return markers,notes
+    except Exception:
+        return [],[]
+
+def nama_hasil_baru(nama_asli,suffix="HASIL_VALIDASI_SIAP_AJUKAN"):
+    base=re.sub(r"(?i)\.docx$","",nama_asli or "NASKAH")
+    return f"{base}_{suffix}.docx"
+
+GAYA_SITASI_LENGKAP=[
+    "🔒 Pertahankan format naskah asli",
+    "🎓 Ikuti Pedoman Kampus/Institusi",
+    "📘 Chicago Notes & Bibliography",
+    "📘 Chicago Author-Date",
+    "📗 APA 7th Edition",
+    "📙 Harvard",
+    "📕 MLA",
+    "📓 IEEE",
+    "🩺 Vancouver",
+    "⚕️ AMA",
+    "📔 Turabian",
+    "⚖️ OSCOLA",
+    "🧪 ACS",
+    "🔬 CSE",
+    "🏛️ APSA",
+    "📰 Ikuti Template/Author Guidelines Jurnal",
+    "⚙️ Format Kustom",
+]
 
 def ekspor_ris(refs):
     out=[]
@@ -970,6 +1273,54 @@ st.info(
 # SIDEBAR
 # ============================================================
 st.sidebar.title("🎓 ASISTEN AKADEMIK AI")
+
+# ============================================================
+# RESET TOTAL DATA KERJA
+# Membersihkan seluruh data sesi dan cache aplikasi.
+# Tidak menghapus file asli di komputer pengguna dan tidak mengubah kode aplikasi.
+# ============================================================
+if st.session_state.pop("_reset_total_selesai", False):
+    st.sidebar.success("✅ Semua data kerja sudah dikosongkan. Unggah dokumen baru dari awal.")
+
+if "konfirmasi_hapus_semua_data" not in st.session_state:
+    st.session_state.konfirmasi_hapus_semua_data = False
+
+if not st.session_state.konfirmasi_hapus_semua_data:
+    if st.sidebar.button("🗑️ HAPUS SEMUA DATA", key="btn_hapus_semua_data", use_container_width=True):
+        st.session_state.konfirmasi_hapus_semua_data = True
+        st.rerun()
+else:
+    st.sidebar.warning(
+        "Semua data kerja sesi akan dikosongkan: dokumen aktif, hasil analisis, "
+        "audit/validasi, Library Referensi, hasil AI, pilihan naskah, dan status unggahan. "
+        "File Word/PDF asli di komputer TIDAK dihapus."
+    )
+    _reset_yes, _reset_no = st.sidebar.columns(2)
+    with _reset_yes:
+        if st.button("✅ Ya, hapus", key="btn_hapus_semua_data_yes", type="primary", use_container_width=True):
+            # Bersihkan cache hasil komputasi/network agar dokumen lama tidak muncul lagi.
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            try:
+                st.cache_resource.clear()
+            except Exception:
+                pass
+
+            # Hapus SEMUA session state, termasuk state file_uploader lama.
+            for _key in list(st.session_state.keys()):
+                del st.session_state[_key]
+
+            # Flag satu kali untuk memberi konfirmasi setelah rerun.
+            st.session_state["_reset_total_selesai"] = True
+            st.rerun()
+    with _reset_no:
+        if st.button("↩️ Batal", key="btn_hapus_semua_data_no", use_container_width=True):
+            st.session_state.konfirmasi_hapus_semua_data = False
+            st.rerun()
+
+st.sidebar.divider()
 
 st.sidebar.text_input(
     "Proyek Aktif",
@@ -2027,12 +2378,40 @@ elif menu == "🔎 Literatur & Referensi":
     c1,c2=st.columns([2,1])
     with c1: mode_ref=st.radio("Mode Referensi",["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],horizontal=True)
     with c2:
-        gaya_list=["Chicago Notes & Bibliography","APA 7","Harvard","IEEE","MLA"]
-        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(st.session_state.gaya_sitasi))
-    st.caption("Chicago Notes & Bibliography menjadi default. Artikel jurnal tetap mengikuti gaya rumah jurnal/template yang diunggah.")
-    tab_cari,tab_online,tab_upload,tab_bank,tab_pakai,tab_audit=st.tabs(["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","✅ Audit Sitasi"])
+        gaya_list=[
+            "Chicago Notes & Bibliography","Pedoman Kampus/Institusi","Chicago Author-Date",
+            "APA 7th Edition","Harvard","MLA","IEEE","Vancouver","AMA","Turabian",
+            "OSCOLA","ACS","CSE","APSA","Ikuti Template/Author Guidelines Jurnal","Format Kustom"
+        ]
+        lama=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
+        alias={"APA 7":"APA 7th Edition"}
+        lama=alias.get(lama,lama)
+        if lama not in gaya_list: lama="Chicago Notes & Bibliography"
+        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(lama))
+    st.caption("Chicago Notes & Bibliography menjadi default. Bentuk sitasi mengikuti gaya yang dipilih; tidak semua gaya menggunakan footnote.")
 
-    with tab_cari:
+    with st.expander("💡 Saran Otomatis Gaya Sitasi", expanded=False):
+        sc1,sc2=st.columns(2)
+        with sc1:
+            jenis_saran=st.selectbox("Jenis karya",["Tesis","Skripsi","Disertasi","Artikel/Jurnal","Makalah/Tugas","Buku"],key="jenis_saran_gaya")
+        with sc2:
+            rumpun_saran=st.selectbox("Rumpun ilmu",["Pendidikan/PAI","Sosial/Humaniora","Hukum","Kedokteran/Kesehatan","Teknik/Komputer","Kimia","Biologi/Sains","Bahasa/Sastra","Lainnya"],key="rumpun_saran_gaya")
+        saran=saran_gaya_otomatis(jenis_saran,rumpun_saran)
+        st.info(f"💡 Saran otomatis: **{saran}** — {rumpun_gaya_sitasi(saran)}. Saran tidak mengubah dokumen sampai Anda memilih dan menerapkannya.")
+        if st.button("Gunakan Saran Ini",key="pakai_saran_gaya"):
+            bersih=re.sub(r"^[^A-Za-z0-9]+\s*","",saran)
+            if bersih in gaya_list:
+                st.session_state.gaya_sitasi=bersih
+                st.rerun()
+
+    cari_gaya=st.text_input("🔎 Cari Gaya Sitasi",placeholder="Contoh: Vancouver, OSCOLA, IEEE, APA...",key="cari_gaya_sitasi")
+    if cari_gaya.strip():
+        cocok=[g for g in gaya_list if cari_gaya.lower() in g.lower()]
+        st.caption("Ditemukan: "+(" • ".join(cocok) if cocok else "belum ada gaya yang cocok"))
+    # Submenu Literatur & Referensi dibuat vertikal agar nyaman di HP dan tidak mengubah fungsi lama.
+    st.caption("Alur produk inti: Cari → Sumber Online → Unggah → Library → Pakai di Naskah → Audit. Buka bagian yang diperlukan di bawah.")
+
+    with st.expander("🔎 1. Pencarian Literatur Terintegrasi", expanded=False):
         q=st.text_input("Topik / judul / kata kunci",key="q_ref")
         if st.button("🔎 Cari 4 Sumber Terintegrasi",type="primary",disabled=not bool(q.strip())):
             with st.spinner("Mencari Crossref, OpenAlex, Semantic Scholar, dan Library of Congress..."): st.session_state.hasil_cari_ref=cari_multi_sumber(q,12)
@@ -2049,7 +2428,7 @@ elif menu == "🔎 Literatur & Referensi":
                     if st.button("➕ Simpan ke Library",key=f"addref_new_{i}"): st.success("Disimpan." if tambah_bank_referensi(r) else "Sudah ada di Library.")
                     if r.get("DOI"): st.link_button("🔗 Buka DOI","https://doi.org/"+r["DOI"])
 
-    with tab_online:
+    with st.expander("🌐 2. Sumber Literatur & Referensi Online", expanded=False):
         st.subheader("🌐 Perpustakaan & Sumber Referensi Online")
         oq=st.text_input("Kata kunci pencarian",key="q_online")
         st.info("Pencarian langsung aplikasi: Crossref, OpenAlex, Semantic Scholar, dan Library of Congress. Sumber lain dibuka melalui portal resminya. Login, lisensi, dan hak akses perpustakaan tetap dihormati.")
@@ -2070,7 +2449,7 @@ elif menu == "🔎 Literatur & Referensi":
         for x in st.session_state.sumber_online_user:
             a,b=st.columns([3,1]); a.write("**"+x["Nama"]+"**"); b.link_button("Buka",x["URL"],use_container_width=True)
 
-    with tab_upload:
+    with st.expander("📤 3. Unggah & Ekstraksi Referensi", expanded=False):
         uprefs=st.file_uploader("Unggah satu atau banyak PDF/DOCX/TXT referensi",type=["pdf","docx","txt"],accept_multiple_files=True,key="upload_refs")
         st.checkbox("Utamakan referensi yang saya unggah",value=True,key="prioritas_upload")
         st.caption("Otomatis: baca dokumen → cari DOI → verifikasi Crossref. Jika DOI tidak terbaca, Gemini mengekstrak metadata lalu judul diverifikasi kembali.")
@@ -2079,11 +2458,108 @@ elif menu == "🔎 Literatur & Referensi":
             st.session_state.laporan_upload_ref=lap; st.success(f"{n} referensi baru masuk Library.")
         if st.session_state.get("laporan_upload_ref"): st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
 
-    with tab_bank:
+    with st.expander("📚 4. Library Referensi & Ekspor", expanded=False):
         refs=st.session_state.bank_referensi
         if refs:
             df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
             st.dataframe(df[kol],use_container_width=True,hide_index=True)
+
+            st.markdown("#### 🧰 Kelola Referensi Satu per Satu")
+            st.caption("Tombol 🗑️ Hapus sekarang selalu terlihat pada setiap referensi. Parser Daftar Pustaka 13/13 tidak diubah.")
+            for _i,_r in enumerate(list(refs)):
+                _judul=_r.get("Judul","") or f"Referensi {_i+1}"
+                _status=str(_r.get("Status","") or "")
+                _c1,_c2,_c3=st.columns([7,1.5,2.2])
+                with _c1:
+                    st.markdown(f"**{_i+1}. {_judul[:115]}**")
+                    _meta=[]
+                    if _r.get("Tahun"): _meta.append(str(_r.get("Tahun")))
+                    if _r.get("DOI"): _meta.append(f"DOI: {_r.get('DOI')}")
+                    if _status: _meta.append(_status)
+                    if _meta: st.caption(" • ".join(_meta))
+                with _c2:
+                    if st.button("🗑️ Hapus",key=f"hapus_ref_{_i}",use_container_width=True):
+                        st.session_state[f"konfirmasi_hapus_ref_{_i}"]=True
+                        st.rerun()
+                with _c3:
+                    if st.button("🔧 Cari & Perbaiki",key=f"perbaiki_ref_{_i}",use_container_width=True):
+                        _cand=None; _score=0.0
+                        if _r.get("DOI"):
+                            _cand=cari_crossref_doi(_r.get("DOI"))
+                            _score=1.0 if _cand else 0.0
+                        if not _cand and _judul:
+                            _cand,_score=verifikasi_judul_crossref(_judul)
+                        if _cand and _score>=0.82:
+                            st.session_state[f"calon_perbaikan_ref_{_i}"]=_cand
+                        else:
+                            st.session_state[f"calon_perbaikan_ref_{_i}"]=None
+                            st.warning(f"Referensi {_i+1}: belum ditemukan metadata Crossref yang cukup cocok. Tidak dipaksakan menjadi valid.")
+                if st.session_state.get(f"konfirmasi_hapus_ref_{_i}"):
+                    st.warning(f"Hapus referensi {_i+1}: {_judul[:90]}? Dokumen unggahan dan naskah asli tidak dihapus.")
+                    _h1,_h2=st.columns(2)
+                    with _h1:
+                        if st.button("✅ Ya, hapus",key=f"hapus_ref_yes_{_i}",type="primary",use_container_width=True):
+                            if _i < len(st.session_state.bank_referensi):
+                                st.session_state.bank_referensi.pop(_i)
+                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
+                            st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
+                            st.rerun()
+                    with _h2:
+                        if st.button("↩️ Batal",key=f"hapus_ref_no_{_i}",use_container_width=True):
+                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
+                            st.rerun()
+                _cand=st.session_state.get(f"calon_perbaikan_ref_{_i}")
+                if _cand:
+                    with st.container(border=True):
+                        st.success("Metadata pembanding ditemukan. Periksa sebelum mengganti.")
+                        st.write("**Data sekarang:**", format_referensi(_r))
+                        st.write("**Hasil Crossref:**", format_referensi(_cand))
+                        _p1,_p2=st.columns(2)
+                        with _p1:
+                            if st.button("✅ Gunakan metadata terverifikasi",key=f"pakai_perbaikan_{_i}",type="primary",use_container_width=True):
+                                _baru=dict(_cand)
+                                _baru["Status"]="✅ Metadata terverifikasi Crossref"
+                                _baru["Sumber"]="Perbaikan Library + Crossref"
+                                _baru["Proyek"]=_r.get("Proyek",st.session_state.proyek_aktif)
+                                _baru["Tanggal"]=_r.get("Tanggal",datetime.now().strftime("%d-%m-%Y %H:%M"))
+                                st.session_state.bank_referensi[_i]=_baru
+                                st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
+                                st.rerun()
+                        with _p2:
+                            if st.button("❌ Jangan ganti",key=f"batal_perbaikan_{_i}",use_container_width=True):
+                                st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
+                                st.rerun()
+                st.divider()
+
+            st.markdown("#### 🗑️ Kosongkan Library Referensi")
+            st.caption("Gunakan ini sebelum pengujian ulang agar Library kembali 0. File proposal asli tidak ikut terhapus.")
+            if "konfirmasi_reset_library" not in st.session_state:
+                st.session_state.konfirmasi_reset_library=False
+            if not st.session_state.konfirmasi_reset_library:
+                if st.button("🗑️ Kosongkan Library Referensi", key="btn_reset_library", use_container_width=True):
+                    st.session_state.konfirmasi_reset_library=True
+                    st.rerun()
+            else:
+                st.warning("Semua referensi pada Library sesi ini akan dihapus. File proposal tidak akan dihapus.")
+                rc1,rc2=st.columns(2)
+                with rc1:
+                    if st.button("✅ Ya, kosongkan sekarang", key="btn_reset_yes", type="primary", use_container_width=True):
+                        # Kosongkan list referensi tanpa menyentuh dokumen yang diunggah.
+                        for _k in ["bank_referensi","library_referensi","referensi_library","references"]:
+                            if _k in st.session_state and isinstance(st.session_state[_k], list):
+                                st.session_state[_k]=[]
+                        # Kunci utama aplikasi saat ini.
+                        if "bank_referensi" in st.session_state:
+                            st.session_state.bank_referensi=[]
+                        st.session_state.konfirmasi_reset_library=False
+                        st.success("Library Referensi sudah kosong (0). Silakan unggah ulang proposal.")
+                        st.rerun()
+                with rc2:
+                    if st.button("↩️ Batal", key="btn_reset_no", use_container_width=True):
+                        st.session_state.konfirmasi_reset_library=False
+                        st.rerun()
+            st.divider()
+
             st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
             manager=st.selectbox(
                 "Pilih pengelola referensi",
@@ -2106,18 +2582,143 @@ elif menu == "🔎 Literatur & Referensi":
             st.info(f"Pilihan aktif: {manager}. Gunakan RIS sebagai pilihan paling umum; BibTeX cocok untuk JabRef/LaTeX, dan EndNote Tagged untuk EndNote. Metadata yang belum terverifikasi tetap ditandai agar tidak dianggap valid otomatis.")
         else: st.info("Library Referensi masih kosong.")
 
-    with tab_pakai:
-        st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
-        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=300,key="naskah_ref")
+    with st.expander("✍️ 5. Pakai di Naskah", expanded=False):
+        st.subheader("✍️ Pakai di Naskah — Proteksi Naskah 100%")
+        st.success("🔒 PROTEKSI NASKAH AKTIF: narasi, typo, judul, penomoran, abjad, indentasi, tabel, gambar, margin, header-footer, dan tata letak tidak boleh diubah oleh proses referensi.")
+        st.caption("File unggahan adalah MASTER dan tidak pernah dibangun ulang. Pada proses Word, word/document.xml dikunci 100%; hanya footnote yang secara eksplisit dipilih boleh berubah. Bila bagian lain berubah, hasil otomatis ditolak.")
+
+        # ------------------------------------------------------------
+        # SALIN SITASI / FOOTNOTE — fitur ringan, tidak menyentuh Word
+        # ------------------------------------------------------------
+        st.markdown("#### 📋 Salin Sitasi / Footnote dari Library")
+        st.caption("Pilih satu referensi yang sudah ada di Library. Teks di bawah hanya untuk disalin; naskah Word dan formatnya tidak disentuh.")
+        _refs_salin=st.session_state.get("bank_referensi",[])
+        if _refs_salin:
+            _opsi_salin=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(_refs_salin)]
+            _pilih_salin=st.selectbox("Pilih referensi untuk disalin",_opsi_salin,key="pilih_ref_salin_naskah")
+            _ref_salin=_refs_salin[_opsi_salin.index(_pilih_salin)]
+            _status_salin=str(_ref_salin.get("Status","") or "")
+            if _status_salin.startswith("✅") or _status_salin.startswith("📘"):
+                st.success("Sumber siap digunakan sesuai status verifikasinya: "+_status_salin)
+            else:
+                st.warning("⚠️ Referensi ini belum terverifikasi penuh. Boleh ditinjau/disalin untuk pemeriksaan, tetapi jangan dijadikan sumber final sebelum diverifikasi.")
+            _jenis_salin=st.radio("Yang ingin disalin",["Catatan kaki / Footnote","Daftar pustaka","Sitasi singkat"],horizontal=True,key="jenis_salin_naskah")
+            if _jenis_salin=="Catatan kaki / Footnote":
+                _hal_salin=st.text_input("Halaman kutipan (opsional)",placeholder="Contoh: 25–26",key="halaman_salin_naskah")
+                _teks_salin=format_chicago_note(_ref_salin,_hal_salin.strip())
+            elif _jenis_salin=="Daftar pustaka":
+                _teks_salin=format_referensi(_ref_salin,st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography"))
+            else:
+                _pen=_nama_chicago(_ref_salin.get("Penulis"))
+                _th=_ref_salin.get("Tahun") or "n.d."
+                _teks_salin=f"({_pen}, {_th})"
+            st.code(_teks_salin,language=None)
+            st.caption("Klik ikon salin pada kotak di atas, lalu tempel ke naskah. Tidak ada perubahan otomatis pada file Word.")
+        else:
+            st.info("Library masih kosong. Masukkan atau verifikasi referensi terlebih dahulu, lalu kembali ke bagian ini.")
+
+        st.divider()
+        st.markdown("#### 📄 Periksa / Proses Salinan Word")
+        doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
+        mode_kerja=st.radio(
+            "Mode kerja",
+            ["🔎 Periksa Saja — tidak mengubah file","🔒 Rapikan format true footnote saja","🔄 Ubah true footnote yang cocok dengan Library ke Chicago"],
+            key="mode_kerja_naskah"
+        )
+        gaya_target=st.selectbox("Gaya sitasi target",GAYA_SITASI_LENGKAP,key="gaya_target_naskah")
+        if not (gaya_target.startswith("🔒") or gaya_target.startswith("📘 Chicago Notes") or gaya_target.startswith("🎓")):
+            st.info("Gaya ini tersedia sebagai pilihan audit. Konversi otomatis penuh hanya dijalankan setelah struktur sitasi yang sesuai terdeteksi; aplikasi tidak akan memaksa footnote menjadi gaya author-date/numbered secara sembarangan.")
+
+        if doc_naskah:
+            raw=doc_naskah.getvalue()
+
+            st.success("🔒 FORMAT ASLI DIKUNCI: file unggahan menjadi master. Aplikasi tidak membangun ulang naskah.")
+            st.caption("Salinan murni di bawah ini byte-identik dengan file unggahan. Gunakan ini untuk menguji bahwa cover, tabel, font, spasi, margin, halaman, gambar, header/footer, dan seluruh tata letak tetap sama.")
+            nama_salinan_murni=nama_hasil_baru(doc_naskah.name,"SALINAN_ASLI_100")
+            st.download_button(
+                "📥 Unduh SALINAN ASLI 100% — tanpa perubahan",
+                data=raw,
+                file_name=nama_salinan_murni,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="download_salinan_asli_100"
+            )
+
+            fns=baca_true_footnotes_docx(raw)
+            markers_manual,notes_manual=deteksi_catatan_manual_docx(raw)
+            st.markdown("#### 👁️ Pratinjau Deteksi")
+            c1,c2,c3=st.columns(3)
+            c1.metric("True Word footnote",len(fns))
+            c2.metric("Marker manual [n]",len(markers_manual))
+            c3.metric("Catatan manual terindikasi",len(notes_manual))
+
+            if fns:
+                preview=[]
+                for j,x in enumerate(fns,1):
+                    idx,score,alasan=cocokkan_footnote_ke_library(x["teks"],st.session_state.bank_referensi)
+                    rr=st.session_state.bank_referensi[idx] if idx is not None else None
+                    status_format="✅ Dapat diproses" if rr is not None else "⚠️ Perlu verifikasi/perbaikan"
+                    preview.append({"No":j,"Footnote":x["teks"],"Cocok Library":rr.get("Judul","") if rr else "","Status Sumber":alasan,"Kecocokan":f"{score:.0%}" if score else "-","Status Format":status_format})
+                st.dataframe(pd.DataFrame(preview),use_container_width=True,hide_index=True)
+            if markers_manual:
+                with st.expander("⚠️ Marker sitasi manual terdeteksi — audit saja"):
+                    st.dataframe(pd.DataFrame(markers_manual),use_container_width=True,hide_index=True)
+            if notes_manual:
+                with st.expander("⚠️ Catatan manual terindikasi — jangan dikonversi otomatis tanpa kecocokan kuat"):
+                    st.dataframe(pd.DataFrame(notes_manual),use_container_width=True,hide_index=True)
+
+            if not fns and (markers_manual or notes_manual):
+                st.warning("Catatan manual terdeteksi. Demi Proteksi Naskah 100%, versi ini hanya mengauditnya dan tidak memindahkan paragraf/penomoran secara otomatis. Konversi hanya boleh dilakukan setelah pasangan marker ↔ catatan ↔ sumber terverifikasi jelas.")
+            elif not fns:
+                st.warning("True Word footnote belum terdeteksi. Naskah tidak akan diubah atau ditebak.")
+
+            if mode_kerja.startswith("🔎"):
+                st.info("Mode Periksa Saja aktif — tidak ada byte dokumen yang diubah.")
+            elif fns:
+                if st.button("👁️ Setujui Pratinjau & Proses SALINAN",type="primary",key="proses_word_footnote"):
+                    if mode_kerja.startswith("🔄"):
+                        mode_internal="Ubah semua ke Chicago"
+                    else:
+                        mode_internal="Pertahankan format naskah asli"
+                    hasil,lap,msg=rapikan_true_footnotes_docx(raw,st.session_state.bank_referensi,mode_internal)
+                    if hasil:
+                        # PROTEKSI FORMAT ASLI 100%:
+                        # hanya word/footnotes.xml yang boleh berubah.
+                        # word/document.xml wajib identik dengan file unggahan.
+                        aman,berubah=verifikasi_proteksi_docx(raw,hasil,izinkan_document_xml=False)
+                        if aman:
+                            st.session_state["docx_siap_ajukan"]=hasil
+                            st.session_state["laporan_footnote_word"]=lap
+                            st.session_state["nama_docx_siap_ajukan"]=nama_hasil_baru(doc_naskah.name)
+                            st.success("✅ Audit proteksi lulus. Salinan dibuat; file asli tetap utuh.")
+                        else:
+                            st.session_state.pop("docx_siap_ajukan",None)
+                            st.error("⛔ PROSES DIBATALKAN. Terdeteksi perubahan di luar area yang diizinkan: "+", ".join(berubah[:8]))
+                    else:
+                        st.error(msg)
+
+        if st.session_state.get("laporan_footnote_word"):
+            st.markdown("#### ✅ Laporan Footnote")
+            st.dataframe(pd.DataFrame(st.session_state["laporan_footnote_word"]),use_container_width=True,hide_index=True)
+        if st.session_state.get("docx_siap_ajukan"):
+            nama=st.session_state.get("nama_docx_siap_ajukan","NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx")
+            st.caption(f"File hasil baru: {nama} — file asli tidak ditimpa.")
+            st.download_button("📥 Unduh Word — SALINAN HASIL",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
+
+        st.divider()
+        st.markdown("#### 🧩 Opsi Teks / BAB — terpisah dari file Word")
+        st.caption("Teks yang ditempel di sini boleh dianalisis AI, tetapi tidak akan ditulis kembali ke file Word yang diunggah. Ini menjaga naskah master tetap utuh.")
+        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=220,key="naskah_ref")
         refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
         pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
         dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
         arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
-        if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
+        if st.button("🧩 Analisis/Pasang Sitasi pada SALINAN TEKS",type="primary",disabled=not bool(naskah_awal.strip())):
+            panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada salinan teks",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan. Jangan mengubah naskah Word asli.",dipilih,"pasang_ref")
         if st.session_state.get("hasil_penulisan_ai"):
-            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
+            st.text_area("Hasil salinan teks — tidak diterapkan otomatis ke Word",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah")
 
-    with tab_audit:
+    with st.expander("🛡️ 6. Audit Referensi & Sitasi", expanded=False):
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
         if naskah:
             teks=ekstrak_teks(naskah); rows=status_sitasi(teks,st.session_state.bank_referensi)
