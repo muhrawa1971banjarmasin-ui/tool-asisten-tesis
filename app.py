@@ -1,4 +1,9 @@
-import streamlit as st
+📚 Mata Kuliah Saya
+
+Masukkan instruksi dosen, tema, atau kebutuhan tugas
+
+Unggah bahan tugas
+200MB per file • PDF, DOCX, TXT, CSV, XLSX, PPTX, JPimport streamlit as st
 import pandas as pd
 import PyPDF2
 from datetime import datetime
@@ -1137,50 +1142,167 @@ elif menu == "📚 Perkuliahan & OBE":
         ]
     )
 
-    st.subheader(fitur)
+    # ========================================================
+    # MATA KULIAH SAYA
+    # ========================================================
+    if fitur == "📚 Mata Kuliah Saya":
 
-    instruksi = st.text_area(
-        "Masukkan instruksi dosen, tema, atau kebutuhan tugas"
-    )
+        st.subheader("📚 Mata Kuliah Saya")
 
-    files = st.file_uploader(
-        "Unggah bahan tugas",
-        type=[
-            "pdf", "docx", "txt", "csv", "xlsx",
-            "pptx", "jpg", "jpeg", "png"
-        ],
-        accept_multiple_files=True,
-        key="kuliah"
-    )
+        mata_kuliah = st.selectbox(
+            "Pilih Mata Kuliah",
+            [
+                "Seminar Proposal Tesis",
+                "Kepemimpinan dan Supervisi PAI",
+                "➕ Tambah Mata Kuliah"
+            ],
+            key="pilih_mata_kuliah"
+        )
 
-    if files:
-        st.success(f"{len(files)} file berhasil dipilih.")
+        if mata_kuliah == "Seminar Proposal Tesis":
 
-        for file in files:
-            st.write(
-                f"📄 **{file.name}** — "
-                f"{format_ukuran(file.size)}"
+            st.markdown("### 🎓 Seminar Proposal Tesis")
+
+            st.info(
+                "Ruang kerja mata kuliah untuk RPS, modul, materi perkuliahan, "
+                "tugas, catatan dosen, referensi, dan pengembangan proposal tesis."
             )
 
-    st.markdown("### 🎯 OBE / RPS")
-    obe = st.text_area("Tempel CPL/CPMK/Sub-CPMK/rubrik bila ada", key="obe_rps")
-    bahan_teks = ""
-    for _f in files or []:
-        if _f.name.lower().endswith((".pdf",".docx",".txt")):
-            _t=ekstrak_teks(_f)
-            if not _t.startswith("ERROR:"): bahan_teks += "\n" + _t
-    if st.button("🤖 Susun / Periksa Tugas dengan AI", type="primary", key="ai_kuliah"):
-        panel_ai_penulisan(
-            bahan_teks + "\nRPS/OBE:\n" + obe,
-            fitur,
-            instruksi or "Susun sesuai instruksi, OBE/RPS, dan bahan yang tersedia.",
-            st.session_state.bank_referensi,
-            "kuliah"
+            bagian = st.selectbox(
+                "Pilih Bagian",
+                [
+                    "📄 RPS / Modul",
+                    "📚 Materi Perkuliahan",
+                    "📝 Tugas",
+                    "📌 Catatan Dosen",
+                    "📖 Referensi Mata Kuliah",
+                    "🎓 Pengembangan Proposal Tesis"
+                ],
+                key="bagian_seminar_proposal"
+            )
+
+            st.markdown(f"#### {bagian}")
+            st.info("Bagian ini siap dikembangkan pada tahap berikutnya.")
+
+        elif mata_kuliah == "Kepemimpinan dan Supervisi PAI":
+
+            st.markdown("### 👨‍🏫 Kepemimpinan dan Supervisi PAI")
+
+            bagian = st.selectbox(
+                "Pilih Bagian",
+                [
+                    "📄 RPS / Modul",
+                    "📚 Materi Perkuliahan",
+                    "📝 Paper",
+                    "🔎 Studi Kasus",
+                    "💡 Solusi Permasalahan",
+                    "📌 Catatan Dosen",
+                    "📖 Referensi Mata Kuliah"
+                ],
+                key="bagian_kepemimpinan_supervisi"
+            )
+
+            st.markdown(f"#### {bagian}")
+            st.info("Bagian ini siap dikembangkan pada tahap berikutnya.")
+
+        elif mata_kuliah == "➕ Tambah Mata Kuliah":
+
+            st.markdown("### ➕ Tambah Mata Kuliah")
+
+            nama_mk = st.text_input(
+                "Nama Mata Kuliah",
+                key="nama_mata_kuliah_baru"
+            )
+
+            if st.button(
+                "Tambahkan Mata Kuliah",
+                key="tambah_mata_kuliah"
+            ):
+                if nama_mk.strip():
+                    st.success(
+                        f"Mata kuliah '{nama_mk.strip()}' siap ditambahkan."
+                    )
+                else:
+                    st.warning(
+                        "Masukkan nama mata kuliah terlebih dahulu."
+                    )
+
+    # ========================================================
+    # FITUR PERKULIAHAN LAMA
+    # ========================================================
+    else:
+
+        st.subheader(fitur)
+
+        instruksi = st.text_area(
+            "Masukkan instruksi dosen, tema, atau kebutuhan tugas"
         )
-    if st.session_state.get("hasil_penulisan_ai"):
-        st.text_area("Hasil dapat diedit", st.session_state.hasil_penulisan_ai, height=500, key="edit_kuliah")
 
+        files = st.file_uploader(
+            "Unggah bahan tugas",
+            type=[
+                "pdf",
+                "docx",
+                "txt",
+                "csv",
+                "xlsx",
+                "pptx",
+                "jpg",
+                "jpeg",
+                "png"
+            ],
+            accept_multiple_files=True,
+            key="kuliah"
+        )
 
+        if files:
+            st.success(f"{len(files)} file berhasil dipilih.")
+
+            for file in files:
+                st.write(
+                    f"📄 **{file.name}** — "
+                    f"{format_ukuran(file.size)}"
+                )
+
+        st.markdown("### 🎯 OBE / RPS")
+
+        obe = st.text_area(
+            "Tempel CPL/CPMK/Sub-CPMK/rubrik bila ada",
+            key="obe_rps"
+        )
+
+        bahan_teks = ""
+
+        for _f in files or []:
+            if _f.name.lower().endswith(
+                (".pdf", ".docx", ".txt")
+            ):
+                _t = ekstrak_teks(_f)
+
+                if not _t.startswith("ERROR:"):
+                    bahan_teks += "\n" + _t
+
+        if st.button(
+            "🤖 Susun / Periksa Tugas dengan AI",
+            type="primary",
+            key="ai_kuliah"
+        ):
+            panel_ai_penulisan(
+                bahan_teks + "\nRPS/OBE:\n" + obe,
+                fitur,
+                instruksi
+                or "Susun sesuai instruksi, OBE/RPS, dan bahan yang tersedia.",
+                st.session_state.bank_referensi,
+                "kuliah"
+            )
+
+        if st.session_state.get("hasil_penulisan_ai"):
+            st.text_area(
+                "Hasil dapat diedit",
+                st.session_state.hasil_penulisan_ai,
+                height=500,
+                key="edit_kuliah"
+            )
 # ============================================================
 # ANALISIS KARYA AKADEMIK
 # ============================================================
