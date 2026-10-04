@@ -51,6 +51,10 @@ if "naskah_aktif" not in st.session_state:
 
 if "hasil_penulisan_ai" not in st.session_state:
     st.session_state.hasil_penulisan_ai = ""
+if "mata_kuliah_tambahan" not in st.session_state:
+    st.session_state.mata_kuliah_tambahan = []
+if "naskah_upload_ref" not in st.session_state:
+    st.session_state.naskah_upload_ref = ""
 
 if "kredit_ai" not in st.session_state:
     st.session_state.kredit_ai = 10
@@ -1049,6 +1053,39 @@ st.sidebar.caption(
 
 
 # ============================================================
+# PENDAMPING AI UNTUK MODUL PENELITIAN S1/S2/S3
+# ============================================================
+modul_ai_penelitian = {
+    "🧭 Metodologi Penelitian", "📝 Instrumen Penelitian", "📊 Statistik & SPSS",
+    "🔤 Analisis Kualitatif", "🎤 Audio & Video", "✍️ Penulisan Akademik",
+    "👨‍🏫 Bimbingan & Revisi", "📂 Perpustakaan Akademik", "✅ Audit Akademik",
+    "📈 Progres Penelitian", "🖥️ Presentasi", "🎓 Simulasi Sidang", "📘 Penulis Buku AI"
+}
+if menu in modul_ai_penelitian and menu_utama in ["🎓 Skripsi S1", "🎓 Tesis S2", "🎓 Disertasi S3"]:
+    with st.expander("🤖 Asisten AI Bagian Ini", expanded=False):
+        bahan_ai_modul = st.file_uploader(
+            "Unggah bahan PDF/DOCX/TXT (opsional)",
+            type=["pdf", "docx", "txt"],
+            key=f"upload_ai_modul_{menu_utama}_{menu}"
+        )
+        teks_bahan_ai = ekstrak_teks(bahan_ai_modul) if bahan_ai_modul else ""
+        instruksi_ai_modul = st.text_area(
+            "Apa yang ingin dikerjakan AI?",
+            key=f"instruksi_ai_modul_{menu_utama}_{menu}"
+        )
+        if st.button(
+            "🤖 Generate AI",
+            type="primary",
+            disabled=not bool(instruksi_ai_modul.strip() or teks_bahan_ai.strip()),
+            key=f"generate_ai_modul_{menu_utama}_{menu}"
+        ):
+            konteks_ai = f"JENJANG: {menu_utama}\nBAGIAN: {menu}\nBAHAN:\n{teks_bahan_ai[:60000]}"
+            panel_ai_penulisan(konteks_ai, f"{menu_utama} - {menu}", instruksi_ai_modul or "Kerjakan bagian ini berdasarkan bahan yang tersedia.", st.session_state.bank_referensi, "modul_penelitian")
+        if st.session_state.get("hasil_penulisan_ai"):
+            st.text_area("Hasil AI — dapat diedit", st.session_state.hasil_penulisan_ai, height=400, key=f"hasil_ai_modul_{menu_utama}_{menu}")
+
+
+# ============================================================
 # BERANDA
 # ============================================================
 if menu == "🏠 Beranda":
@@ -1161,13 +1198,14 @@ elif menu == "📚 Perkuliahan & OBE":
     # ========================================================
     st.subheader("📚 Mata Kuliah Saya")
 
+    daftar_mata_kuliah = [
+        "Seminar Proposal Tesis",
+        "Kepemimpinan dan Supervisi PAI",
+    ] + st.session_state.mata_kuliah_tambahan + ["➕ Tambah Mata Kuliah"]
+
     mata_kuliah = st.selectbox(
         "Pilih Mata Kuliah",
-        [
-            "Seminar Proposal Tesis",
-            "Kepemimpinan dan Supervisi PAI",
-            "➕ Tambah Mata Kuliah"
-        ],
+        daftar_mata_kuliah,
         key="pilih_mata_kuliah"
     )
 
@@ -1188,9 +1226,14 @@ elif menu == "📚 Perkuliahan & OBE":
             key="tambah_mata_kuliah"
         ):
             if nama_mk.strip():
-                st.success(
-                    f"Mata kuliah '{nama_mk.strip()}' siap ditambahkan."
-                )
+                nama_baru = nama_mk.strip()
+                daftar_bawaan = ["Seminar Proposal Tesis", "Kepemimpinan dan Supervisi PAI"]
+                if nama_baru in daftar_bawaan or nama_baru in st.session_state.mata_kuliah_tambahan:
+                    st.warning("Mata kuliah tersebut sudah ada.")
+                else:
+                    st.session_state.mata_kuliah_tambahan.append(nama_baru)
+                    st.success(f"Mata kuliah '{nama_baru}' berhasil ditambahkan.")
+                    st.rerun()
             else:
                 st.warning(
                     "Masukkan nama mata kuliah terlebih dahulu."
@@ -2903,7 +2946,29 @@ elif menu == "🔎 Literatur & Referensi":
 
     elif bagian_ref == "✍️ Pakai di Naskah":
         st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
-        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=300,key="naskah_ref")
+        file_naskah_ref = st.file_uploader(
+            "📤 Unggah naskah PDF/DOCX/TXT",
+            type=["pdf", "docx", "txt"],
+            key="upload_naskah_pakai_referensi"
+        )
+        if file_naskah_ref is not None:
+            try:
+                teks_upload = ekstrak_teks(file_naskah_ref)
+                if teks_upload and teks_upload.strip():
+                    st.session_state.naskah_upload_ref = teks_upload
+                    st.session_state.naskah_aktif = teks_upload
+                    st.success(f"Naskah '{file_naskah_ref.name}' berhasil dibaca.")
+                else:
+                    st.warning("Teks naskah belum dapat dibaca. Anda tetap dapat menempel teks secara manual.")
+            except Exception as e:
+                st.error(f"Naskah gagal dibaca: {e}")
+        naskah_awal=st.text_area(
+            "Tempel / edit paragraf atau BAB",
+            value=st.session_state.get("naskah_aktif", st.session_state.get("naskah_upload_ref", "")),
+            height=300,
+            key="naskah_ref"
+        )
+        st.session_state.naskah_aktif = naskah_awal
         refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
         pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
         dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
@@ -3468,37 +3533,85 @@ elif menu == "👨‍🏫 Bimbingan & Revisi":
 
 
 # ============================================================
-# PUBLIKASI
+# PUBLIKASI / JURNAL AKADEMIK
 # ============================================================
 elif menu == "📑 Publikasi Jurnal":
 
-    st.header("📑 Asisten Publikasi Jurnal")
-    target_jurnal = st.selectbox(
-        "Target Publikasi",
-        ["Belum ditentukan","Jurnal Nasional","SINTA 6","SINTA 5","SINTA 4","SINTA 3","SINTA 2","SINTA 1","Scopus"]
-    )
-    st.caption("Aplikasi membantu menyesuaikan naskah dengan scope/template jurnal target; tidak menjamin penerimaan atau peringkat jurnal.")
+    st.header("📝 Jurnal Akademik")
+    st.caption("Ruang kerja artikel jurnal dari penentuan rumah jurnal sampai audit naskah sebelum submission.")
 
-    st.selectbox(
-        "Tahap Publikasi",
+    bagian_jurnal = st.radio(
+        "Bagian Jurnal Akademik",
         [
-            "Ubah Tesis menjadi Artikel",
-            "Pilih Temuan Utama",
-            "Struktur IMRaD",
-            "Abstrak",
-            "Tabel & Gambar",
-            "Referensi",
-            "Cari Jurnal yang Sesuai",
-            "Checklist Submission",
-            "Cover Letter",
-            "Revisi Reviewer"
-        ]
+            "🏠 Rumah Jurnal",
+            "📤 Template & Author Guidelines",
+            "✍️ Tulis / Adaptasi Artikel",
+            "🔎 Cek Kesesuaian Rumah Jurnal",
+            "📚 Referensi & Sitasi",
+            "✅ Audit Artikel"
+        ],
+        key="bagian_jurnal_akademik"
     )
 
-    st.file_uploader(
-        "Unggah tesis / artikel",
-        type=["pdf", "docx"]
-    )
+    if bagian_jurnal == "🏠 Rumah Jurnal":
+        st.subheader("🏠 Rumah Jurnal")
+        nama_jurnal = st.text_input("Nama jurnal tujuan", key="nama_rumah_jurnal")
+        url_jurnal = st.text_input("URL jurnal / halaman author guidelines", key="url_rumah_jurnal")
+        scope_jurnal = st.text_area("Focus & Scope / ketentuan utama jurnal", height=180, key="scope_rumah_jurnal")
+        target_jurnal = st.selectbox("Target / indeks", ["Belum ditentukan","Jurnal Nasional","SINTA 6","SINTA 5","SINTA 4","SINTA 3","SINTA 2","SINTA 1","Scopus"], key="target_rumah_jurnal")
+        if st.button("🤖 Analisis Kesesuaian Rumah Jurnal", type="primary", key="ai_rumah_jurnal"):
+            konteks = f"Nama jurnal: {nama_jurnal}\nURL: {url_jurnal}\nTarget: {target_jurnal}\nFocus & Scope/Ketentuan:\n{scope_jurnal}"
+            panel_ai_penulisan(konteks, "Analisis rumah jurnal", "Analisis kesesuaian topik, scope, struktur, gaya penulisan, dan hal yang perlu dipenuhi. Jangan mengarang ketentuan yang tidak diberikan.", st.session_state.bank_referensi, "rumah_jurnal")
+
+    elif bagian_jurnal == "📤 Template & Author Guidelines":
+        st.subheader("📤 Template & Author Guidelines")
+        files_jurnal = st.file_uploader("Unggah template / author guidelines PDF, DOCX, atau TXT", type=["pdf","docx","txt"], accept_multiple_files=True, key="template_jurnal_upload")
+        teks_template = ""
+        if files_jurnal:
+            for f in files_jurnal:
+                try:
+                    teks_template += f"\n\nFILE: {f.name}\n" + ekstrak_teks(f)
+                except Exception as e:
+                    st.warning(f"{f.name} belum dapat dibaca: {e}")
+        if st.button("🤖 Analisis Template Jurnal", type="primary", disabled=not bool(teks_template.strip()), key="ai_template_jurnal"):
+            panel_ai_penulisan(teks_template, "Analisis template dan author guidelines jurnal", "Ekstrak struktur artikel, batasan, format, gaya sitasi, tabel/gambar, abstrak, kata kunci, dan checklist penulisan. Gunakan hanya ketentuan yang tersedia dalam dokumen.", [], "template_jurnal")
+
+    elif bagian_jurnal == "✍️ Tulis / Adaptasi Artikel":
+        st.subheader("✍️ Tulis / Adaptasi Artikel")
+        sumber_artikel = st.selectbox("Sumber artikel", ["Artikel baru","Tugas Kuliah","Skripsi S1","Tesis S2","Disertasi S3"], key="sumber_artikel_jurnal")
+        file_artikel = st.file_uploader("Unggah naskah sumber PDF/DOCX/TXT (opsional)", type=["pdf","docx","txt"], key="sumber_artikel_upload")
+        teks_artikel = ekstrak_teks(file_artikel) if file_artikel else ""
+        tema_artikel = st.text_area("Judul/tema, temuan utama, atau arahan penulisan", height=180, key="tema_artikel_jurnal")
+        if st.button("🤖 Generate Artikel Jurnal", type="primary", disabled=not bool(tema_artikel.strip() or teks_artikel.strip()), key="generate_artikel_jurnal"):
+            konteks = f"SUMBER: {sumber_artikel}\nARAHAN: {tema_artikel}\nNASKAH SUMBER:\n{teks_artikel[:60000]}"
+            panel_ai_penulisan(konteks, "Artikel jurnal akademik", "Susun artikel akademik yang koheren. Jangan menciptakan data penelitian. Gunakan referensi Library yang relevan dan terverifikasi.", st.session_state.bank_referensi, "artikel_jurnal")
+
+    elif bagian_jurnal == "🔎 Cek Kesesuaian Rumah Jurnal":
+        st.subheader("🔎 Cek Kesesuaian Rumah Jurnal")
+        fcek = st.file_uploader("Unggah artikel PDF/DOCX/TXT", type=["pdf","docx","txt"], key="cek_jurnal_file")
+        aturan = st.text_area("Tempel ketentuan / focus & scope rumah jurnal", height=180, key="cek_jurnal_aturan")
+        if st.button("🤖 Cek Kesesuaian dengan AI", type="primary", disabled=fcek is None, key="ai_cek_jurnal"):
+            teks = ekstrak_teks(fcek)
+            panel_ai_penulisan(teks, "Audit kesesuaian artikel dengan rumah jurnal", f"Bandingkan artikel dengan ketentuan berikut dan buat tabel Sesuai/Perlu Revisi/Tidak Ditemukan. Jangan mengarang aturan.\n{aturan}", st.session_state.bank_referensi, "cek_jurnal")
+
+    elif bagian_jurnal == "📚 Referensi & Sitasi":
+        st.subheader("📚 Referensi & Sitasi")
+        st.info("Menggunakan Library yang sama dengan menu Literatur & Referensi.")
+        if st.session_state.bank_referensi:
+            st.dataframe(pd.DataFrame(st.session_state.bank_referensi), use_container_width=True, hide_index=True)
+        else:
+            st.warning("Library Referensi masih kosong. Tambahkan referensi melalui menu Literatur & Referensi.")
+
+    elif bagian_jurnal == "✅ Audit Artikel":
+        st.subheader("✅ Audit Artikel")
+        faudit = st.file_uploader("Unggah artikel PDF/DOCX/TXT", type=["pdf","docx","txt"], key="audit_artikel_jurnal")
+        if st.button("🤖 Audit Artikel dengan AI", type="primary", disabled=faudit is None, key="ai_audit_artikel"):
+            teks = ekstrak_teks(faudit)
+            panel_ai_penulisan(teks, "Audit artikel jurnal", "Audit judul, abstrak, kata kunci, pendahuluan, metode, hasil/pembahasan, simpulan, sitasi, daftar pustaka, konsistensi bahasa, dan kesiapan submission. Jangan membuat data atau sumber baru.", st.session_state.bank_referensi, "audit_artikel")
+
+    if st.session_state.get("hasil_penulisan_ai"):
+        st.divider()
+        st.text_area("📄 Hasil AI — dapat diedit", st.session_state.hasil_penulisan_ai, height=550, key="hasil_ai_jurnal_tampil")
 
 
 # ============================================================
