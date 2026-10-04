@@ -1,3603 +1,1699 @@
-import streamlit as st
-import pandas as pd
-import PyPDF2
-from datetime import datetime
-import json
-import urllib.request
-import urllib.error
-import urllib.parse
-import re
-import html
-import difflib
-import csv
-import io
-import zipfile
-import xml.etree.ElementTree as ET
-try:
-    import docx
-except ImportError:
-    docx = None
-
-
-# ============================================================
-# KONFIGURASI
-# ============================================================
-st.set_page_config(
-    page_title="Asisten Akademik AI",
-    page_icon="🎓",
-    layout="wide"
-)
-
-APP_NAME = "Asisten Akademik AI"
-APP_SUBTITLE = (
-    "S1 • S2 • S3 • OBE • Riset • Referensi • Publikasi • Buku • Sidang"
-)
-
-
-# ============================================================
-# SESSION STATE
-# Catatan: penyimpanan ini masih sementara selama sesi.
-# Database multi-user permanen dipasang pada tahap berikutnya.
-# ============================================================
-if "bank_karya" not in st.session_state:
-    st.session_state.bank_karya = []
-
-if "bank_referensi" not in st.session_state:
-    st.session_state.bank_referensi = []
-
-if "proyek_aktif" not in st.session_state:
-    st.session_state.proyek_aktif = "Proyek Utama"
-
-if "naskah_aktif" not in st.session_state:
-    st.session_state.naskah_aktif = ""
-
-if "hasil_penulisan_ai" not in st.session_state:
-    st.session_state.hasil_penulisan_ai = ""
-
-if "kredit_ai" not in st.session_state:
-    st.session_state.kredit_ai = 10
-
-if "riwayat_kredit" not in st.session_state:
-    st.session_state.riwayat_kredit = []
-
-if "sumber_online_user" not in st.session_state:
-    st.session_state.sumber_online_user = []
-if "gaya_sitasi" not in st.session_state:
-    st.session_state.gaya_sitasi = "Chicago Notes & Bibliography"
-
-
-# ============================================================
-# FUNGSI DASAR
-# ============================================================
-def format_ukuran(byte):
-    if byte < 1024:
-        return f"{byte} B"
-    if byte < 1024 * 1024:
-        return f"{byte / 1024:.1f} KB"
-    return f"{byte / (1024 * 1024):.1f} MB"
-
-
-def baca_pdf(file):
-    try:
-        file.seek(0)
-        reader = PyPDF2.PdfReader(file)
-        teks = []
-
-        for halaman in reader.pages:
-            isi = halaman.extract_text()
-            if isi:
-                teks.append(isi)
-
-        return "\n".join(teks)
-
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
-def baca_docx(file):
-    if docx is None:
-        return "ERROR: Library python-docx belum tersedia."
-
-    try:
-        file.seek(0)
-        dokumen = docx.Document(file)
-        return "\n".join(
-            paragraf.text for paragraf in dokumen.paragraphs
-            if paragraf.text.strip()
-        )
-
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
-def baca_txt(file):
-    try:
-        file.seek(0)
-        data = file.getvalue()
-
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError:
-            return data.decode("latin-1")
-
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
-def ekstrak_teks(file):
-    nama = file.name.lower()
-
-    if nama.endswith(".pdf"):
-        return baca_pdf(file)
-
-    if nama.endswith(".docx"):
-        return baca_docx(file)
-
-    if nama.endswith(".txt"):
-        return baca_txt(file)
-
-    return ""
-
-
-def deteksi_struktur(teks):
-    teks = teks.lower()
-
-    struktur = {
-        "Latar Belakang": ["latar belakang"],
-        "Rumusan Masalah": [
-            "rumusan masalah",
-            "fokus penelitian"
-        ],
-        "Tujuan Penelitian": ["tujuan penelitian"],
-        "Kajian Pustaka/Teori": [
-            "kajian pustaka",
-            "kajian teori",
-            "landasan teori"
-        ],
-        "Metode Penelitian": [
-            "metode penelitian",
-            "metodologi penelitian"
-        ],
-        "Hasil/Temuan": [
-            "hasil penelitian",
-            "hasil dan pembahasan",
-            "temuan penelitian"
-        ],
-        "Kesimpulan": [
-            "kesimpulan",
-            "simpulan"
-        ],
-        "Keterbatasan": [
-            "keterbatasan penelitian"
-        ],
-        "Daftar Pustaka": [
-            "daftar pustaka",
-            "references"
-        ]
-    }
-
-    hasil = {}
-
-    for bagian, kata_kunci in struktur.items():
-        hasil[bagian] = any(
-            kata in teks for kata in kata_kunci
-        )
-
-    return hasil
-
-
-def simpan_karya(nama, jenis, ukuran):
-    data = {
-        "Proyek": st.session_state.proyek_aktif,
-        "Nama File": nama,
-        "Jenis": jenis,
-        "Ukuran": ukuran,
-        "Tanggal": datetime.now().strftime("%d-%m-%Y %H:%M")
-    }
-    sudah_ada = any(
-        x["Nama File"] == nama
-        and x["Proyek"] == st.session_state.proyek_aktif
-        for x in st.session_state.bank_karya
-    )
-
-    if not sudah_ada:
-        st.session_state.bank_karya.append(data)
-        return True
-
-    return False
-
-
-# ============================================================
-# KONEKSI AI GEMINI LANGSUNG
-# ============================================================
-
-def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
-    """Analisis dokumen menggunakan Gemini API langsung."""
-    import time
-
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        return {
-            "sukses": False,
-            "hasil": "",
-            "error": "GEMINI_API_KEY belum ditemukan di Streamlit Secrets."
-        }
-
-    model_id = "gemini-3.8-flash"
-    teks_dokumen = teks[:60000]
-    fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
-
-    prompt = f"""
-Anda adalah Asisten Akademik AI untuk mahasiswa S1, S2, dan S3.
-
-Analisis dokumen akademik berikut secara teliti dan hanya berdasarkan
-isi dokumen yang diberikan.
-
-Jenis karya yang dipilih:
-{jenis_karya}
-
-Fokus analisis:
-{fokus}
-
-ATURAN WAJIB:
-1. Jangan mengarang informasi.
-2. Jika informasi tidak ditemukan, tulis: "Tidak ditemukan dalam dokumen."
-3. Jangan membuat nama penulis, teori, metode, hasil, referensi, DOI, research gap, atau novelty yang tidak terdapat dalam dokumen.
-4. Bedakan novelty yang diklaim penulis dengan novelty yang benar-benar telah diverifikasi melalui literatur.
-5. Pada tahap ini hanya analisis dokumen, bukan pembuktian novelty terhadap seluruh literatur ilmiah.
-6. Gunakan bahasa Indonesia akademik yang jelas.
-7. Berikan bukti atau bagian dokumen yang mendukung analisis jika tersedia.
-
-Susun hasil dengan bagian:
-A. IDENTITAS DAN JENIS DOKUMEN
-B. TOPIK UTAMA
-C. LATAR BELAKANG / MASALAH
-D. TUJUAN
-E. KONSEP ATAU LANDASAN TEORI
-F. METODOLOGI
-G. TEMUAN / HASIL UTAMA
-H. KETERBATASAN
-I. RESEARCH GAP YANG TERIDENTIFIKASI
-J. NOVELTY / KEBAHARUAN YANG DIKLAIM
-K. KONTRIBUSI AKADEMIK
-L. RELEVANSI UNTUK PENELITIAN LANJUTAN
-M. KESIMPULAN ANALISIS
-
-DOKUMEN:
---------------------
-{teks_dokumen}
---------------------
-"""
-
-    payload = {
-        "contents": [
-            {"parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 8192
-        }
-    }
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model_id
-        + ":generateContent?key="
-        + api_key
-    )
-
-    transient_codes = {429, 500, 502, 503, 504}
-
-    for percobaan in range(3):
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-
-        try:
-            with urllib.request.urlopen(request, timeout=180) as response:
-                data = json.loads(response.read().decode("utf-8"))
-
-            candidates = data.get("candidates", [])
-            parts = (
-                candidates[0].get("content", {}).get("parts", [])
-                if candidates else []
-            )
-            isi = "\n".join(
-                part.get("text", "")
-                for part in parts
-                if isinstance(part, dict) and part.get("text")
-            ).strip()
-
-            if isi:
-                return {
-                    "sukses": True,
-                    "hasil": isi,
-                    "error": "",
-                    "model": model_id
-                }
-
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": "Gemini merespons, tetapi hasil analisis kosong."
-            }
-
-        except urllib.error.HTTPError as e:
-            try:
-                detail = e.read().decode("utf-8")
-            except Exception:
-                detail = ""
-
-            if e.code in transient_codes and percobaan < 2:
-                time.sleep(3 * (percobaan + 1))
-                continue
-
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Gemini belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
-            }
-
-        except urllib.error.URLError as e:
-            if percobaan < 2:
-                time.sleep(3 * (percobaan + 1))
-                continue
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Tidak dapat terhubung ke Gemini: {e.reason}"
-            }
-
-        except Exception as e:
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Terjadi kesalahan saat menjalankan Gemini: {str(e)}"
-            }
-
-    return {
-        "sukses": False,
-        "hasil": "",
-        "error": "Gemini belum berhasil setelah beberapa percobaan."
-    }
-
-
-# ============================================================
-# MENJALANKAN DAN MENAMPILKAN HASIL AI
-# ============================================================
-def jalankan_analisis_ai(
-    teks_ai,
-    jenis,
-    fokus_analisis
-):
-    hasil_ai = analisis_dengan_gemini(
-        teks_ai,
-        jenis,
-        fokus_analisis
-    )
-
-    if hasil_ai["sukses"]:
-        st.session_state.hasil_ai_gemini = hasil_ai["hasil"]
-
-        st.success(
-            "✅ Analisis AI berhasil."
-        )
-
-        if hasil_ai.get("model"):
-            st.caption(
-                f"Model AI: {hasil_ai['model']}"
-            )
-
-        return hasil_ai["hasil"]
-
-    else:
-        st.session_state.hasil_ai_gemini = ""
-
-        st.error(
-            "❌ Analisis AI belum berhasil."
-        )
-
-        st.warning(
-            hasil_ai["error"]
-        )
-
-        return ""
-
-
-
-# ============================================================
-# MESIN AI UMUM, REFERENSI, SITASI, DAN EKSPOR
-# ============================================================
-def panggil_gemini(prompt, temperature=0.25):
-    """Panggilan Gemini umum. API key tetap hanya di Streamlit Secrets."""
-    import time
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        return {"sukses": False, "hasil": "", "error": "GEMINI_API_KEY belum ditemukan di Streamlit Secrets."}
-
-    model_id = "gemini-3.8-flash"
-    payload = {
-        "contents": [{"parts": [{"text": prompt[:90000]}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": 8192}
-    }
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model_id + ":generateContent?key=" + api_key
-    )
-    for percobaan in range(3):
-        req = urllib.request.Request(
-            url, data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}, method="POST"
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-            isi = "\n".join(x.get("text","") for x in parts if isinstance(x,dict)).strip()
-            if isi:
-                return {"sukses": True, "hasil": isi, "error": "", "model": model_id}
-            return {"sukses": False, "hasil": "", "error": "Gemini merespons tetapi hasil kosong."}
-        except urllib.error.HTTPError as e:
-            detail = ""
-            try: detail = e.read().decode("utf-8")
-            except Exception: pass
-            if e.code in {429,500,502,503,504} and percobaan < 2:
-                time.sleep(3*(percobaan+1)); continue
-            return {"sukses":False,"hasil":"","error":f"Gemini HTTP {e.code}. {detail}"}
-        except Exception as e:
-            if percobaan < 2:
-                time.sleep(2*(percobaan+1)); continue
-            return {"sukses":False,"hasil":"","error":str(e)}
-    return {"sukses":False,"hasil":"","error":"Gemini belum berhasil setelah beberapa percobaan."}
-
-
-def _http_json(url, timeout=30):
-    req = urllib.request.Request(url, headers={"User-Agent":"AsistenAkademikAI/2.0 (academic reference tool)"})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-def _tahun_crossref(item):
-    dp=item.get("published-print") or item.get("published-online") or item.get("issued") or {}
-    parts=dp.get("date-parts") or [[]]
-    return str(parts[0][0]) if parts and parts[0] else ""
-
-def _crossref_to_ref(item, sumber="Crossref"):
-    authors=[]
-    for a in item.get("author",[]):
-        nama=(" ".join([a.get("given",""),a.get("family","")])).strip()
-        if nama: authors.append(nama)
-    return {"Judul":(item.get("title") or [""])[0],"Penulis":"; ".join(authors),"Tahun":_tahun_crossref(item),"Jurnal":(item.get("container-title") or [""])[0],"Volume":item.get("volume",""),"Nomor":item.get("issue",""),"Halaman":item.get("page",""),"DOI":item.get("DOI",""),"URL":item.get("URL",""),"Sumber":sumber,"Status":"✅ Metadata terverifikasi Crossref" if item.get("DOI") else "⚠️ DOI belum tersedia"}
-
-def cari_crossref(kata_kunci, jumlah=10):
-    if not kata_kunci.strip(): return []
-    q=urllib.parse.quote(kata_kunci.strip())
-    url=f"https://api.crossref.org/works?query.bibliographic={q}&rows={jumlah}&select=DOI,title,author,published-print,published-online,issued,container-title,volume,issue,page,URL,type"
-    try: return [_crossref_to_ref(x) for x in _http_json(url).get("message",{}).get("items",[])]
-    except Exception: return []
-
-def cari_openalex(kata_kunci, jumlah=10):
-    if not kata_kunci.strip(): return []
-    try:
-        data=_http_json(f"https://api.openalex.org/works?search={urllib.parse.quote(kata_kunci.strip())}&per-page={jumlah}")
-        out=[]
-        for x in data.get("results",[]):
-            authors=[a.get("author",{}).get("display_name","") for a in x.get("authorships",[]) if a.get("author",{}).get("display_name")]
-            loc=x.get("primary_location") or {}; src=loc.get("source") or {}; b=x.get("biblio") or {}; doi=(x.get("doi") or "").replace("https://doi.org/","")
-            pages="-".join([str(v) for v in [b.get("first_page"),b.get("last_page")] if v])
-            out.append({"Judul":x.get("title","") or "","Penulis":"; ".join(authors),"Tahun":str(x.get("publication_year") or ""),"Jurnal":src.get("display_name","") or "","Volume":b.get("volume","") or "","Nomor":b.get("issue","") or "","Halaman":pages,"DOI":doi,"URL":x.get("id","") or "","Sumber":"OpenAlex","Status":"✅ Metadata teridentifikasi OpenAlex" if doi else "⚠️ DOI belum tersedia"})
-        return out
-    except Exception: return []
-
-
-def cari_semantic_scholar(kata_kunci, jumlah=10):
-    """Pencarian metadata publik Semantic Scholar. Gagal diam-diam bila rate-limit."""
-    if not kata_kunci.strip(): return []
-    try:
-        q=urllib.parse.quote(kata_kunci.strip())
-        fields="title,authors,year,venue,externalIds,url"
-        data=_http_json(f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit={min(jumlah,100)}&fields={fields}")
-        out=[]
-        for x in data.get("data",[]):
-            ext=x.get("externalIds") or {}
-            doi=ext.get("DOI","") or ""
-            authors=[a.get("name","") for a in x.get("authors",[]) if a.get("name")]
-            out.append({"Judul":x.get("title","") or "","Penulis":"; ".join(authors),
-                        "Tahun":str(x.get("year") or ""),"Jurnal":x.get("venue","") or "",
-                        "Volume":"","Nomor":"","Halaman":"","DOI":doi,
-                        "URL":x.get("url","") or "","Sumber":"Semantic Scholar",
-                        "Status":"✅ Metadata teridentifikasi Semantic Scholar" if doi else "🔎 Metadata ditemukan — DOI belum tersedia"})
-        return out
-    except Exception:
-        return []
-
-def cari_library_of_congress(kata_kunci, jumlah=8):
-    """Pencarian koleksi digital Library of Congress melalui JSON API resmi."""
-    if not kata_kunci.strip(): return []
-    try:
-        q=urllib.parse.quote(kata_kunci.strip())
-        data=_http_json(f"https://www.loc.gov/search/?q={q}&fo=json&c={min(jumlah,25)}")
-        out=[]
-        for x in data.get("results",[])[:jumlah]:
-            title=x.get("title","") or ""
-            date=str(x.get("date","") or "")
-            creator=x.get("contributor") or x.get("creator") or []
-            if isinstance(creator,str): creator=[creator]
-            authors="; ".join([str(a) for a in creator[:8]])
-            out.append({"Judul":title,"Penulis":authors,"Tahun":date[:4] if date else "",
-                        "Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"",
-                        "URL":x.get("id","") or x.get("url","") or "",
-                        "Sumber":"Library of Congress",
-                        "Status":"🏛️ Metadata katalog teridentifikasi Library of Congress"})
-        return out
-    except Exception:
-        return []
-
-def cari_multi_sumber(kata_kunci, jumlah=12):
-    """Federated search: metadata sources that legally expose machine-readable APIs."""
-    unik=[]; seen=set()
-    gabungan=(cari_crossref(kata_kunci,jumlah)+cari_openalex(kata_kunci,jumlah)
-              +cari_semantic_scholar(kata_kunci,min(jumlah,10))
-              +cari_library_of_congress(kata_kunci,min(jumlah,8)))
-    for r in gabungan:
-        k=(r.get("DOI") or re.sub(r"[^a-z0-9]+","",r.get("Judul","").lower())).lower()
-        if k and k not in seen:
-            seen.add(k); unik.append(r)
-    return unik
-
-def cari_crossref_doi(doi):
-    doi=(doi or "").strip().strip(".,;:) ]}")
-    if not doi: return None
-    try: return _crossref_to_ref(_http_json("https://api.crossref.org/works/"+urllib.parse.quote(doi,safe="")).get("message") or {})
-    except Exception: return None
-
-def ekstrak_doi(teks):
-    m=re.search(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+",teks or "",re.I)
-    return m.group(0).rstrip(".,;:) ]}") if m else ""
-
-def normal_judul(x): return re.sub(r"[^a-z0-9]+"," ",(x or "").lower()).strip()
-
-def verifikasi_judul_crossref(judul):
-    best=None; score=0.0; a=normal_judul(judul)
-    for r in cari_crossref(judul,5):
-        sc=difflib.SequenceMatcher(None,a,normal_judul(r.get("Judul",""))).ratio() if a else 0
-        if sc>score: best,score=r,sc
-    return best,score
-
-def ekstrak_metadata_gemini(teks,nama_file=""):
-    if not teks or teks.startswith("ERROR:"): return None
-    prompt=("Ekstrak metadata bibliografis dari dokumen berikut. Jangan menebak. Jika tidak ada isi string kosong. "
-            "Kembalikan HANYA JSON valid dengan kunci Judul, Penulis, Tahun, Jurnal, Volume, Nomor, Halaman, DOI, URL. "
-            "Penulis dipisahkan titik koma. Nama file: "+nama_file+"\nDOKUMEN:\n"+teks[:15000])
-    h=panggil_gemini(prompt,0.05)
-    if not h.get("sukses"): return None
-    raw=re.sub(r"^```(?:json)?\s*|\s*```$","",h.get("hasil","").strip(),flags=re.I|re.S).strip()
-    try:
-        d=json.loads(raw); return {k:str(d.get(k,"") or "").strip() for k in ["Judul","Penulis","Tahun","Jurnal","Volume","Nomor","Halaman","DOI","URL"]}
-    except Exception: return None
-
-def kunci_ref(ref):
-    doi=(ref.get("DOI") or "").strip().lower()
-    return "doi:"+doi if doi else "title:"+re.sub(r"[^a-z0-9]+","",(ref.get("Judul") or "").lower())
-
-def tambah_bank_referensi(ref):
-    key=kunci_ref(ref)
-    if any(kunci_ref(x)==key for x in st.session_state.bank_referensi): return False
-    data=dict(ref); data["Proyek"]=st.session_state.proyek_aktif; data["Tanggal"]=datetime.now().strftime("%d-%m-%Y %H:%M"); st.session_state.bank_referensi.append(data); return True
-
-def _nama_chicago(penulis):
-    n=[x.strip() for x in (penulis or "").split(";") if x.strip()]
-    return "Tanpa penulis" if not n else n[0] if len(n)==1 else f"{n[0]} dan {n[1]}" if len(n)==2 else f"{n[0]} et al."
-
-def format_chicago_note(ref,halaman_kutip=""):
-    pen=_nama_chicago(ref.get("Penulis")); jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; th=ref.get("Tahun") or "n.d."; doi=ref.get("DOI") or ""; url=ref.get("URL") or ""
-    pub=jur + (f" {vol}" if vol else "") + (f", no. {no}" if no else "") + f" ({th})"; loc=halaman_kutip or ref.get("Halaman") or ""
-    if loc: pub+=f": {loc}"
-    return f'{pen}, “{jud},” {pub}'+(f", https://doi.org/{doi}" if doi else f", {url}" if url else "")+"."
-
-def format_chicago_bibliography(ref):
-    pen=_nama_chicago(ref.get("Penulis")); jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; th=ref.get("Tahun") or "n.d."; hal=ref.get("Halaman") or ""; doi=ref.get("DOI") or ""; url=ref.get("URL") or ""
-    s=f'{pen}. “{jud}.”'+(f" {jur}" if jur else "")+(f" {vol}" if vol else "")+(f", no. {no}" if no else "")+f" ({th})"+(f": {hal}" if hal else "")
-    return s+(f". https://doi.org/{doi}" if doi else f". {url}" if url else "")+"."
-
-def format_apa(ref):
-    pen=ref.get("Penulis") or "Tanpa penulis"; th=ref.get("Tahun") or "n.d."; jud=ref.get("Judul") or "Tanpa judul"; jur=ref.get("Jurnal") or ""; vol=ref.get("Volume") or ""; no=ref.get("Nomor") or ""; hal=ref.get("Halaman") or ""; doi=ref.get("DOI") or ""; tail=""
-    if jur: tail+=f" {jur}"
-    if vol: tail+=f", {vol}"
-    if no: tail+=f"({no})"
-    if hal: tail+=f", {hal}"
-    if doi: tail+=f". https://doi.org/{doi}"
-    return f"{pen}. ({th}). {jud}.{tail}".strip()
-
-def format_referensi(ref,gaya=None):
-    gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
-    g=gaya.lower()
-    # Formatter aman untuk salin/pratinjau. Tidak pernah mengubah naskah.
-    if "chicago notes" in g or "turabian" in g or "pedoman kampus" in g:
-        return format_chicago_bibliography(ref)
-    if "apa" in g or "harvard" in g or "chicago author" in g or "apsa" in g or "cse" in g:
-        return format_apa(ref)
-    if "ieee" in g or "vancouver" in g or "ama" in g:
-        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
-        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
-        return f'{pen}, “{jud},” {jurnal}, {th}' + (f', doi: {doi}' if doi else '') + '.'
-    if "mla" in g:
-        pen=ref.get("Penulis") or "Tanpa penulis"; jud=ref.get("Judul") or "Tanpa judul"; th=ref.get("Tahun") or "n.d."
-        jurnal=ref.get("Jurnal") or ""; doi=ref.get("DOI") or ""
-        return f'{pen}. “{jud}.” {jurnal}, {th}' + (f', https://doi.org/{doi}' if doi else '') + '.'
-    if "oscola" in g:
-        return format_chicago_bibliography(ref)
-    if "acs" in g:
-        return format_apa(ref)
-    return format_chicago_bibliography(ref)
-
-def rumpun_gaya_sitasi(gaya):
-    g=(gaya or '').lower()
-    if any(x in g for x in ['chicago notes','turabian','oscola','pedoman kampus']): return 'Catatan kaki / notes'
-    if any(x in g for x in ['apa','harvard','chicago author','apsa']): return 'Penulis–tahun di dalam teks'
-    if any(x in g for x in ['ieee','vancouver','ama']): return 'Sitasi bernomor'
-    if 'mla' in g: return 'Penulis–halaman di dalam teks'
-    if any(x in g for x in ['acs','cse']): return 'Ilmiah/disiplin khusus'
-    if 'jurnal' in g: return 'Mengikuti author guidelines jurnal'
-    if 'kustom' in g: return 'Aturan pengguna'
-    return 'Sesuai gaya terpilih'
-
-def saran_gaya_otomatis(jenis_karya, rumpun_ilmu):
-    jk=(jenis_karya or '').lower(); ri=(rumpun_ilmu or '').lower()
-    if 'jurnal' in jk or 'artikel' in jk: return '📰 Ikuti Template/Author Guidelines Jurnal'
-    if 'hukum' in ri: return '⚖️ OSCOLA'
-    if 'kedokteran' in ri or 'kesehatan' in ri: return '🩺 Vancouver'
-    if 'teknik' in ri or 'komputer' in ri: return '📓 IEEE'
-    if 'kimia' in ri: return '🧪 ACS'
-    if 'biologi' in ri or 'sains' in ri: return '🔬 CSE'
-    if 'sastra' in ri or 'bahasa' in ri: return '📕 MLA'
-    if 'tesis' in jk or 'skripsi' in jk or 'disertasi' in jk: return '🎓 Ikuti Pedoman Kampus/Institusi'
-    return '📗 APA 7th Edition'
-
-# ============================================================
-# FOOTNOTE WORD — audit, pencocokan Library, dan perapian aman
-# Prinsip: narasi/document.xml tidak ditulis ulang. Yang disentuh
-# hanya word/footnotes.xml pada SALINAN dokumen hasil.
-# ============================================================
-W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-XML_NS = "http://www.w3.org/XML/1998/namespace"
-ET.register_namespace("w", W_NS)
-
-def _w(tag):
-    return "{%s}%s" % (W_NS, tag)
-
-def _norm_match(x):
-    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).strip()
-
-def _footnote_text(fn):
-    return " ".join((t.text or "") for t in fn.iter(_w("t"))).strip()
-
-def baca_true_footnotes_docx(data):
-    """Baca true Word footnotes tanpa mengubah dokumen."""
-    try:
-        with zipfile.ZipFile(io.BytesIO(data), "r") as z:
-            if "word/footnotes.xml" not in z.namelist():
-                return []
-            root=ET.fromstring(z.read("word/footnotes.xml"))
-            out=[]
-            for fn in root.findall(_w("footnote")):
-                fid=fn.get(_w("id"), "")
-                if str(fid) in ("-1","0"): continue
-                teks=_footnote_text(fn)
-                if teks: out.append({"id":str(fid),"teks":teks})
-            return out
-    except Exception:
-        return []
-
-def cocokkan_footnote_ke_library(teks, refs):
-    """DOI exact > kemiripan judul > penulis+tahun. Konservatif."""
-    low=(teks or "").lower()
-    doi_m=re.search(r"10\.\d{4,9}/[-._;()/:a-z0-9]+", low, re.I)
-    doi=(doi_m.group(0).rstrip(".,;)") if doi_m else "").lower()
-    if doi:
-        for i,r in enumerate(refs):
-            if (r.get("DOI") or "").strip().lower()==doi:
-                return i,1.0,"DOI cocok"
-    best_i=None; best=0.0
-    nt=_norm_match(teks)
-    for i,r in enumerate(refs):
-        title=_norm_match(r.get("Judul",""))
-        if len(title)>=12:
-            score=difflib.SequenceMatcher(None,title,nt).ratio()
-            if title in nt: score=max(score,0.96)
-            if score>best: best_i,best=i,score
-    if best_i is not None and best>=0.62:
-        return best_i,best,"Judul cocok"
-    for i,r in enumerate(refs):
-        year=str(r.get("Tahun") or "")
-        author=_norm_match(r.get("Penulis") or "").split(" ")[0] if r.get("Penulis") else ""
-        if year and author and year in low and author in nt:
-            return i,0.70,"Penulis + tahun cocok"
-    return None,0.0,"Belum cocok"
-
-def _set_run_tnr10(run):
-    rpr=run.find(_w("rPr"))
-    if rpr is None:
-        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
-    rf=rpr.find(_w("rFonts"))
-    if rf is None:
-        rf=ET.SubElement(rpr,_w("rFonts"))
-    for a in ("ascii","hAnsi","eastAsia","cs"): rf.set(_w(a),"Times New Roman")
-    sz=rpr.find(_w("sz"))
-    if sz is None: sz=ET.SubElement(rpr,_w("sz"))
-    sz.set(_w("val"),"20")
-    szcs=rpr.find(_w("szCs"))
-    if szcs is None: szcs=ET.SubElement(rpr,_w("szCs"))
-    szcs.set(_w("val"),"20")
-
-def _set_para_single(p):
-    ppr=p.find(_w("pPr"))
-    if ppr is None:
-        ppr=ET.Element(_w("pPr")); p.insert(0,ppr)
-    sp=ppr.find(_w("spacing"))
-    if sp is None: sp=ET.SubElement(ppr,_w("spacing"))
-    sp.set(_w("line"),"240"); sp.set(_w("lineRule"),"auto")
-    sp.set(_w("before"),"0"); sp.set(_w("after"),"0")
-
-def _set_run_superscript(run):
-    """Jadikan marker footnote Word superscript tanpa mengubah teks narasi."""
-    rpr=run.find(_w("rPr"))
-    if rpr is None:
-        rpr=ET.Element(_w("rPr")); run.insert(0,rpr)
-    va=rpr.find(_w("vertAlign"))
-    if va is None:
-        va=ET.SubElement(rpr,_w("vertAlign"))
-    va.set(_w("val"),"superscript")
-
-def _format_document_footnote_refs_superscript(xml_bytes):
-    """Format hanya run yang memuat w:footnoteReference pada document.xml."""
-    root=ET.fromstring(xml_bytes)
-    for r in root.iter(_w("r")):
-        if r.find(_w("footnoteReference")) is not None:
-            _set_run_superscript(r)
-    return ET.tostring(root,encoding="utf-8",xml_declaration=True)
-
-def _format_footnote_markers_superscript(root):
-    """Format marker w:footnoteRef di area catatan kaki sebagai superscript."""
-    for r in root.iter(_w("r")):
-        if r.find(_w("footnoteRef")) is not None:
-            _set_run_superscript(r)
-
-def _short_chicago_note(ref):
-    pen=_nama_chicago(ref.get("Penulis"))
-    jud=(ref.get("Judul") or "Tanpa judul").strip()
-    if len(jud)>70: jud=jud[:67].rstrip()+"…"
-    return f'{pen}, “{jud}.”'
-
-def _replace_note_text(fn, new_text):
-    """Pertahankan marker true-footnote; ganti hanya teks catatan."""
-    ps=fn.findall(_w("p"))
-    if not ps:
-        p=ET.SubElement(fn,_w("p")); ps=[p]
-    p0=ps[0]
-    # hapus paragraf tambahan agar satu note bersih; marker dipertahankan
-    for p in ps[1:]: fn.remove(p)
-    keep=[]
-    for r in p0.findall(_w("r")):
-        if r.find(_w("footnoteRef")) is not None:
-            keep.append(r)
-    for child in list(p0):
-        if child.tag != _w("pPr"): p0.remove(child)
-    if keep:
-        p0.append(keep[0])
-    else:
-        rr=ET.SubElement(p0,_w("r")); ET.SubElement(rr,_w("footnoteRef"))
-    sep=ET.SubElement(p0,_w("r")); tt=ET.SubElement(sep,_w("t")); tt.set("{%s}space"%XML_NS,"preserve"); tt.text=" "
-    rr=ET.SubElement(p0,_w("r")); tt=ET.SubElement(rr,_w("t")); tt.text=new_text
-
-def rapikan_true_footnotes_docx(data, refs, mode="Pertahankan format naskah asli"):
-    """Hasilkan SALINAN DOCX. document.xml/narasi tidak diubah."""
-    src=io.BytesIO(data); out=io.BytesIO(); laporan=[]
-    with zipfile.ZipFile(src,"r") as zin:
-        if "word/footnotes.xml" not in zin.namelist():
-            return None,[],"Dokumen tidak memiliki true Word footnote."
-        root=ET.fromstring(zin.read("word/footnotes.xml"))
-        seen=set()
-        for fn in root.findall(_w("footnote")):
-            fid=str(fn.get(_w("id"),""))
-            if fid in ("-1","0"): continue
-            old=_footnote_text(fn)
-            idx,score,alasan=cocokkan_footnote_ke_library(old,refs)
-            ref=refs[idx] if idx is not None else None
-            aksi="Format dipertahankan"
-            if mode.startswith("Ubah semua") and ref is not None:
-                key=kunci_ref(ref)
-                new=_short_chicago_note(ref) if key in seen else format_chicago_note(ref)
-                _replace_note_text(fn,new); seen.add(key); aksi="Diubah ke Chicago"
-            # format visual selalu dirapikan; teks hanya berubah pada mode ubah semua
-            for p in fn.findall(_w("p")):
-                _set_para_single(p)
-                for r in p.findall(_w("r")): _set_run_tnr10(r)
-            laporan.append({"No":fid,"Footnote Asli":old,"Cocok Library":ref.get("Judul","") if ref else "","Kecocokan":f"{score:.0%}" if score else "-","Status":alasan,"Tindakan":aksi})
-        # Nomor/marker footnote di bawah halaman dibuat superscript.
-        # PENTING: document.xml TIDAK PERNAH diserialisasi ulang.
-        # Dengan demikian cover, tabel, paragraf, style, section, margin,
-        # page break, header/footer, numbering, gambar, dan layout naskah
-        # tetap byte-identik dengan file unggahan.
-        _format_footnote_markers_superscript(root)
-        xml=ET.tostring(root,encoding="utf-8",xml_declaration=True)
-        with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
-                if item.filename=="word/footnotes.xml":
-                    payload=xml
-                else:
-                    payload=zin.read(item.filename)
-                zout.writestr(item,payload)
-    return out.getvalue(),laporan,"OK"
-
-
-# ============================================================
-# PROTEKSI NASKAH 100% — audit struktur & deteksi catatan manual
-# ============================================================
-def sidik_jari_bagian_docx(data):
-    """Hash bagian DOCX yang harus tetap identik pada mode proteksi."""
-    import hashlib
-    protected=[]
-    try:
-        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
-            for name in z.namelist():
-                # footnotes.xml adalah satu-satunya bagian yang boleh berubah bila pengguna
-                # secara eksplisit memilih perubahan footnote. Semua bagian lain dikunci.
-                if name != "word/footnotes.xml":
-                    protected.append((name,hashlib.sha256(z.read(name)).hexdigest()))
-        return dict(protected)
-    except Exception:
-        return {}
-
-def verifikasi_proteksi_docx(sebelum,sesudah,izinkan_document_xml=False):
-    """Pastikan bagian di luar area izin tidak berubah."""
-    import hashlib
-    berubah=[]
-    try:
-        with zipfile.ZipFile(io.BytesIO(sebelum),"r") as a, zipfile.ZipFile(io.BytesIO(sesudah),"r") as b:
-            names=set(a.namelist()) | set(b.namelist())
-            allowed={"word/footnotes.xml"}
-            if izinkan_document_xml:
-                allowed.add("word/document.xml")
-            for name in sorted(names):
-                if name in allowed: continue
-                if name not in a.namelist() or name not in b.namelist():
-                    berubah.append(name); continue
-                if hashlib.sha256(a.read(name)).digest()!=hashlib.sha256(b.read(name)).digest():
-                    berubah.append(name)
-        return (len(berubah)==0),berubah
-    except Exception as e:
-        return False,[f"Gagal audit proteksi: {e}"]
-
-def deteksi_catatan_manual_docx(data):
-    """Deteksi konservatif [1], [2], dst. dan blok catatan bernomor; hanya audit, tidak mengubah naskah."""
-    try:
-        with zipfile.ZipFile(io.BytesIO(data),"r") as z:
-            root=ET.fromstring(z.read("word/document.xml"))
-        paras=[]
-        for p in root.iter(_w("p")):
-            txt="".join((t.text or "") for t in p.iter(_w("t"))).strip()
-            if txt: paras.append(txt)
-        markers=[]; notes=[]
-        for i,txt in enumerate(paras,1):
-            for m in re.finditer(r"\[(\d{1,3})\]",txt):
-                markers.append({"Paragraf":i,"No":m.group(1),"Cuplikan":txt[:180]})
-            m=re.match(r"^\s*(\d{1,3})[\.\)]\s+(.{20,})$",txt)
-            if m and (re.search(r"\b(19|20)\d{2}\b",txt) or "doi" in txt.lower() or "http" in txt.lower()):
-                notes.append({"Paragraf":i,"No":m.group(1),"Catatan":txt[:350]})
-        return markers,notes
-    except Exception:
-        return [],[]
-
-def nama_hasil_baru(nama_asli,suffix="HASIL_VALIDASI_SIAP_AJUKAN"):
-    base=re.sub(r"(?i)\.docx$","",nama_asli or "NASKAH")
-    return f"{base}_{suffix}.docx"
-
-GAYA_SITASI_LENGKAP=[
-    "🔒 Pertahankan format naskah asli",
-    "🎓 Ikuti Pedoman Kampus/Institusi",
-    "📘 Chicago Notes & Bibliography",
-    "📘 Chicago Author-Date",
-    "📗 APA 7th Edition",
-    "📙 Harvard",
-    "📕 MLA",
-    "📓 IEEE",
-    "🩺 Vancouver",
-    "⚕️ AMA",
-    "📔 Turabian",
-    "⚖️ OSCOLA",
-    "🧪 ACS",
-    "🔬 CSE",
-    "🏛️ APSA",
-    "📰 Ikuti Template/Author Guidelines Jurnal",
-    "⚙️ Format Kustom",
-]
-
-def ekspor_ris(refs):
-    out=[]
-    for r in refs:
-        out += ["TY  - JOUR",f"TI  - {r.get('Judul','')}",f"PY  - {r.get('Tahun','')}"]
-        for a in [x.strip() for x in (r.get("Penulis") or "").split(";") if x.strip()]: out.append(f"AU  - {a}")
-        for tag,key in [("JO","Jurnal"),("VL","Volume"),("IS","Nomor"),("SP","Halaman"),("DO","DOI"),("UR","URL")]:
-            if r.get(key): out.append(f"{tag}  - {r[key]}")
-        out += ["ER  - ",""]
-    return "\n".join(out)
-
-def ekspor_bibtex(refs):
-    out=[]
-    for i,r in enumerate(refs,1):
-        out.append("@article{ref"+str(i)+",\n"+f"  author = {{{(r.get('Penulis') or 'Unknown').replace(';',' and')}}},\n  title = {{{r.get('Judul','')}}},\n  year = {{{r.get('Tahun') or 'n.d.'}}},\n  journal = {{{r.get('Jurnal','')}}},\n  doi = {{{r.get('DOI','')}}}\n}}")
-    return "\n\n".join(out)
-
-def ekspor_endnote_tagged(refs):
-    """EndNote Tagged format; dapat diimpor oleh EndNote dan beberapa reference manager."""
-    out=[]
-    for r in refs:
-        out.append("%0 Journal Article" if r.get("Jurnal") else "%0 Book")
-        for a in [x.strip() for x in (r.get("Penulis") or "").split(";") if x.strip()]:
-            out.append(f"%A {a}")
-        if r.get("Tahun"): out.append(f"%D {r['Tahun']}")
-        if r.get("Judul"): out.append(f"%T {r['Judul']}")
-        if r.get("Jurnal"): out.append(f"%J {r['Jurnal']}")
-        if r.get("Volume"): out.append(f"%V {r['Volume']}")
-        if r.get("Nomor"): out.append(f"%N {r['Nomor']}")
-        if r.get("Halaman"): out.append(f"%P {r['Halaman']}")
-        if r.get("DOI"): out.append(f"%R {r['DOI']}")
-        if r.get("URL"): out.append(f"%U {r['URL']}")
-        if r.get("ISBN"): out.append(f"%@ {r['ISBN']}")
-        out.append("")
-    return "\n".join(out)
-
-def ekspor_csv_referensi(refs):
-    import io
-    buf=io.StringIO()
-    fields=["Judul","Penulis","Tahun","Jurnal","Volume","Nomor","Halaman","DOI","ISBN","URL","Sumber","Status"]
-    w=csv.DictWriter(buf,fieldnames=fields,extrasaction="ignore")
-    w.writeheader()
-    for r in refs: w.writerow({k:r.get(k,"") for k in fields})
-    return buf.getvalue()
-
-
-def deteksi_sitasi_author_year(teks):
-    pola=r"\(([A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+(?:\s+(?:&|dan)\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÿ'’.-]+|\s+et\s+al\.)?),\s*((?:19|20)\d{2})[a-z]?\)"
-    return sorted(set((a.strip(),y) for a,y in re.findall(pola,teks)))
-
-def status_sitasi(teks,refs):
-    rows=[]
-    for author,year in deteksi_sitasi_author_year(teks):
-        surname=author.split()[0].lower(); cocok=[r for r in refs if str(r.get("Tahun",""))==year and surname in (r.get("Penulis") or "").lower()]
-        rows.append({"Sitasi":f"({author}, {year})","Status":"✅ Ada di Library" if cocok else "⚠️ Belum cocok dengan Library","Referensi":cocok[0].get("Judul","") if cocok else ""})
-    return rows
-
-
-def _bersihkan_entri_daftar_pustaka(x):
-    x=re.sub(r"\s+"," ",x or "").strip()
-    return re.sub(r"^\s*(?:\[\d+\]|\d+[\.\)]|[-•▪■])\s*","",x).strip()
-
-def ekstrak_daftar_pustaka(teks):
-    """
-    Ekstraksi bibliografi lebih tahan terhadap:
-    - nama lembaga (UNESCO)
-    - nama keluarga berawalan huruf kecil (van/de/al-)
-    - entri buku ber-ISBN
-    - artikel ber-DOI
-    - entri yang terbungkus menjadi beberapa baris
-    """
-    if not teks or teks.startswith("ERROR:"): return []
-    raw=teks.replace("\r","\n")
-    m=re.search(r"(?im)^\s*(DAFTAR\s+PUSTAKA|REFERENCES|BIBLIOGRAPHY)\s*$",raw)
-    if not m: return []
-    bagian=raw[m.end():]
-    bagian=re.split(r"(?im)^\s*(LAMPIRAN|APPENDIX|BAB\s+[IVXLCDM]+)\b",bagian,maxsplit=1)[0]
-
-    lines=[_bersihkan_entri_daftar_pustaka(x) for x in bagian.splitlines()]
-    lines=[x for x in lines if x]
-
-    year_re=re.compile(r"\b(?:19|20)\d{2}[a-z]?\b",re.I)
-    doi_re=re.compile(r"(?:https?://(?:dx\.)?doi\.org/|doi\s*:\s*)10\.\d{4,9}/\S+",re.I)
-    isbn_re=re.compile(r"\bISBN(?:-1[03])?\s*:?\s*(97[89][\-\dXx ]{10,20})",re.I)
-
-    entries=[]; buf=""
-    for ln in lines:
-        # A new bibliography entry normally contains a publication year.
-        # This deliberately does NOT require the author to start with A-Z,
-        # so "van Niekerk..." and institutional authors are retained.
-        new_entry=bool(year_re.search(ln))
-        # Strong signals that a line belongs to the current reference.
-        continuation=bool(re.match(r"^(https?://|doi\b|ISBN\b)",ln,re.I))
-
-        if buf and new_entry and not continuation:
-            entries.append(_bersihkan_entri_daftar_pustaka(buf))
-            buf=ln
-        else:
-            buf=(buf+" "+ln).strip()
-    if buf:
-        entries.append(_bersihkan_entri_daftar_pustaka(buf))
-
-    # Rescue: if two references were merged, split after DOI/URL when another
-    # author+year sequence follows. This is common after DOCX text extraction.
-    rescued=[]
-    for e in entries:
-        # split before a likely next author if there are >=2 years in one entry
-        years=list(year_re.finditer(e))
-        if len(years)<=1:
-            rescued.append(e); continue
-        # Prefer boundaries following DOI URL / terminal period.
-        cuts=[0]
-        for ym in years[1:]:
-            pre=e[:ym.start()]
-            # walk backward to likely author start after previous sentence/URL
-            candidates=[pre.rfind(". "), pre.rfind("  ")]
-            pos=max(candidates)
-            if pos>0 and len(e[pos+2:ym.start()].strip())<140:
-                cuts.append(pos+2)
-        if len(cuts)==1:
-            rescued.append(e)
-        else:
-            cuts.append(len(e))
-            rescued.extend(e[cuts[i]:cuts[i+1]].strip() for i in range(len(cuts)-1))
-
-    out=[]; seen=set()
-    for e in rescued:
-        e=_bersihkan_entri_daftar_pustaka(e)
-        if len(e)<20: continue
-        # A valid candidate must have year, DOI, or ISBN; no invented content.
-        if not (year_re.search(e) or doi_re.search(e) or isbn_re.search(e)): continue
-        k=re.sub(r"[^a-z0-9]+","",e.lower())[:220]
-        if k and k not in seen:
-            seen.add(k); out.append(e)
-    return out
-
-
-def ekstrak_daftar_pustaka_docx(file):
-    """
-    Parser utama untuk DOCX. Tidak memecah berdasarkan banyaknya tahun/DOI.
-    Prinsip: satu paragraf bibliografi Word = satu sumber.
-    Baris lanjutan DOI/URL/ISBN digabung ke sumber sebelumnya.
-    """
-    if docx is None:
-        return []
-    try:
-        file.seek(0)
-        d=docx.Document(file)
-        paras=[p.text.strip() for p in d.paragraphs]
-        start=None
-        for i,t in enumerate(paras):
-            if re.fullmatch(r"\s*(DAFTAR\s+PUSTAKA(?:\s+AWAL)?|REFERENCES|BIBLIOGRAPHY)\s*",t,re.I):
-                start=i+1
-        if start is None:
-            return []
-
-        out=[]
-        for t in paras[start:]:
-            t=_bersihkan_entri_daftar_pustaka(t)
-            if not t:
-                continue
-            if re.match(r"^(LAMPIRAN|APPENDIX|BAB\s+[IVXLCDM]+)\b",t,re.I):
-                break
-            if re.match(r"^(https?://|doi\s*:|ISBN(?:-1[03])?\s*:?)",t,re.I) and out:
-                out[-1]=(out[-1]+" "+t).strip()
-                continue
-            # Abaikan heading/non-entri sesudah bibliografi.
-            if len(t)<18:
-                continue
-            out.append(t)
-
-        # Dedup konservatif: DOI, lalu keseluruhan entri ternormalisasi.
-        hasil=[]; seen=set()
-        for e in out:
-            doi=ekstrak_doi(e)
-            key=("doi:"+doi.lower()) if doi else ("txt:"+re.sub(r"[^a-z0-9]+","",e.lower())[:260])
-            if key not in seen:
-                seen.add(key); hasil.append(e)
-        return hasil
-    except Exception:
-        return []
-
-
-def _judul_dari_entri(entri):
-    doi=ekstrak_doi(entri)
-    if doi:
-        r=cari_crossref_doi(doi)
-        if r: return r.get("Judul","")
-    x=re.sub(r"^.*?\b(?:19|20)\d{2}[a-z]?\b[\.,]?\s*","",entri,count=1,flags=re.I).strip()
-    q=re.search(r'[“"]([^”"]{8,400})[”"]',x)
-    if q: return q.group(1).strip()
-    # Remove ISBN tail before guessing title.
-    x=re.sub(r"\bISBN(?:-1[03])?\s*:?.*$","",x,flags=re.I).strip()
-    parts=[z.strip(" .“”\"") for z in re.split(r"\.\s+",x) if z.strip()]
-    # Skip bare identifiers/publisher fragments.
-    for z in parts:
-        if len(z)>=8 and not re.match(r"^(ISBN|https?://|doi\b)",z,re.I):
-            return z[:400]
-    return entri[:300]
-
-
-def verifikasi_entri_bibliografi(entri):
-    doi=ekstrak_doi(entri)
-    if doi:
-        r=cari_crossref_doi(doi)
-        if r:
-            r["Sumber"]="Daftar Pustaka dokumen + Crossref"; r["Status"]="✅ Metadata terverifikasi Crossref"; return r
-    judul=_judul_dari_entri(entri)
-    if judul:
-        cand,score=verifikasi_judul_crossref(judul)
-        if cand and score>=0.82:
-            cand["Sumber"]="Daftar Pustaka dokumen + Crossref"
-            cand["Status"]=f"✅ Metadata terverifikasi Crossref (kemiripan judul {score:.0%})"
-            return cand
-    th=re.search(r"\b((?:19|20)\d{2})\b",entri)
-    isbnm=re.search(r"\bISBN(?:-1[03])?\s*:?\s*(97[89][\-\dXx ]{10,20})",entri,re.I)
-    isbn=re.sub(r"[^0-9Xx]","",isbnm.group(1)) if isbnm else ""
-    status="📘 Buku/laporan teridentifikasi dari bibliografi — verifikasi katalog/ISBN" if isbn else "🔍 Belum terverifikasi — cek metadata/sumber asli"
-    return {"Judul":judul or entri[:220],"Penulis":"","Tahun":th.group(1) if th else "",
-            "Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":doi,"ISBN":isbn,"URL":"",
-            "Sumber":"Daftar Pustaka dokumen","Status":status,
-            "Entri Asli":entri}
-
-def unggah_referensi_ke_bank(files):
-    jumlah=0; laporan=[]
-    for f in files or []:
-        nama=f.name; teks=ekstrak_teks(f) if nama.lower().endswith((".pdf",".docx",".txt")) else ""
-        if nama.lower().endswith(".docx"):
-            entries=ekstrak_daftar_pustaka_docx(f)
-            if not entries:
-                entries=ekstrak_daftar_pustaka(teks)
-        else:
-            entries=ekstrak_daftar_pustaka(teks)
-        if entries:
-            for no,entri in enumerate(entries,1):
-                ref=verifikasi_entri_bibliografi(entri)
-                ref["Nama File"]=nama; ref["Entri Asli"]=entri; ref["Cuplikan"]=entri[:1500]
-                added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
-                laporan.append({"File":nama,"No.":no,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),
-                                "Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
-            continue
-        # Jika file adalah satu artikel/buku, tetap gunakan alur lama.
-        ref=None; doi=ekstrak_doi(teks)
-        if doi: ref=cari_crossref_doi(doi)
-        if ref:
-            ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
-        else:
-            meta=ekstrak_metadata_gemini(teks,nama)
-            if meta:
-                doi2=ekstrak_doi(meta.get("DOI","")); ref=cari_crossref_doi(doi2) if doi2 else None
-                if not ref:
-                    cand,score=verifikasi_judul_crossref(meta.get("Judul","")); ref=cand if cand and score>=0.82 else None
-                if ref:
-                    ref["Sumber"]="Unggahan pengguna + Crossref"; ref["Status"]="✅ Metadata terverifikasi Crossref"
-                else:
-                    ref=dict(meta); ref.update({"Sumber":"Unggahan pengguna + ekstraksi AI","Status":"🔍 Metadata belum terverifikasi — cek manual"})
-            else:
-                ref={"Judul":nama.rsplit(".",1)[0],"Penulis":"","Tahun":"","Jurnal":"","Volume":"","Nomor":"","Halaman":"","DOI":"","URL":"","Sumber":"Unggahan pengguna","Status":"🔍 Metadata belum terbaca — cek manual"}
-        ref["Nama File"]=nama; ref["Cuplikan"]=teks[:5000] if teks and not teks.startswith("ERROR:") else ""
-        added=tambah_bank_referensi(ref); jumlah+=1 if added else 0
-        laporan.append({"File":nama,"No.":1,"Judul":ref.get("Judul",""),"DOI":ref.get("DOI",""),"Status":ref.get("Status",""),"Masuk Library":"Ya" if added else "Sudah ada"})
-    return jumlah,laporan
-
-def ringkasan_laporan_referensi(laporan, jumlah_baru):
-    ditemukan=len(laporan or [])
-    sudah_ada=sum(1 for x in (laporan or []) if x.get("Masuk Library")=="Sudah ada")
-    terv=sum(1 for x in (laporan or []) if str(x.get("Status","")).startswith("✅"))
-    perlu=ditemukan-terv
-    return {"Ditemukan":ditemukan,"Baru masuk Library":jumlah_baru,
-            "Sudah ada":sudah_ada,"Terverifikasi":terv,"Perlu verifikasi":perlu}
-
-def sumber_online_default():
-    """
-    Registry portal resmi. {q} diganti kata kunci.
-    API langsung hanya dipakai bila layanan memang menyediakan akses mesin.
-    Portal login/berlisensi dibuka resmi tanpa melewati autentikasi.
-    """
-    return [
-        # INDONESIA - NASIONAL
-        ("🇮🇩 Nasional","Indonesia OneSearch","https://onesearch.id/Search/Results?lookfor={q}&type=AllFields","Agregator katalog dan repository perpustakaan Indonesia"),
-        ("🇮🇩 Nasional","OPAC Perpusnas RI","https://opac.perpusnas.go.id/Search/Results?lookfor={q}&type=AllFields","Katalog Perpustakaan Nasional RI"),
-        ("🇮🇩 Nasional","e-Resources Perpusnas","https://e-resources.perpusnas.go.id/","Jurnal, ebook, dan basis data berlangganan; login anggota"),
-        ("🇮🇩 Nasional","iPusnas","https://ipusnas.id/","Perpustakaan digital Perpusnas"),
-        ("🇮🇩 Nasional","GARUDA","https://garuda.kemdiktisaintek.go.id/documents?q={q}","Publikasi ilmiah Indonesia"),
-        ("🇮🇩 Nasional","Neliti","https://www.neliti.com/search?q={q}","Repository publikasi dan kebijakan Indonesia"),
-        # DAERAH / PROVINSI - titik awal + agregator nasional
-        ("🏢 Daerah/Provinsi","Perpustakaan Provinsi Kalimantan Selatan","https://inlislite.dispersip.my.id/opac/search?q={q}","OPAC daerah; akses mengikuti layanan resmi"),
-        ("🏫 Daerah/Provinsi","Perpustakaan Kabupaten Banjar","https://perpustakaan.banjarkab.go.id/opac/index.php?keywords={q}&search=search","OPAC Kabupaten Banjar"),
-        ("🏢 Daerah/Provinsi","Direktori melalui Indonesia OneSearch","https://onesearch.id/Search/Results?lookfor={q}&type=AllFields","Menjangkau banyak perpustakaan provinsi, kabupaten/kota, kampus, dan repository Indonesia"),
-        # INTERNASIONAL - API/OPEN DISCOVERY
-        ("🌍 Internasional","Crossref","https://search.crossref.org/?q={q}","Metadata DOI; terhubung langsung ke pencarian aplikasi"),
-        ("🌍 Internasional","OpenAlex","https://openalex.org/works?page=1&filter=default.search:{q}","Indeks karya ilmiah terbuka; terhubung langsung"),
-        ("🌍 Internasional","Semantic Scholar","https://www.semanticscholar.org/search?q={q}","Artikel, penulis, sitasi; terhubung langsung"),
-        ("🌍 Internasional","Google Scholar","https://scholar.google.com/scholar?q={q}","Pencarian akademik; dibuka resmi, tidak di-scrape"),
-        ("🌍 Internasional","DOAJ","https://doaj.org/search/articles?ref=homepage-box&q={q}","Jurnal dan artikel open access"),
-        ("🌍 Internasional","CORE","https://core.ac.uk/search?q={q}","Agregator karya ilmiah open access"),
-        ("🌍 Internasional","BASE","https://www.base-search.net/Search/Results?lookfor={q}&type=all&oaboost=1","Mesin pencari repository akademik global"),
-        ("🌍 Internasional","OpenAIRE Explore","https://explore.openaire.eu/search/find?keyword={q}","Publikasi dan keluaran riset Eropa/global"),
-        ("🌍 Internasional","WorldCat","https://search.worldcat.org/search?q={q}","Katalog kolektif perpustakaan dunia"),
-        ("🌍 Internasional","Library of Congress","https://www.loc.gov/search/?q={q}","Koleksi digital; terhubung ke JSON API resmi"),
-        ("🌍 Internasional","Europe PMC","https://europepmc.org/search?query={q}","Literatur biomedis dan life sciences"),
-        ("🌍 Internasional","PubMed","https://pubmed.ncbi.nlm.nih.gov/?term={q}","Literatur biomedis"),
-        ("🌍 Internasional","ERIC","https://eric.ed.gov/?q={q}","Literatur pendidikan"),
-        ("🌍 Internasional","arXiv","https://arxiv.org/search/?query={q}&searchtype=all","Preprint ilmiah"),
-        ("🌍 Internasional","Google Books","https://books.google.com/books?q={q}","Pencarian buku dan metadata"),
-        ("🌍 Internasional","Internet Archive","https://archive.org/search?query={q}","Koleksi digital buku dan arsip"),
-    ]
-
-
-def panel_ai_penulisan(konteks, jenis_output, instruksi, referensi=None, key="ai"):
-    refs=referensi or []
-    gaya=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
-    daftar="\n".join(f"[{i}] {format_referensi(r,gaya)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}" for i,r in enumerate(refs[:60],1)) or "Belum ada referensi terverifikasi di Library."
-    prompt=f"""Anda adalah Asisten Akademik AI S1-S3.
-Tugas: {jenis_output}
-Instruksi pengguna: {instruksi}
-Konteks/bahan:
-{konteks[:60000]}
-
-GAYA SITASI: {gaya}
-REFERENSI YANG BOLEH DIPAKAI:
-{daftar}
-
-ATURAN WAJIB:
-- Jangan membuat referensi, DOI, data penelitian, hasil uji, nomor halaman sumber, kutipan, atau fakta yang tidak tersedia.
-- Prioritaskan referensi berstatus terverifikasi.
-- Jika Chicago Notes & Bibliography: beri penanda footnote [^1], [^2], dst. pada klaim; setelah naskah buat CATATAN KAKI bernomor sama dan DAFTAR PUSTAKA. Jangan mengarang halaman spesifik; tulis [halaman perlu verifikasi] jika belum diketahui.
-- Daftar pustaka hanya memuat sumber yang benar-benar dipakai dan tanpa duplikasi.
-- Jika referensi belum cukup, tandai [PERLU REFERENSI TERVERIFIKASI].
-- Untuk BAB hasil penelitian, jangan menciptakan data. Jika data belum ada, buat struktur analisis saja.
-- Pertahankan integritas akademik.
-"""
-    with st.spinner("Gemini sedang menyusun naskah dan menghubungkan referensi..."):
-        h=panggil_gemini(prompt)
-    if h["sukses"]:
-        st.session_state.hasil_penulisan_ai=h["hasil"]
-        st.success("✅ Draf AI selesai dengan aturan referensi.")
-    else: st.error(h["error"])
-    return h
-
-# ============================================================
-# HEADER
-# ============================================================
-st.title("🎓 Asisten Akademik AI")
-st.caption(APP_SUBTITLE)
-
-st.info(
-    "Asisten Akademik AI S1–S3: OBE, penelitian, referensi tervalidasi, "
-    "sitasi, publikasi, buku, penyuntingan, presentasi dan sidang. "
-    "Gemini digunakan untuk pekerjaan generatif; metadata referensi diverifikasi terpisah."
-)
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-st.sidebar.title("🎓 ASISTEN AKADEMIK AI")
-
-# ============================================================
-# RESET TOTAL DATA KERJA
-# Membersihkan seluruh data sesi dan cache aplikasi.
-# Tidak menghapus file asli di komputer pengguna dan tidak mengubah kode aplikasi.
-# ============================================================
-if st.session_state.pop("_reset_total_selesai", False):
-    st.sidebar.success("✅ Semua data kerja sudah dikosongkan. Unggah dokumen baru dari awal.")
-
-if "konfirmasi_hapus_semua_data" not in st.session_state:
-    st.session_state.konfirmasi_hapus_semua_data = False
-
-if not st.session_state.konfirmasi_hapus_semua_data:
-    if st.sidebar.button("🗑️ HAPUS SEMUA DATA", key="btn_hapus_semua_data", use_container_width=True):
-        st.session_state.konfirmasi_hapus_semua_data = True
-        st.rerun()
-else:
-    st.sidebar.warning(
-        "Semua data kerja sesi akan dikosongkan: dokumen aktif, hasil analisis, "
-        "audit/validasi, Library Referensi, hasil AI, pilihan naskah, dan status unggahan. "
-        "File Word/PDF asli di komputer TIDAK dihapus."
-    )
-    _reset_yes, _reset_no = st.sidebar.columns(2)
-    with _reset_yes:
-        if st.button("✅ Ya, hapus", key="btn_hapus_semua_data_yes", type="primary", use_container_width=True):
-            # Bersihkan cache hasil komputasi/network agar dokumen lama tidak muncul lagi.
-            try:
-                st.cache_data.clear()
-            except Exception:
-                pass
-            try:
-                st.cache_resource.clear()
-            except Exception:
-                pass
-
-            # Hapus SEMUA session state, termasuk state file_uploader lama.
-            for _key in list(st.session_state.keys()):
-                del st.session_state[_key]
-
-            # Flag satu kali untuk memberi konfirmasi setelah rerun.
-            st.session_state["_reset_total_selesai"] = True
-            st.rerun()
-    with _reset_no:
-        if st.button("↩️ Batal", key="btn_hapus_semua_data_no", use_container_width=True):
-            st.session_state.konfirmasi_hapus_semua_data = False
-            st.rerun()
-
-st.sidebar.divider()
-
-st.sidebar.text_input(
-    "Proyek Aktif",
-    key="proyek_aktif"
-)
-
-menu = st.sidebar.radio(
-    "Menu Utama",
-    [
-        "🏠 Beranda",
-        "📚 Perkuliahan & OBE",
-        "🔬 Analisis Karya Akademik",
-        "🔎 Literatur & Referensi",
-        "🎓 Penelitian S1 • S2 • S3",
-        "📘 Penulis Buku AI",
-        "✨ Penyunting Akademik AI",
-        "🎓 Tesis S2",
-        "🧑‍🎓 Disertasi S3",
-        "🧭 Metodologi Penelitian",
-        "📝 Instrumen Penelitian",
-        "📊 Statistik & SPSS",
-        "🔤 Analisis Kualitatif",
-        "🎤 Audio & Video",
-        "✍️ Penulisan Akademik",
-        "👨‍🏫 Bimbingan & Revisi",
-        "📑 Publikasi Jurnal",
-        "📂 Perpustakaan Akademik",
-        "✅ Audit Akademik",
-        "📈 Progres Penelitian",
-        "🖥️ Presentasi",
-        "🎓 Simulasi Sidang",
-        "💚 Donasi & Akses",
-        "⚙️ Admin"
-    ]
-)
-
-st.sidebar.divider()
-st.sidebar.caption(
-    "Data permanen per pengguna dan per proyek "
-    "akan menggunakan database pada tahap berikutnya."
-)
-
-
-# ============================================================
-# BERANDA
-# ============================================================
-if menu == "🏠 Beranda":
-
-    st.header("🏠 Pusat Asisten Akademik")
-
-    st.write(
-        """
-        Satu ruang kerja akademik untuk mendampingi proses
-        dari tugas S1–S3 berbasis OBE sampai skripsi, tesis, disertasi,
-        publikasi ilmiah, penulisan buku dan ujian akademik.
-        """
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Karya dalam Sesi",
-        len(st.session_state.bank_karya)
-    )
-
-    c2.metric(
-        "Referensi dalam Sesi",
-        len(st.session_state.bank_referensi)
-    )
-
-    c3.metric(
-        "Proyek Aktif",
-        st.session_state.proyek_aktif
-    )
-
-    c4.metric(
-        "Mode AI",
-        "Gemini Langsung"
-    )
-
-    st.divider()
-
-    st.subheader("🧭 Alur Utama")
-
-    st.success(
-        "Perkuliahan → Ide Penelitian → Literatur → Metodologi → "
-        "Proposal → Penelitian → Analisis → Tesis/Disertasi → "
-        "Publikasi → Presentasi → Sidang"
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.subheader("📚 Kuliah")
-        st.write(
-            """
-            Tugas kuliah  
-            Makalah  
-            Resume  
-            Review buku  
-            Review jurnal  
-            Critical review  
-            Mini riset  
-            Artikel  
-            Presentasi
-            """
-        )
-
-    with col2:
-        st.subheader("🎓 Tesis S2")
-        st.write(
-            """
-            Ide dan topik  
-            Research gap  
-            Judul  
-            BAB I–V  
-            Instrumen  
-            Analisis data  
-            Publikasi  
-            Sidang
-            """
-        )
-
-    with col3:
-        st.subheader("🧑‍🎓 Disertasi S3")
-        st.write(
-            """
-            Jembatan S2–S3  
-            State of the art  
-            Novelty doktoral  
-            Kontribusi ilmiah  
-            Disertasi  
-            Publikasi  
-            Ujian doktoral
-            """
-        )
-
-
-# ============================================================
-# PERKULIAHAN
-# ============================================================
-elif menu == "📚 Perkuliahan & OBE":
-
-    st.header("📚 Asisten Perkuliahan & OBE")
-
-    fitur = st.selectbox(
-        "Pilih pekerjaan",
-        [
-            "Pahami Instruksi Dosen",
-            "Tugas Kuliah",
-            "Makalah",
-            "Resume",
-            "Review Buku",
-            "Review Jurnal",
-            "Critical Review",
-            "Mini Riset",
-            "Artikel/Jurnal",
-            "Laporan",
-            "PPT / Presentasi",
-            "Periksa Tugas Saya",
-            "Tugas Berbasis RPS/CPMK/Sub-CPMK",
-            "Studi Kasus",
-            "Laporan Observasi/Lapangan"
-        ]
-    )
-
-    st.subheader(fitur)
-
-    instruksi = st.text_area(
-        "Masukkan instruksi dosen, tema, atau kebutuhan tugas"
-    )
-
-    files = st.file_uploader(
-        "Unggah bahan tugas",
-        type=[
-            "pdf", "docx", "txt", "csv", "xlsx",
-            "pptx", "jpg", "jpeg", "png"
-        ],
-        accept_multiple_files=True,
-        key="kuliah"
-    )
-
-    if files:
-        st.success(f"{len(files)} file berhasil dipilih.")
-
-        for file in files:
-            st.write(
-                f"📄 **{file.name}** — "
-                f"{format_ukuran(file.size)}"
-            )
-
-    st.markdown("### 🎯 OBE / RPS")
-    obe = st.text_area("Tempel CPL/CPMK/Sub-CPMK/rubrik bila ada", key="obe_rps")
-    bahan_teks = ""
-    for _f in files or []:
-        if _f.name.lower().endswith((".pdf",".docx",".txt")):
-            _t=ekstrak_teks(_f)
-            if not _t.startswith("ERROR:"): bahan_teks += "\n" + _t
-    if st.button("🤖 Susun / Periksa Tugas dengan AI", type="primary", key="ai_kuliah"):
-        panel_ai_penulisan(
-            bahan_teks + "\nRPS/OBE:\n" + obe,
-            fitur,
-            instruksi or "Susun sesuai instruksi, OBE/RPS, dan bahan yang tersedia.",
-            st.session_state.bank_referensi,
-            "kuliah"
-        )
-    if st.session_state.get("hasil_penulisan_ai"):
-        st.text_area("Hasil dapat diedit", st.session_state.hasil_penulisan_ai, height=500, key="edit_kuliah")
-
-
-# ============================================================
-# ANALISIS KARYA AKADEMIK
-# ============================================================
-elif menu == "🔬 Analisis Karya Akademik":
-
-    st.header("🔬 Analisis Karya Akademik")
-
-    st.caption(
-        "Analisis satu atau banyak karya akademik. "
-        "PDF, DOCX, dan TXT dapat dibaca langsung."
-    )
-
-    # --------------------------------------------------------
-    # PILIH MODE
-    # --------------------------------------------------------
-    mode = st.radio(
-        "Mode Analisis",
-        [
-            "Analisis 1 Dokumen",
-            "Analisis Banyak Dokumen"
-        ],
-        horizontal=True,
-        key="mode_analisis_karya"
-    )
-
-    banyak = mode == "Analisis Banyak Dokumen"
-
-    # --------------------------------------------------------
-    # PILIH JENIS KARYA
-    # --------------------------------------------------------
-    jenis = st.selectbox(
-        "Jenis karya",
-        [
-            "Deteksi Otomatis",
-            "Tugas Kuliah",
-            "Makalah",
-            "Artikel Jurnal",
-            "Buku",
-            "Bab Buku",
-            "Proposal",
-            "Tesis",
-            "Disertasi",
-            "Laporan Penelitian",
-            "Regulasi",
-            "Dokumen Lain"
-        ],
-        key="jenis_karya_analisis"
-    )
-
-    # --------------------------------------------------------
-    # UPLOAD
-    # --------------------------------------------------------
-    files = st.file_uploader(
-        "Unggah dokumen",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=banyak,
-        key="upload_analisis_karya"
-    )
-
-    daftar_file = []
-
-    if files:
-        daftar_file = files if banyak else [files]
-
-    # ========================================================
-    # JIKA BELUM ADA DOKUMEN
-    # ========================================================
-    if not daftar_file:
-
-        st.info(
-            "Unggah minimal satu dokumen untuk memulai analisis."
-        )
-
-        st.markdown("### 🧠 Kemampuan Analisis")
-
-        st.write(
-            """
-            Sistem ini disiapkan untuk menganalisis:
-
-            - tugas kuliah dan makalah
-            - artikel jurnal
-            - buku dan bab buku
-            - proposal penelitian
-            - tesis
-            - disertasi
-            - laporan penelitian
-            - regulasi dan dokumen akademik lainnya
-            """
-        )
-
-        st.markdown("### 🔜 Mesin AI")
-
-        st.caption(
-            "Analisis semantik penuh menggunakan AI Gemini langsung. "
-            "Struktur aplikasi dan alur analisis disiapkan terlebih dahulu."
-        )
-
-    # ========================================================
-    # JIKA DOKUMEN SUDAH DIUNGGAH
-    # ========================================================
-    else:
-
-        hasil_dokumen = []
-
-        # ----------------------------------------------------
-        # BACA SEMUA DOKUMEN
-        # ----------------------------------------------------
-        for nomor, file in enumerate(daftar_file, start=1):
-
-            st.divider()
-            st.subheader(f"📄 Dokumen {nomor}: {file.name}")
-
-            teks = ekstrak_teks(file)
-
-            if teks.startswith("ERROR:"):
-                st.error(teks)
-                continue
-
-            if not teks.strip():
-                st.warning(
-                    "Teks tidak berhasil dibaca dari dokumen ini."
-                )
-                continue
-
-            jumlah_kata = len(teks.split())
-            jumlah_karakter = len(teks)
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric(
-                "Jumlah Kata",
-                jumlah_kata
-            )
-
-            col2.metric(
-                "Jumlah Karakter",
-                jumlah_karakter
-            )
-
-            col3.metric(
-                "Ukuran File",
-                format_ukuran(file.size)
-            )
-
-            # -----------------------------------------------
-            # DETEKSI STRUKTUR
-            # -----------------------------------------------
-            struktur = deteksi_struktur(teks)
-
-            st.markdown("#### 🔎 Deteksi Struktur Dasar")
-
-            for bagian, ada in struktur.items():
-
-                if ada:
-                    st.success(f"✓ {bagian}")
-                else:
-                    st.caption(
-                        f"○ {bagian} belum terdeteksi secara otomatis"
-                    )
-
-            # -----------------------------------------------
-            # TEKS ASLI
-            # -----------------------------------------------
-            with st.expander("📖 Lihat teks dokumen"):
-
-                st.text_area(
-                    "Teks hasil ekstraksi",
-                    teks,
-                    height=350,
-                    key=f"teks_dokumen_{nomor}"
-                )
-
-            # -----------------------------------------------
-            # SIMPAN KE BANK KARYA
-            # -----------------------------------------------
-            if st.button(
-                "💾 Simpan ke Bank Karya",
-                key=f"simpan_bank_karya_{nomor}"
-            ):
-
-                berhasil = simpan_karya(
-                    file.name,
-                    jenis,
-                    format_ukuran(file.size)
-                )
-
-                if berhasil:
-                    st.success(
-                        "Dokumen berhasil disimpan ke Bank Karya."
-                    )
-                else:
-                    st.warning(
-                        "Dokumen ini sudah tercatat pada proyek aktif."
-                    )
-
-            hasil_dokumen.append(
-                {
-                    "nama": file.name,
-                    "teks": teks,
-                    "kata": jumlah_kata,
-                    "karakter": jumlah_karakter,
-                    "ukuran": format_ukuran(file.size),
-                    "struktur": struktur
-                }
-            )
-
-        # ====================================================
-        # ANALISIS AKADEMIK CERDAS
-        # ====================================================
-        if hasil_dokumen:
-
-            st.divider()
-
-            st.header("🧠 Analisis Akademik Cerdas")
-
-            st.caption(
-                "Kerangka analisis menyesuaikan jenis karya. "
-                "Mesin AI dihubungkan langsung ke Gemini API untuk analisis dokumen akademik."
-            )
-
-            # ------------------------------------------------
-            # FOKUS ANALISIS
-            # ------------------------------------------------
-            st.markdown("### 🎯 Fokus Analisis")
-
-            fokus_analisis = st.multiselect(
-                "Pilih bagian yang ingin dianalisis",
-                [
-                    "Identitas Dokumen",
-                    "Latar Belakang / Masalah",
-                    "Rumusan Masalah",
-                    "Tujuan Penelitian",
-                    "Teori / Konsep Utama",
-                    "Penelitian Terdahulu",
-                    "Metodologi",
-                    "Populasi / Sampel / Informan",
-                    "Instrumen Penelitian",
-                    "Teknik Pengumpulan Data",
-                    "Teknik Analisis Data",
-                    "Temuan / Hasil",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Research Gap",
-                    "Novelty / Kebaruan",
-                    "Kontribusi Penelitian",
-                    "Relevansi dengan Penelitian Saya"
-                ],
-                default=[
-                    "Latar Belakang / Masalah",
-                    "Tujuan Penelitian",
-                    "Metodologi",
-                    "Temuan / Hasil",
-                    "Keterbatasan",
-                    "Research Gap",
-                    "Novelty / Kebaruan"
-                ],
-                key="fokus_analisis_akademik"
-            )
-
-            # ------------------------------------------------
-            # KERANGKA BERDASARKAN JENIS
-            # ------------------------------------------------
-            st.markdown("### 📋 Kerangka Analisis")
-
-            if jenis == "Artikel Jurnal":
-
-                kerangka = [
-                    "Identitas artikel",
-                    "Topik penelitian",
-                    "Masalah penelitian",
-                    "Tujuan penelitian",
-                    "Teori atau konsep utama",
-                    "Penelitian terdahulu",
-                    "Metode penelitian",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik pengumpulan data",
-                    "Teknik analisis data",
-                    "Temuan utama",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan penelitian",
-                    "Research gap",
-                    "Novelty atau kebaruan",
-                    "Kontribusi penelitian",
-                    "Peluang penelitian lanjutan",
-                    "Relevansi dengan penelitian pengguna"
-                ]
-
-            elif jenis in ["Buku", "Bab Buku"]:
-
-                kerangka = [
-                    "Identitas buku",
-                    "Pokok bahasan",
-                    "Gagasan utama",
-                    "Konsep atau teori penting",
-                    "Argumentasi penulis",
-                    "Bagian penting",
-                    "Kekuatan pembahasan",
-                    "Keterbatasan pembahasan",
-                    "Relevansi dengan penelitian pengguna"
-                ]
-
-            elif jenis == "Proposal":
-
-                kerangka = [
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Identifikasi masalah",
-                    "Research gap",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "Manfaat penelitian",
-                    "Kajian teori",
-                    "Penelitian terdahulu",
-                    "Kerangka berpikir",
-                    "Hipotesis atau fokus penelitian",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik pengumpulan data",
-                    "Teknik analisis data",
-                    "Kelayakan rancangan penelitian"
-                ]
-
-            elif jenis == "Tesis":
-
-                kerangka = [
-                    "Identitas tesis",
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Masalah penelitian",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "Teori utama",
-                    "Penelitian terdahulu",
-                    "Research gap",
-                    "Kerangka berpikir",
-                    "Hipotesis atau fokus penelitian",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik analisis data",
-                    "Hasil penelitian",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Novelty",
-                    "Kontribusi penelitian",
-                    "Peluang penelitian lanjutan"
-                ]
-
-            elif jenis == "Disertasi":
-
-                kerangka = [
-                    "Identitas disertasi",
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Masalah penelitian",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "State of the Art",
-                    "Landasan teori",
-                    "Penelitian terdahulu",
-                    "Research gap",
-                    "Kerangka konseptual",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik analisis data",
-                    "Temuan utama",
-                    "Pembahasan",
-                    "Originalitas yang diklaim",
-                    "Novelty",
-                    "Kontribusi teoretis",
-                    "Kontribusi metodologis",
-                    "Kontribusi praktis",
-                    "Keterbatasan",
-                    "Peluang penelitian doktoral lanjutan"
-                ]
-
-            else:
-
-                kerangka = [
-                    "Identitas dokumen",
-                    "Topik utama",
-                    "Masalah utama",
-                    "Tujuan",
-                    "Konsep penting",
-                    "Metode atau pendekatan",
-                    "Temuan atau gagasan utama",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Relevansi"
-                ]
-
-            for no, item in enumerate(kerangka, start=1):
-                st.write(f"{no}. {item}")
-
-                       # =================================================
-            # MESIN ANALISIS AI 9ROUTER
-            # =================================================
-            st.markdown("### 🤖 Mesin Analisis AI")
-
-            st.info(
-                "Dokumen sudah berhasil dibaca. Gemini AI siap "
-                "menganalisis isi dokumen berdasarkan fokus yang dipilih."
-            )
-
-            if "hasil_ai_gemini" not in st.session_state:
-                st.session_state.hasil_ai_gemini = ""
-
-            if st.button(
-                "🤖 Analisis dengan AI",
-                type="primary",
-                use_container_width=True,
-                key="tombol_analisis_gemini"
-            ):
-                if not hasil_dokumen:
-                    st.warning(
-                        "Belum ada dokumen yang berhasil dibaca."
-                    )
-                else:
-                    dokumen_ai = hasil_dokumen[0]
-                    teks_ai = dokumen_ai["teks"]
-
-                    with st.spinner(
-                        "Gemini AI sedang membaca dan menganalisis dokumen..."
-                    ):
-                        hasil_ai = analisis_dengan_gemini(
-                            teks_ai,
-                            jenis,
-                            fokus_analisis
-                        )
-
-                    if hasil_ai.get("sukses"):
-                        st.session_state.hasil_ai_gemini = hasil_ai["hasil"]
-                        st.success("✅ Analisis AI berhasil.")
-                        if hasil_ai.get("model"):
-                            st.caption(f"Model AI: {hasil_ai['model']}")
-                    else:
-                        st.session_state.hasil_ai_gemini = ""
-                        st.error("❌ Analisis AI belum berhasil.")
-                        st.warning(hasil_ai.get("error", "Terjadi kesalahan yang belum diketahui."))
-
-            # =================================================
-            # HASIL ANALISIS AI
-            # =================================================
-            st.markdown("### 📝 Hasil Analisis")
-
-            if st.session_state.hasil_ai_gemini:
-
-                st.success("✅ Analisis AI selesai.")
-
-                hasil_edit = st.text_area(
-                    "Hasil analisis dapat diedit sebelum diekspor",
-                    value=st.session_state.hasil_ai_gemini,
-                    height=600,
-                    key="editor_hasil_ai_gemini"
-                )
-
-                st.session_state.hasil_ai_gemini = hasil_edit
-
-            else:
-                st.text_area(
-                    "Hasil analisis AI akan tampil di sini",
-                    value="",
-                    height=300,
-                    disabled=True,
-                    key="hasil_ai_kosong"
-                )
-                        # =================================================
-            # SIMPAN DAN EKSPOR HASIL AI
-            # =================================================
-            st.markdown("### 💾 Simpan & Ekspor")
-
-            hasil_final = st.session_state.get(
-                "hasil_ai_gemini",
-                ""
-            )
-
-            if not hasil_final:
-                st.info(
-                    "Jalankan Analisis dengan AI terlebih dahulu. "
-                    "Setelah hasil tersedia, tombol simpan dan ekspor "
-                    "akan aktif."
-                )
-
-            # =================================================
-            # SIMPAN HASIL KE PROYEK
-            # =================================================
-            col_simpan, col_word = st.columns(2)
-
-            with col_simpan:
-
-                if st.button(
-                    "💾 Simpan Hasil ke Proyek",
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="simpan_hasil_proyek"
-                ):
-                    if "hasil_proyek" not in st.session_state:
-                        st.session_state.hasil_proyek = []
-
-                    data_hasil = {
-                        "Proyek": st.session_state.proyek_aktif,
-                        "Jenis": jenis,
-                        "Mode": mode,
-                        "Fokus": fokus_analisis,
-                        "Hasil": hasil_final,
-                        "Tanggal": datetime.now().strftime(
-                            "%d-%m-%Y %H:%M"
-                        )
-                    }
-
-                    st.session_state.hasil_proyek.append(
-                        data_hasil
-                    )
-
-                    st.success(
-                        "✅ Hasil analisis berhasil disimpan "
-                        "ke proyek aktif."
-                    )
-
-            # =================================================
-            # EKSPOR WORD
-            # =================================================
-            with col_word:
-
-                try:
-                    from io import BytesIO
-                    from docx import Document
-
-                    dokumen_word = Document()
-
-                    dokumen_word.add_heading(
-                        "Analisis Karya Akademik",
-                        level=1
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Proyek: {st.session_state.proyek_aktif}"
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Jenis karya: {jenis}"
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Mode analisis: {mode}"
-                    )
-
-                    dokumen_word.add_heading(
-                        "Dokumen yang Dianalisis",
-                        level=2
-                    )
-
-                    for item in hasil_dokumen:
-                        dokumen_word.add_paragraph(
-                            f"Nama file: {item['nama']}"
-                        )
-                        dokumen_word.add_paragraph(
-                            f"Jumlah kata: {item['kata']}"
-                        )
-                        dokumen_word.add_paragraph(
-                            f"Ukuran: {item['ukuran']}"
-                        )
-
-                    dokumen_word.add_heading(
-                        "Fokus Analisis",
-                        level=2
-                    )
-
-                    for fokus in fokus_analisis:
-                        dokumen_word.add_paragraph(
-                            fokus,
-                            style="List Bullet"
-                        )
-
-                    dokumen_word.add_heading(
-                        "Hasil Analisis AI",
-                        level=2
-                    )
-
-                    dokumen_word.add_paragraph(
-                        hasil_final if hasil_final
-                        else "Belum ada hasil analisis AI."
-                    )
-
-                    buffer_word = BytesIO()
-                    dokumen_word.save(buffer_word)
-                    buffer_word.seek(0)
-
-                    st.download_button(
-                        "📄 Ekspor Word",
-                        data=buffer_word.getvalue(),
-                        file_name="analisis_karya_akademik.docx",
-                        mime=(
-                            "application/vnd.openxmlformats-"
-                            "officedocument.wordprocessingml.document"
-                        ),
-                        disabled=not bool(hasil_final),
-                        use_container_width=True,
-                        key="download_analisis_word"
-                    )
-
-                except Exception as e:
-                    st.warning(
-                        f"Ekspor Word belum dapat dibuat: {e}"
-                    )
-
-            # =================================================
-            # EKSPOR PDF
-            # =================================================
-            col_pdf, col_csv = st.columns(2)
-
-            with col_pdf:
-
-                try:
-                    from io import BytesIO
-                    from reportlab.lib.pagesizes import A4
-                    from reportlab.lib.styles import getSampleStyleSheet
-                    from reportlab.platypus import (
-                        SimpleDocTemplate,
-                        Paragraph,
-                        Spacer
-                    )
-
-                    buffer_pdf = BytesIO()
-
-                    pdf = SimpleDocTemplate(
-                        buffer_pdf,
-                        pagesize=A4,
-                        rightMargin=50,
-                        leftMargin=50,
-                        topMargin=50,
-                        bottomMargin=50
-                    )
-
-                    styles = getSampleStyleSheet()
-                    isi_pdf = []
-
-                    isi_pdf.append(
-                        Paragraph(
-                            "Analisis Karya Akademik",
-                            styles["Title"]
-                        )
-                    )
-
-                    isi_pdf.append(Spacer(1, 12))
-
-                    isi_pdf.append(
-                        Paragraph(
-                            f"Jenis karya: {jenis}",
-                            styles["Normal"]
-                        )
-                    )
-
-                    isi_pdf.append(
-                        Paragraph(
-                            f"Mode analisis: {mode}",
-                            styles["Normal"]
-                        )
-                    )
-
-                    isi_pdf.append(Spacer(1, 12))
-
-                    isi_pdf.append(
-                        Paragraph(
-                            "Hasil Analisis AI",
-                            styles["Heading2"]
-                        )
-                    )
-
-                    if hasil_final:
-                        for paragraf in hasil_final.split("\n"):
-                            if paragraf.strip():
-                                isi_pdf.append(
-                                    Paragraph(
-                                        paragraf.replace(
-                                            "&", "&amp;"
-                                        ).replace(
-                                            "<", "&lt;"
-                                        ).replace(
-                                            ">", "&gt;"
-                                        ),
-                                        styles["Normal"]
-                                    )
-                                )
-                                isi_pdf.append(
-                                    Spacer(1, 6)
-                                )
-
-                    pdf.build(isi_pdf)
-                    buffer_pdf.seek(0)
-
-                    st.download_button(
-                        "📕 Ekspor PDF",
-                        data=buffer_pdf.getvalue(),
-                        file_name="analisis_karya_akademik.pdf",
-                        mime="application/pdf",
-                        disabled=not bool(hasil_final),
-                        use_container_width=True,
-                        key="download_analisis_pdf"
-                    )
-
-                except Exception:
-                    st.info(
-                        "Ekspor PDF memerlukan reportlab. "
-                        "Jika tombol PDF belum tersedia, "
-                        "kita aktifkan dependensinya."
-                    )
-
-            # =================================================
-            # EKSPOR CSV
-            # =================================================
-            with col_csv:
-
-                data_ekspor = []
-
-                for item in hasil_dokumen:
-                    data_ekspor.append(
-                        {
-                            "Nama File": item["nama"],
-                            "Jenis Karya": jenis,
-                            "Jumlah Kata": item["kata"],
-                            "Ukuran": item["ukuran"],
-                            "Fokus Analisis": "; ".join(
-                                fokus_analisis
-                            ),
-                            "Hasil Analisis AI": hasil_final
-                        }
-                    )
-
-                df_ekspor = pd.DataFrame(data_ekspor)
-
-                st.download_button(
-                    "📊 Ekspor CSV",
-                    data=df_ekspor.to_csv(
-                        index=False
-                    ).encode("utf-8-sig"),
-                    file_name="hasil_analisis_akademik.csv",
-                    mime="text/csv",
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="download_analisis_csv"
-                )
-
-            # =================================================
-            # EKSPOR EXCEL
-            # =================================================
-            try:
-                from io import BytesIO
-
-                buffer_excel = BytesIO()
-
-                with pd.ExcelWriter(
-                    buffer_excel,
-                    engine="openpyxl"
-                ) as writer:
-                    df_ekspor.to_excel(
-                        writer,
-                        sheet_name="Hasil Analisis",
-                        index=False
-                    )
-
-                buffer_excel.seek(0)
-
-                st.download_button(
-                    "📗 Ekspor Excel",
-                    data=buffer_excel.getvalue(),
-                    file_name="hasil_analisis_akademik.xlsx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="download_analisis_excel"
-                )
-
-            except Exception as e:
-                st.info(
-                    f"Ekspor Excel belum tersedia: {e}"
-                )
-
-            # =================================================
-            # ANALISIS BANYAK DOKUMEN
-            # =================================================
-            if banyak:
-
-                st.divider()
-                st.header("📚 Matriks Literatur")
-
-                data_matriks = []
-
-                for item in hasil_dokumen:
-                    data_matriks.append(
-                        {
-                            "Nama File": item["nama"],
-                            "Penulis": "",
-                            "Tahun": "",
-                            "Judul": "",
-                            "Masalah": "",
-                            "Teori": "",
-                            "Metode": "",
-                            "Sampel / Informan": "",
-                            "Instrumen": "",
-                            "Analisis Data": "",
-                            "Temuan": "",
-                            "Keterbatasan": "",
-                            "Research Gap": "",
-                            "Novelty": "",
-                            "Relevansi": "",
-                            "DOI / URL": ""
-                        }
-                    )
-
-                df_matriks = pd.DataFrame(
-                    data_matriks
-                )
-
-                st.dataframe(
-                    df_matriks,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                st.download_button(
-                    "📥 Ekspor Matriks CSV",
-                    data=df_matriks.to_csv(
-                        index=False
-                    ).encode("utf-8-sig"),
-                    file_name="matriks_literatur.csv",
-                    mime="text/csv",
-                    key="download_matriks_csv"
-                )
-
-# ============================================================
-# LITERATUR & REFERENSI
-# ============================================================
-elif menu == "🔎 Literatur & Referensi":
-    st.header("🔎 Literatur, Sitasi & Library Referensi")
-    c1,c2=st.columns([2,1])
-    with c1: mode_ref=st.radio("Mode Referensi",["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],horizontal=True)
-    with c2:
-        gaya_list=[
-            "Chicago Notes & Bibliography","Pedoman Kampus/Institusi","Chicago Author-Date",
-            "APA 7th Edition","Harvard","MLA","IEEE","Vancouver","AMA","Turabian",
-            "OSCOLA","ACS","CSE","APSA","Ikuti Template/Author Guidelines Jurnal","Format Kustom"
-        ]
-        lama=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
-        alias={"APA 7":"APA 7th Edition"}
-        lama=alias.get(lama,lama)
-        if lama not in gaya_list: lama="Chicago Notes & Bibliography"
-        st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(lama))
-    st.caption("Chicago Notes & Bibliography menjadi default. Bentuk sitasi mengikuti gaya yang dipilih; tidak semua gaya menggunakan footnote.")
-
-    with st.expander("💡 Saran Otomatis Gaya Sitasi", expanded=False):
-        sc1,sc2=st.columns(2)
-        with sc1:
-            jenis_saran=st.selectbox("Jenis karya",["Tesis","Skripsi","Disertasi","Artikel/Jurnal","Makalah/Tugas","Buku"],key="jenis_saran_gaya")
-        with sc2:
-            rumpun_saran=st.selectbox("Rumpun ilmu",["Pendidikan/PAI","Sosial/Humaniora","Hukum","Kedokteran/Kesehatan","Teknik/Komputer","Kimia","Biologi/Sains","Bahasa/Sastra","Lainnya"],key="rumpun_saran_gaya")
-        saran=saran_gaya_otomatis(jenis_saran,rumpun_saran)
-        st.info(f"💡 Saran otomatis: **{saran}** — {rumpun_gaya_sitasi(saran)}. Saran tidak mengubah dokumen sampai Anda memilih dan menerapkannya.")
-        if st.button("Gunakan Saran Ini",key="pakai_saran_gaya"):
-            bersih=re.sub(r"^[^A-Za-z0-9]+\s*","",saran)
-            if bersih in gaya_list:
-                st.session_state.gaya_sitasi=bersih
-                st.rerun()
-
-    cari_gaya=st.text_input("🔎 Cari Gaya Sitasi",placeholder="Contoh: Vancouver, OSCOLA, IEEE, APA...",key="cari_gaya_sitasi")
-    if cari_gaya.strip():
-        cocok=[g for g in gaya_list if cari_gaya.lower() in g.lower()]
-        st.caption("Ditemukan: "+(" • ".join(cocok) if cocok else "belum ada gaya yang cocok"))
-    # Submenu Literatur & Referensi dibuat vertikal agar nyaman di HP dan tidak mengubah fungsi lama.
-    st.caption("Alur produk inti: Cari → Sumber Online → Unggah → Library → Pakai di Naskah → Audit. Buka bagian yang diperlukan di bawah.")
-
-    with st.expander("🔎 1. Pencarian Literatur Terintegrasi", expanded=False):
-        q=st.text_input("Topik / judul / kata kunci",key="q_ref")
-        if st.button("🔎 Cari 4 Sumber Terintegrasi",type="primary",disabled=not bool(q.strip())):
-            with st.spinner("Mencari Crossref, OpenAlex, Semantic Scholar, dan Library of Congress..."): st.session_state.hasil_cari_ref=cari_multi_sumber(q,12)
-        hasil=st.session_state.get("hasil_cari_ref",[])
-        if hasil:
-            st.success(f"Ditemukan {len(hasil)} kandidat unik dari sumber terintegrasi.")
-            st.caption("Status metadata menunjukkan asal verifikasi/identifikasi. Referensi tanpa DOI tetap harus diperiksa sebelum dipakai sebagai sumber final.")
-            for i,r in enumerate(hasil):
-                with st.expander(f"{i+1}. {r['Judul']} ({r['Tahun']}) — {r['Sumber']}"):
-                    st.write(f"**Penulis:** {r['Penulis'] or '-'}")
-                    st.write(f"**Jurnal:** {r['Jurnal'] or '-'}")
-                    st.write(f"**DOI:** {r['DOI'] or 'Belum tersedia'}")
-                    st.write(r["Status"])
-                    if st.button("➕ Simpan ke Library",key=f"addref_new_{i}"): st.success("Disimpan." if tambah_bank_referensi(r) else "Sudah ada di Library.")
-                    if r.get("DOI"): st.link_button("🔗 Buka DOI","https://doi.org/"+r["DOI"])
-
-    with st.expander("🌐 2. Sumber Literatur & Referensi Online", expanded=False):
-        st.subheader("🌐 Perpustakaan & Sumber Referensi Online")
-        oq=st.text_input("Kata kunci pencarian",key="q_online")
-        st.info("Pencarian langsung aplikasi: Crossref, OpenAlex, Semantic Scholar, dan Library of Congress. Sumber lain dibuka melalui portal resminya. Login, lisensi, dan hak akses perpustakaan tetap dihormati.")
-        kategori_pilih=st.multiselect("Wilayah sumber",["🇮🇩 Nasional","🏢 Daerah/Provinsi","🌍 Internasional"],
-                                     default=["🇮🇩 Nasional","🏢 Daerah/Provinsi","🌍 Internasional"],key="kategori_sumber_online")
-        sumber=[x for x in sumber_online_default() if x[0] in kategori_pilih]
-        for kategori,nama,url,ket in sumber:
-            target=url.replace("{q}",urllib.parse.quote_plus(oq.strip())) if "{q}" in url else url
-            a,b=st.columns([4,1]); a.write(f"{kategori} **{nama}** — {ket}"); b.link_button("Buka / Cari",target,use_container_width=True)
-        st.divider(); st.subheader("➕ Tambahkan Perpustakaan / Repository Sendiri")
-        nm=st.text_input("Nama sumber",key="src_name"); ur=st.text_input("Link katalog/repository",placeholder="https://...",key="src_url")
-        if st.button("💾 Simpan Sumber",disabled=not(nm.strip() and ur.strip())):
-            if ur.startswith(("http://","https://")):
-                item={"Nama":nm.strip(),"URL":ur.strip()}
-                if item not in st.session_state.sumber_online_user: st.session_state.sumber_online_user.append(item)
-                st.success("Sumber ditambahkan untuk sesi ini.")
-            else: st.error("Link harus diawali http:// atau https://")
-        for x in st.session_state.sumber_online_user:
-            a,b=st.columns([3,1]); a.write("**"+x["Nama"]+"**"); b.link_button("Buka",x["URL"],use_container_width=True)
-
-    with st.expander("📤 3. Unggah & Ekstraksi Referensi", expanded=False):
-        uprefs=st.file_uploader("Unggah satu atau banyak PDF/DOCX/TXT referensi",type=["pdf","docx","txt"],accept_multiple_files=True,key="upload_refs")
-        st.checkbox("Utamakan referensi yang saya unggah",value=True,key="prioritas_upload")
-        st.caption("Otomatis: baca dokumen → cari DOI → verifikasi Crossref. Jika DOI tidak terbaca, Gemini mengekstrak metadata lalu judul diverifikasi kembali.")
-        if st.button("📥 Baca, Verifikasi & Masukkan ke Library",type="primary",disabled=not bool(uprefs)):
-            with st.spinner("Membaca dan memverifikasi metadata..."): n,lap=unggah_referensi_ke_bank(uprefs)
-            st.session_state.laporan_upload_ref=lap; st.success(f"{n} referensi baru masuk Library.")
-        if st.session_state.get("laporan_upload_ref"): st.dataframe(pd.DataFrame(st.session_state.laporan_upload_ref),use_container_width=True,hide_index=True)
-
-    with st.expander("📚 4. Library Referensi & Ekspor", expanded=False):
-        refs=st.session_state.bank_referensi
-        if refs:
-            df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
-            st.dataframe(df[kol],use_container_width=True,hide_index=True)
-
-            st.markdown("#### 🧰 Kelola Referensi Satu per Satu")
-            st.caption("Tombol 🗑️ Hapus sekarang selalu terlihat pada setiap referensi. Parser Daftar Pustaka 13/13 tidak diubah.")
-            for _i,_r in enumerate(list(refs)):
-                _judul=_r.get("Judul","") or f"Referensi {_i+1}"
-                _status=str(_r.get("Status","") or "")
-                _c1,_c2,_c3=st.columns([7,1.5,2.2])
-                with _c1:
-                    st.markdown(f"**{_i+1}. {_judul[:115]}**")
-                    _meta=[]
-                    if _r.get("Tahun"): _meta.append(str(_r.get("Tahun")))
-                    if _r.get("DOI"): _meta.append(f"DOI: {_r.get('DOI')}")
-                    if _status: _meta.append(_status)
-                    if _meta: st.caption(" • ".join(_meta))
-                with _c2:
-                    if st.button("🗑️ Hapus",key=f"hapus_ref_{_i}",use_container_width=True):
-                        st.session_state[f"konfirmasi_hapus_ref_{_i}"]=True
-                        st.rerun()
-                with _c3:
-                    if st.button("🔧 Cari & Perbaiki",key=f"perbaiki_ref_{_i}",use_container_width=True):
-                        _cand=None; _score=0.0
-                        if _r.get("DOI"):
-                            _cand=cari_crossref_doi(_r.get("DOI"))
-                            _score=1.0 if _cand else 0.0
-                        if not _cand and _judul:
-                            _cand,_score=verifikasi_judul_crossref(_judul)
-                        if _cand and _score>=0.82:
-                            st.session_state[f"calon_perbaikan_ref_{_i}"]=_cand
-                        else:
-                            st.session_state[f"calon_perbaikan_ref_{_i}"]=None
-                            st.warning(f"Referensi {_i+1}: belum ditemukan metadata Crossref yang cukup cocok. Tidak dipaksakan menjadi valid.")
-                if st.session_state.get(f"konfirmasi_hapus_ref_{_i}"):
-                    st.warning(f"Hapus referensi {_i+1}: {_judul[:90]}? Dokumen unggahan dan naskah asli tidak dihapus.")
-                    _h1,_h2=st.columns(2)
-                    with _h1:
-                        if st.button("✅ Ya, hapus",key=f"hapus_ref_yes_{_i}",type="primary",use_container_width=True):
-                            if _i < len(st.session_state.bank_referensi):
-                                st.session_state.bank_referensi.pop(_i)
-                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
-                            st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
-                            st.rerun()
-                    with _h2:
-                        if st.button("↩️ Batal",key=f"hapus_ref_no_{_i}",use_container_width=True):
-                            st.session_state.pop(f"konfirmasi_hapus_ref_{_i}",None)
-                            st.rerun()
-                _cand=st.session_state.get(f"calon_perbaikan_ref_{_i}")
-                if _cand:
-                    with st.container(border=True):
-                        st.success("Metadata pembanding ditemukan. Periksa sebelum mengganti.")
-                        st.write("**Data sekarang:**", format_referensi(_r))
-                        st.write("**Hasil Crossref:**", format_referensi(_cand))
-                        _p1,_p2=st.columns(2)
-                        with _p1:
-                            if st.button("✅ Gunakan metadata terverifikasi",key=f"pakai_perbaikan_{_i}",type="primary",use_container_width=True):
-                                _baru=dict(_cand)
-                                _baru["Status"]="✅ Metadata terverifikasi Crossref"
-                                _baru["Sumber"]="Perbaikan Library + Crossref"
-                                _baru["Proyek"]=_r.get("Proyek",st.session_state.proyek_aktif)
-                                _baru["Tanggal"]=_r.get("Tanggal",datetime.now().strftime("%d-%m-%Y %H:%M"))
-                                st.session_state.bank_referensi[_i]=_baru
-                                st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
-                                st.rerun()
-                        with _p2:
-                            if st.button("❌ Jangan ganti",key=f"batal_perbaikan_{_i}",use_container_width=True):
-                                st.session_state.pop(f"calon_perbaikan_ref_{_i}",None)
-                                st.rerun()
-                st.divider()
-
-            st.markdown("#### 🗑️ Kosongkan Library Referensi")
-            st.caption("Gunakan ini sebelum pengujian ulang agar Library kembali 0. File proposal asli tidak ikut terhapus.")
-            if "konfirmasi_reset_library" not in st.session_state:
-                st.session_state.konfirmasi_reset_library=False
-            if not st.session_state.konfirmasi_reset_library:
-                if st.button("🗑️ Kosongkan Library Referensi", key="btn_reset_library", use_container_width=True):
-                    st.session_state.konfirmasi_reset_library=True
-                    st.rerun()
-            else:
-                st.warning("Semua referensi pada Library sesi ini akan dihapus. File proposal tidak akan dihapus.")
-                rc1,rc2=st.columns(2)
-                with rc1:
-                    if st.button("✅ Ya, kosongkan sekarang", key="btn_reset_yes", type="primary", use_container_width=True):
-                        # Kosongkan list referensi tanpa menyentuh dokumen yang diunggah.
-                        for _k in ["bank_referensi","library_referensi","referensi_library","references"]:
-                            if _k in st.session_state and isinstance(st.session_state[_k], list):
-                                st.session_state[_k]=[]
-                        # Kunci utama aplikasi saat ini.
-                        if "bank_referensi" in st.session_state:
-                            st.session_state.bank_referensi=[]
-                        st.session_state.konfirmasi_reset_library=False
-                        st.success("Library Referensi sudah kosong (0). Silakan unggah ulang proposal.")
-                        st.rerun()
-                with rc2:
-                    if st.button("↩️ Batal", key="btn_reset_no", use_container_width=True):
-                        st.session_state.konfirmasi_reset_library=False
-                        st.rerun()
-            st.divider()
-
-            st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
-            manager=st.selectbox(
-                "Pilih pengelola referensi",
-                ["Zotero","Mendeley","EndNote","RefWorks","Paperpile","Citavi","JabRef","Lainnya / format universal"],
-                key="reference_manager"
-            )
-            st.caption("Aplikasi menyiapkan file impor standar. Zotero, Mendeley, EndNote, RefWorks, Paperpile, Citavi, dan JabRef tetap merupakan pengelola referensi; Chicago/APA/IEEE/Harvard/MLA adalah gaya sitasi.")
-            c1,c2,c3=st.columns(3)
-            with c1:
-                st.download_button("📥 RIS (universal)",ekspor_ris(refs).encode("utf-8"),"library_referensi.ris","application/x-research-info-systems",use_container_width=True)
-            with c2:
-                st.download_button("📥 BibTeX",ekspor_bibtex(refs).encode("utf-8"),"library_referensi.bib","application/x-bibtex",use_container_width=True)
-            with c3:
-                st.download_button("📥 EndNote Tagged",ekspor_endnote_tagged(refs).encode("utf-8"),"library_referensi.enw","text/plain",use_container_width=True)
-            c4,c5=st.columns(2)
-            with c4:
-                st.download_button("📥 CSV Metadata",ekspor_csv_referensi(refs).encode("utf-8-sig"),"library_referensi.csv","text/csv",use_container_width=True)
-            with c5:
-                st.download_button("📥 Daftar Pustaka — "+st.session_state.gaya_sitasi,"\n\n".join(format_referensi(r) for r in refs).encode("utf-8"),"daftar_pustaka.txt","text/plain",use_container_width=True)
-            st.info(f"Pilihan aktif: {manager}. Gunakan RIS sebagai pilihan paling umum; BibTeX cocok untuk JabRef/LaTeX, dan EndNote Tagged untuk EndNote. Metadata yang belum terverifikasi tetap ditandai agar tidak dianggap valid otomatis.")
-        else: st.info("Library Referensi masih kosong.")
-
-    with st.expander("✍️ 5. Pakai di Naskah", expanded=False):
-        st.subheader("✍️ Pakai di Naskah — Proteksi Naskah 100%")
-        st.success("🔒 PROTEKSI NASKAH AKTIF: narasi, typo, judul, penomoran, abjad, indentasi, tabel, gambar, margin, header-footer, dan tata letak tidak boleh diubah oleh proses referensi.")
-        st.caption("File unggahan adalah MASTER dan tidak pernah dibangun ulang. Pada proses Word, word/document.xml dikunci 100%; hanya footnote yang secara eksplisit dipilih boleh berubah. Bila bagian lain berubah, hasil otomatis ditolak.")
-
-        # ------------------------------------------------------------
-        # SALIN SITASI / FOOTNOTE — fitur ringan, tidak menyentuh Word
-        # ------------------------------------------------------------
-        st.markdown("#### 📋 Salin Sitasi / Footnote dari Library")
-        st.caption("Pilih satu referensi yang sudah ada di Library. Teks di bawah hanya untuk disalin; naskah Word dan formatnya tidak disentuh.")
-        _refs_salin=st.session_state.get("bank_referensi",[])
-        if _refs_salin:
-            _opsi_salin=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(_refs_salin)]
-            _pilih_salin=st.selectbox("Pilih referensi untuk disalin",_opsi_salin,key="pilih_ref_salin_naskah")
-            _ref_salin=_refs_salin[_opsi_salin.index(_pilih_salin)]
-            _status_salin=str(_ref_salin.get("Status","") or "")
-            if _status_salin.startswith("✅") or _status_salin.startswith("📘"):
-                st.success("Sumber siap digunakan sesuai status verifikasinya: "+_status_salin)
-            else:
-                st.warning("⚠️ Referensi ini belum terverifikasi penuh. Boleh ditinjau/disalin untuk pemeriksaan, tetapi jangan dijadikan sumber final sebelum diverifikasi.")
-            _jenis_salin=st.radio("Yang ingin disalin",["Catatan kaki / Footnote","Daftar pustaka","Sitasi singkat"],horizontal=True,key="jenis_salin_naskah")
-            if _jenis_salin=="Catatan kaki / Footnote":
-                _hal_salin=st.text_input("Halaman kutipan (opsional)",placeholder="Contoh: 25–26",key="halaman_salin_naskah")
-                _teks_salin=format_chicago_note(_ref_salin,_hal_salin.strip())
-            elif _jenis_salin=="Daftar pustaka":
-                _teks_salin=format_referensi(_ref_salin,st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography"))
-            else:
-                _pen=_nama_chicago(_ref_salin.get("Penulis"))
-                _th=_ref_salin.get("Tahun") or "n.d."
-                _teks_salin=f"({_pen}, {_th})"
-            st.code(_teks_salin,language=None)
-            st.caption("Klik ikon salin pada kotak di atas, lalu tempel ke naskah. Tidak ada perubahan otomatis pada file Word.")
-        else:
-            st.info("Library masih kosong. Masukkan atau verifikasi referensi terlebih dahulu, lalu kembali ke bagian ini.")
-
-        st.divider()
-        st.markdown("#### 📄 Periksa / Proses Salinan Word")
-        doc_naskah=st.file_uploader("📄 Unggah naskah Word (.docx)",type=["docx"],key="naskah_word_footnote")
-        mode_kerja=st.radio(
-            "Mode kerja",
-            ["🔎 Periksa Saja — tidak mengubah file","🔒 Rapikan format true footnote saja","🔄 Ubah true footnote yang cocok dengan Library ke Chicago"],
-            key="mode_kerja_naskah"
-        )
-        gaya_target=st.selectbox("Gaya sitasi target",GAYA_SITASI_LENGKAP,key="gaya_target_naskah")
-        if not (gaya_target.startswith("🔒") or gaya_target.startswith("📘 Chicago Notes") or gaya_target.startswith("🎓")):
-            st.info("Gaya ini tersedia sebagai pilihan audit. Konversi otomatis penuh hanya dijalankan setelah struktur sitasi yang sesuai terdeteksi; aplikasi tidak akan memaksa footnote menjadi gaya author-date/numbered secara sembarangan.")
-
-        if doc_naskah:
-            raw=doc_naskah.getvalue()
-
-            st.success("🔒 FORMAT ASLI DIKUNCI: file unggahan menjadi master. Aplikasi tidak membangun ulang naskah.")
-            st.caption("Salinan murni di bawah ini byte-identik dengan file unggahan. Gunakan ini untuk menguji bahwa cover, tabel, font, spasi, margin, halaman, gambar, header/footer, dan seluruh tata letak tetap sama.")
-            nama_salinan_murni=nama_hasil_baru(doc_naskah.name,"SALINAN_ASLI_100")
-            st.download_button(
-                "📥 Unduh SALINAN ASLI 100% — tanpa perubahan",
-                data=raw,
-                file_name=nama_salinan_murni,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True,
-                key="download_salinan_asli_100"
-            )
-
-            fns=baca_true_footnotes_docx(raw)
-            markers_manual,notes_manual=deteksi_catatan_manual_docx(raw)
-            st.markdown("#### 👁️ Pratinjau Deteksi")
-            c1,c2,c3=st.columns(3)
-            c1.metric("True Word footnote",len(fns))
-            c2.metric("Marker manual [n]",len(markers_manual))
-            c3.metric("Catatan manual terindikasi",len(notes_manual))
-
-            if fns:
-                preview=[]
-                for j,x in enumerate(fns,1):
-                    idx,score,alasan=cocokkan_footnote_ke_library(x["teks"],st.session_state.bank_referensi)
-                    rr=st.session_state.bank_referensi[idx] if idx is not None else None
-                    status_format="✅ Dapat diproses" if rr is not None else "⚠️ Perlu verifikasi/perbaikan"
-                    preview.append({"No":j,"Footnote":x["teks"],"Cocok Library":rr.get("Judul","") if rr else "","Status Sumber":alasan,"Kecocokan":f"{score:.0%}" if score else "-","Status Format":status_format})
-                st.dataframe(pd.DataFrame(preview),use_container_width=True,hide_index=True)
-            if markers_manual:
-                with st.expander("⚠️ Marker sitasi manual terdeteksi — audit saja"):
-                    st.dataframe(pd.DataFrame(markers_manual),use_container_width=True,hide_index=True)
-            if notes_manual:
-                with st.expander("⚠️ Catatan manual terindikasi — jangan dikonversi otomatis tanpa kecocokan kuat"):
-                    st.dataframe(pd.DataFrame(notes_manual),use_container_width=True,hide_index=True)
-
-            if not fns and (markers_manual or notes_manual):
-                st.warning("Catatan manual terdeteksi. Demi Proteksi Naskah 100%, versi ini hanya mengauditnya dan tidak memindahkan paragraf/penomoran secara otomatis. Konversi hanya boleh dilakukan setelah pasangan marker ↔ catatan ↔ sumber terverifikasi jelas.")
-            elif not fns:
-                st.warning("True Word footnote belum terdeteksi. Naskah tidak akan diubah atau ditebak.")
-
-            if mode_kerja.startswith("🔎"):
-                st.info("Mode Periksa Saja aktif — tidak ada byte dokumen yang diubah.")
-            elif fns:
-                if st.button("👁️ Setujui Pratinjau & Proses SALINAN",type="primary",key="proses_word_footnote"):
-                    if mode_kerja.startswith("🔄"):
-                        mode_internal="Ubah semua ke Chicago"
-                    else:
-                        mode_internal="Pertahankan format naskah asli"
-                    hasil,lap,msg=rapikan_true_footnotes_docx(raw,st.session_state.bank_referensi,mode_internal)
-                    if hasil:
-                        # PROTEKSI FORMAT ASLI 100%:
-                        # hanya word/footnotes.xml yang boleh berubah.
-                        # word/document.xml wajib identik dengan file unggahan.
-                        aman,berubah=verifikasi_proteksi_docx(raw,hasil,izinkan_document_xml=False)
-                        if aman:
-                            st.session_state["docx_siap_ajukan"]=hasil
-                            st.session_state["laporan_footnote_word"]=lap
-                            st.session_state["nama_docx_siap_ajukan"]=nama_hasil_baru(doc_naskah.name)
-                            st.success("✅ Audit proteksi lulus. Salinan dibuat; file asli tetap utuh.")
-                        else:
-                            st.session_state.pop("docx_siap_ajukan",None)
-                            st.error("⛔ PROSES DIBATALKAN. Terdeteksi perubahan di luar area yang diizinkan: "+", ".join(berubah[:8]))
-                    else:
-                        st.error(msg)
-
-        if st.session_state.get("laporan_footnote_word"):
-            st.markdown("#### ✅ Laporan Footnote")
-            st.dataframe(pd.DataFrame(st.session_state["laporan_footnote_word"]),use_container_width=True,hide_index=True)
-        if st.session_state.get("docx_siap_ajukan"):
-            nama=st.session_state.get("nama_docx_siap_ajukan","NASKAH_HASIL_VALIDASI_SIAP_AJUKAN.docx")
-            st.caption(f"File hasil baru: {nama} — file asli tidak ditimpa.")
-            st.download_button("📥 Unduh Word — SALINAN HASIL",st.session_state["docx_siap_ajukan"],nama,"application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True)
-
-        st.divider()
-        st.markdown("#### 🧩 Opsi Teks / BAB — terpisah dari file Word")
-        st.caption("Teks yang ditempel di sini boleh dianalisis AI, tetapi tidak akan ditulis kembali ke file Word yang diunggah. Ini menjaga naskah master tetap utuh.")
-        naskah_awal=st.text_area("Tempel paragraf atau BAB",value=st.session_state.get("naskah_aktif",""),height=220,key="naskah_ref")
-        refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
-        pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
-        dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
-        arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
-        if st.button("🧩 Analisis/Pasang Sitasi pada SALINAN TEKS",type="primary",disabled=not bool(naskah_awal.strip())):
-            panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada salinan teks",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan. Jangan mengubah naskah Word asli.",dipilih,"pasang_ref")
-        if st.session_state.get("hasil_penulisan_ai"):
-            st.text_area("Hasil salinan teks — tidak diterapkan otomatis ke Word",st.session_state.hasil_penulisan_ai,height=500,key="hasil_ref_naskah")
-
-    with st.expander("🛡️ 6. Audit Referensi & Sitasi", expanded=False):
-        naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
-        if naskah:
-            teks=ekstrak_teks(naskah); rows=status_sitasi(teks,st.session_state.bank_referensi)
-            if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
-            else: st.info("Untuk Chicago footnote, gunakan Audit Semantik.")
-            if st.button("🤖 Audit Semantik Sitasi dengan Gemini"):
-                refs="\n".join(format_referensi(r) for r in st.session_state.bank_referensi)
-                h=panggil_gemini("Audit sitasi/footnote. Jangan menyatakan sumber mendukung klaim bila isi sumber tidak tersedia. Jangan membuat DOI/referensi.\nNASKAH:\n"+teks[:60000]+"\nLIBRARY:\n"+refs)
-                if h["sukses"]: st.text_area("Hasil Audit",h["hasil"],height=500)
-                else: st.error(h["error"])
-
-# ============================================================
-# PENELITIAN S1-S3 TERPADU
-# ============================================================
-elif menu == "🎓 Penelitian S1 • S2 • S3":
-    st.header("🎓 Skripsi • Tesis • Disertasi")
-    c1,c2,c3=st.columns(3)
-    with c1:
-        jenjang=st.selectbox("Jenjang",["S1 — Skripsi","S2 — Tesis","S3 — Disertasi"])
-    with c2:
-        metode=st.selectbox("Jenis Penelitian",[
-            "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
-            "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
-            "Systematic Literature Review (SLR)","Penelitian Evaluatif",
-            "Analisis Dokumen / Analisis Isi"
-        ])
-    with c3:
-        tahap=st.selectbox("Tahap",[
-            "Rekonstruksi & Pengembangan Penelitian","Ide & Topik","Judul",
-            "BAB I — Pendahuluan","BAB II — Kajian Teori","BAB III — Metode",
-            "Instrumen Penelitian","BAB IV — Hasil & Pembahasan",
-            "BAB V — Penutup","Naskah Lengkap","Paket Bimbingan"
-        ])
-    pedoman=st.file_uploader("📄 Pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_kampus")
-    sumber=st.file_uploader(
-        "📚 Unggah tesis/skripsi/disertasi referensi, bahan, atau data",
-        type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="riset_terpadu"
-    )
-    arah=st.text_area("Masalah, topik, arahan pembimbing, atau pengembangan yang diinginkan")
-    konteks=""
-    if pedoman:
-        t=ekstrak_teks(pedoman)
-        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
-    for f in sumber or []:
-        if f.name.lower().endswith((".pdf",".docx",".txt")):
-            t=ekstrak_teks(f)
-            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n"+t
-    st.info("BAB IV hanya disusun dari data penelitian nyata. Jika data belum tersedia, AI membuat struktur analisis, bukan data fiktif.")
-    if st.button("🚀 Susun dengan Asisten Penelitian AI",type="primary"):
-        instr=f"""Jenjang: {jenjang}
-Metode: {metode}
-Tahap: {tahap}
-Arahan: {arah}
-Jika tahap rekonstruksi, jangan menyalin penelitian lama sebagai karya baru. Analisis penelitian lama, identifikasi keterbatasan/gap, lalu kembangkan rancangan baru.
-Ikuti pedoman kampus bila tersedia."""
-        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"riset")
-    if st.session_state.get("hasil_penulisan_ai"):
-        edit=st.text_area("Draf penelitian — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="edit_riset")
-        st.session_state.naskah_aktif=edit
-
-
-# ============================================================
-# PENULIS BUKU AI
-# ============================================================
-elif menu == "📘 Penulis Buku AI":
-    st.header("📘 Penulis Buku AI")
-    jenis_buku=st.selectbox("Jenis Buku",["Buku Ajar","Buku Referensi","Monograf","Modul","Buku Akademik"])
-    tahap_buku=st.selectbox("Tahap",["Konsep & Pembaca","Outline Buku","Susun BAB","Kembangkan Subbab","Sitasi & Daftar Pustaka","Penyuntingan Buku","Sinopsis & Kata Pengantar","Naskah Buku Lengkap"])
-    tema=st.text_area("Tema, tujuan, pembaca sasaran, dan arahan")
-    bahan=st.file_uploader("Unggah bahan buku",type=["pdf","docx","txt"],accept_multiple_files=True,key="bahan_buku")
-    konteks=""
-    for f in bahan or []:
-        t=ekstrak_teks(f)
-        if not t.startswith("ERROR:"): konteks+=f"\nBAHAN {f.name}:\n"+t
-    if st.button("📘 Susun Buku dengan AI",type="primary"):
-        panel_ai_penulisan(konteks,f"{jenis_buku} — {tahap_buku}",tema,st.session_state.bank_referensi,"buku")
-    if st.session_state.get("hasil_penulisan_ai"):
-        st.text_area("Naskah buku — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="edit_buku")
-
-
-# ============================================================
-# PENYUNTING AKADEMIK AI
-# ============================================================
-elif menu == "✨ Penyunting Akademik AI":
-    st.header("✨ Penyunting Akademik AI")
-    mode_edit=st.selectbox("Mode",[
-        "Koreksi Ejaan & Typo","Rapikan Kalimat","Bahasa Akademik",
-        "Perkuat Paragraf","Koherensi Antarparagraf",
-        "Parafrasa Akademik Bertanggung Jawab","Sunting Naskah Lengkap"
-    ])
-    file_edit=st.file_uploader("Unggah naskah",type=["pdf","docx","txt"],key="file_editor")
-    teks_edit=st.text_area("Atau tempel teks",height=250,key="teks_editor")
-    if file_edit:
-        t=ekstrak_teks(file_edit)
-        if not t.startswith("ERROR:"): teks_edit=t
-    if st.button("✨ Sunting dengan AI",type="primary",disabled=not bool(teks_edit.strip())):
-        h=panggil_gemini(f"""Sunting teks berikut dengan mode: {mode_edit}.
-Pertahankan makna, data, sitasi, nama, dan substansi. Jangan menghapus sitasi untuk menurunkan kemiripan.
-Jangan membuat referensi baru. Untuk parafrasa, ubah secara akademik dan wajar, bukan untuk mengelabui pemeriksa plagiarisme.
-Tampilkan naskah hasil suntingan dan ringkas perubahan penting.
-TEKS:
-{teks_edit[:70000]}""")
-        if h["sukses"]: st.session_state.hasil_editor=h["hasil"]
-        else: st.error(h["error"])
-    if st.session_state.get("hasil_editor"):
-        st.text_area("Hasil suntingan",st.session_state.hasil_editor,height=650,key="hasil_editor_area")
-
-
-# ============================================================
-# TESIS S2
-# ============================================================
-elif menu == "🎓 Tesis S2":
-
-    st.header("🎓 Asisten Tesis S2")
-
-    tahap = st.selectbox(
-        "Tahap Tesis",
-        [
-            "Ide & Topik",
-            "Identifikasi Masalah",
-            "Research Gap",
-            "State of the Art",
-            "Novelty",
-            "Alternatif Judul",
-            "Rumusan Masalah",
-            "Tujuan Penelitian",
-            "BAB I",
-            "BAB II",
-            "Kerangka Berpikir",
-            "Hipotesis / Fokus Penelitian",
-            "BAB III",
-            "Instrumen",
-            "Pengumpulan Data",
-            "BAB IV",
-            "BAB V",
-            "Tesis Lengkap",
-            "Persiapan Sidang"
-        ]
-    )
-
-    st.subheader(tahap)
-
-    st.text_area(
-        "Tuliskan ide, masalah, atau kebutuhan Anda"
-    )
-
-    st.file_uploader(
-        "Unggah bahan tesis",
-        type=[
-            "pdf", "docx", "txt",
-            "csv", "xlsx",
-            "jpg", "jpeg", "png"
-        ],
-        accept_multiple_files=True,
-        key="tesis"
-    )
-
-    st.info(
-        "Penulisan AI nantinya menggunakan alur "
-        "outline → sumber → draf → sitasi → verifikasi → revisi."
-    )
-
-
-# ============================================================
-# DISERTASI S3
-# ============================================================
-elif menu == "🧑‍🎓 Disertasi S3":
-
-    st.header("🧑‍🎓 Asisten Disertasi S3")
-
-    tahap = st.selectbox(
-        "Tahap Disertasi",
-        [
-            "Jembatan Tesis S2 → S3",
-            "Analisis Tesis S2",
-            "Keterbatasan Penelitian S2",
-            "Pertanyaan Penelitian Lanjutan",
-            "Topik Doktoral",
-            "State of the Art",
-            "Research Gap",
-            "Novelty Doktoral",
-            "Kontribusi Teoretis",
-            "Kontribusi Metodologis",
-            "Kontribusi Praktis",
-            "Proposal Disertasi",
-            "Metodologi Doktoral",
-            "Instrumen",
-            "Pengumpulan Data",
-            "Analisis Data",
-            "Penulisan Disertasi",
-            "Publikasi",
-            "Persiapan Ujian Doktoral"
-        ]
-    )
-
-    st.subheader(tahap)
-
-    st.file_uploader(
-        "Unggah tesis S2, artikel, jurnal atau bahan S3",
-        type=[
-            "pdf", "docx", "txt",
-            "csv", "xlsx"
-        ],
-        accept_multiple_files=True,
-        key="disertasi"
-    )
-
-    st.info(
-        "Untuk S3, aplikasi nantinya tidak hanya mencari gap, "
-        "tetapi membantu menelusuri dasar bukti untuk novelty "
-        "dan kontribusi doktoral."
-    )
-
-
-# ============================================================
-# METODOLOGI
-# ============================================================
-elif menu == "🧭 Metodologi Penelitian":
-
-    st.header("🧭 Penentu Jenis & Metodologi Penelitian")
-
-    jenjang = st.radio(
-        "Jenjang",
-        ["S1 — Skripsi", "S2 — Tesis", "S3 — Disertasi"],
-        horizontal=True
-    )
-
-    masalah = st.text_area(
-        "Apa masalah utama yang ingin diteliti?"
-    )
-
-    tujuan = st.text_area(
-        "Apa yang ingin diketahui, diuji, dipahami, "
-        "atau dikembangkan?"
-    )
-
-    data = st.multiselect(
-        "Data yang kemungkinan digunakan",
-        [
-            "Angka / skor",
-            "Angket",
-            "Wawancara",
-            "Observasi",
-            "Dokumen",
-            "Eksperimen",
-            "Produk / model",
-            "Literatur",
-            "Gabungan kuantitatif dan kualitatif"
-        ]
-    )
-
-    hasil = st.selectbox(
-        "Hasil utama yang diharapkan",
-        [
-            "Pilih...",
-            "Menggambarkan fenomena",
-            "Mengetahui hubungan",
-            "Mengetahui perbedaan",
-            "Menguji pengaruh",
-            "Memahami pengalaman/fenomena",
-            "Mengembangkan produk",
-            "Mengembangkan model",
-            "Mengembangkan teori",
-            "Menggabungkan kuantitatif dan kualitatif",
-            "Mengkaji literatur secara sistematis"
-        ]
-    )
-
-    if st.button("🔍 Analisis Alternatif Metodologi"):
-
-        if not masalah.strip():
-            st.warning(
-                "Tuliskan masalah penelitian terlebih dahulu."
-            )
-
-        elif hasil == "Pilih...":
-            st.warning(
-                "Pilih hasil utama yang diharapkan."
-            )
-
-        else:
-            st.subheader("Alternatif Awal")
-
-            if hasil == "Mengetahui hubungan":
-                st.success(
-                    "Kuantitatif korelasional dapat dipertimbangkan."
-                )
-
-            elif hasil == "Mengetahui perbedaan":
-                st.success(
-                    "Kuantitatif komparatif atau desain eksperimen "
-                    "dapat dipertimbangkan sesuai masalah."
-                )
-
-            elif hasil == "Menguji pengaruh":
-                st.success(
-                    "Kuantitatif eksplanatori/regresi, eksperimen "
-                    "atau quasi eksperimen dapat dipertimbangkan."
-                )
-
-            elif hasil == "Memahami pengalaman/fenomena":
-                st.success(
-                    "Pendekatan kualitatif dapat dipertimbangkan, "
-                    "misalnya fenomenologi atau studi kasus "
-                    "sesuai pertanyaan penelitian."
-                )
-
-            elif hasil == "Mengembangkan produk":
-                st.success(
-                    "Research & Development dapat dipertimbangkan."
-                )
-
-            elif hasil in [
-                "Mengembangkan model",
-                "Mengembangkan teori"
-            ]:
-                st.success(
-                    "Pengembangan model, grounded theory, "
-                    "mixed methods atau desain lain dapat "
-                    "dipertimbangkan sesuai tujuan."
-                )
-
-            elif hasil == (
-                "Menggabungkan kuantitatif dan kualitatif"
-            ):
-                st.success(
-                    "Mixed Methods dapat dipertimbangkan."
-                )
-
-            elif hasil == (
-                "Mengkaji literatur secara sistematis"
-            ):
-                st.success(
-                    "Systematic Literature Review atau "
-                    "penelitian kepustakaan dapat dipertimbangkan."
-                )
-
-            else:
-                st.success(
-                    "Pendekatan deskriptif dapat dipertimbangkan."
-                )
-
-            st.caption(
-                "Ini masih rekomendasi awal. Pada tahap AI, "
-                "aplikasi akan membandingkan beberapa alternatif "
-                "beserta alasan, kebutuhan data, instrumen, "
-                "analisis dan tingkat kelayakannya."
-            )
-
-
-# ============================================================
-# INSTRUMEN
-# ============================================================
-elif menu == "📝 Instrumen Penelitian":
-
-    st.header("📝 Instrumen Penelitian")
-
-    st.selectbox(
-        "Jenis Instrumen",
-        [
-            "Angket/Kuesioner",
-            "Pedoman Wawancara",
-            "Lembar Observasi",
-            "Dokumentasi",
-            "Tes",
-            "Rubrik",
-            "Instrumen R&D"
-        ]
-    )
-
-    st.write(
-        """
-        Alur yang akan dikembangkan:
-
-        **Konstruk → Dimensi → Indikator → Butir →
-        Sumber Teori → Validasi Ahli → Uji Coba →
-        Validitas → Reliabilitas**
-        """
-    )
-
-
-# ============================================================
-# STATISTIK
-# ============================================================
-elif menu == "📊 Statistik & SPSS":
-
-    st.header("📊 Laboratorium Statistik & SPSS")
-
-    analisis = st.selectbox(
-        "Pilih Analisis",
-        [
-            "Asisten Pemilihan Uji Statistik",
-            "Data Cleaning",
-            "Missing Data",
-            "Outlier",
-            "Statistik Deskriptif",
-            "Uji Validitas",
-            "Uji Reliabilitas",
-            "Uji Normalitas",
-            "Uji Homogenitas",
-            "Uji Linearitas",
-            "Korelasi Pearson",
-            "Korelasi Spearman",
-            "Uji t",
-            "ANOVA",
-            "Chi-Square",
-            "Regresi Linear Sederhana",
-            "Regresi Linear Berganda",
-            "Multikolinearitas",
-            "Heteroskedastisitas",
-            "Uji Nonparametrik",
-            "Effect Size",
-            "Confidence Interval",
-            "Interpretasi Output SPSS",
-            "Mediasi / Moderasi",
-            "Analisis Faktor / SEM"
-        ]
-    )
-
-    st.file_uploader(
-        "Unggah data / output",
-        type=["csv", "xlsx", "pdf", "docx"],
-        key="statistik"
-    )
-
-    st.info(
-        f"Modul **{analisis}** akan dikembangkan bertahap. "
-        "Aplikasi nantinya juga menunjukkan langkah ekuivalen "
-        "di SPSS dan membantu membuat narasi BAB IV."
-    )
-
-
-# ============================================================
-# KUALITATIF
-# ============================================================
-elif menu == "🔤 Analisis Kualitatif":
-
-    st.header("🔤 Laboratorium Analisis Kualitatif")
-
-    st.write(
-        """
-        **Transkripsi → Coding → Codebook → Kategori →
-        Tema → Kutipan Bukti → Triangulasi →
-        Temuan → Pembahasan**
-        """
-    )
-
-    st.file_uploader(
-        "Unggah transkrip atau dokumen penelitian",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=True,
-        key="kualitatif"
-    )
-
-
-# ============================================================
-# AUDIO VIDEO
-# ============================================================
-elif menu == "🎤 Audio & Video":
-
-    st.header("🎤 Audio & Video Research Lab")
-
-    files = st.file_uploader(
-        "Unggah audio/video",
-        type=[
-            "mp3", "wav", "m4a",
-            "mp4", "mov"
-        ],
-        accept_multiple_files=True
-    )
-
-    if files:
-        for file in files:
-
-            st.write(f"**{file.name}**")
-
-            if file.name.lower().endswith(
-                (".mp3", ".wav", ".m4a")
-            ):
-                st.audio(file)
-
-            elif file.name.lower().endswith(
-                (".mp4", ".mov")
-            ):
-                st.video(file)
-
-    st.info(
-        "Transkripsi, identifikasi pembicara, timestamp, coding "
-        "dan analisis wawancara akan dipasang pada tahap AI."
-    )
-
-
-# ============================================================
-# PENULISAN
-# ============================================================
-elif menu == "✍️ Penulisan Akademik":
-
-    st.header("✍️ Asisten Penulisan Akademik")
-
-    st.selectbox(
-        "Kebutuhan",
-        [
-            "Membuat Outline",
-            "Mengembangkan Paragraf",
-            "Parafrase Akademik",
-            "Sintesis Literatur",
-            "Cari Bukti untuk Kalimat",
-            "Periksa Klaim Tanpa Sumber",
-            "Sitasi dalam Teks",
-            "Daftar Pustaka",
-            "Abstrak",
-            "Ringkasan Akademik",
-            "Pemeriksa Kemiripan Internal",
-            "Penyunting Akademik"
-        ]
-    )
-
-    st.text_area(
-        "Masukkan teks / gagasan"
-    )
-
-
-# ============================================================
-# BIMBINGAN
-# ============================================================
-elif menu == "👨‍🏫 Bimbingan & Revisi":
-
-    st.header("👨‍🏫 Bimbingan & Revisi")
-
-    st.text_area(
-        "Masukkan catatan pembimbing / promotor"
-    )
-
-    st.file_uploader(
-        "Unggah dokumen revisi",
-        type=["pdf", "docx"],
-        accept_multiple_files=True
-    )
-
-    st.selectbox(
-        "Status",
-        [
-            "Belum Dikerjakan",
-            "Sedang Dikerjakan",
-            "Selesai"
-        ]
-    )
-
-    st.info(
-        "Riwayat versi akan dikembangkan agar naskah sebelum "
-        "dan sesudah revisi tetap dapat dilacak."
-    )
-
-
-# ============================================================
-# PUBLIKASI
-# ============================================================
-elif menu == "📑 Publikasi Jurnal":
-
-    st.header("📑 Asisten Publikasi Jurnal")
-    target_jurnal = st.selectbox(
-        "Target Publikasi",
-        ["Belum ditentukan","Jurnal Nasional","SINTA 6","SINTA 5","SINTA 4","SINTA 3","SINTA 2","SINTA 1","Scopus"]
-    )
-    st.caption("Aplikasi membantu menyesuaikan naskah dengan scope/template jurnal target; tidak menjamin penerimaan atau peringkat jurnal.")
-
-    st.selectbox(
-        "Tahap Publikasi",
-        [
-            "Ubah Tesis menjadi Artikel",
-            "Pilih Temuan Utama",
-            "Struktur IMRaD",
-            "Abstrak",
-            "Tabel & Gambar",
-            "Referensi",
-            "Cari Jurnal yang Sesuai",
-            "Checklist Submission",
-            "Cover Letter",
-            "Revisi Reviewer"
-        ]
-    )
-
-    st.file_uploader(
-        "Unggah tesis / artikel",
-        type=["pdf", "docx"]
-    )
-
-
-# ============================================================
-# PERPUSTAKAAN
-# ============================================================
-elif menu == "📂 Perpustakaan Akademik":
-
-    st.header("📂 Perpustakaan Akademik Pribadi")
-
-    tab1, tab2 = st.tabs(
-        [
-            "📁 Bank Karya",
-            "📚 Bank Referensi"
-        ]
-    )
-
-    with tab1:
-
-        if st.session_state.bank_karya:
-
-            df_karya = pd.DataFrame(
-                st.session_state.bank_karya
-            )
-
-            st.dataframe(
-                df_karya,
-                use_container_width=True
-            )
-
-        else:
-            st.info("Bank Karya masih kosong.")
-
-    with tab2:
-
-        if st.session_state.bank_referensi:
-
-            df_ref = pd.DataFrame(
-                st.session_state.bank_referensi
-            )
-
-            st.dataframe(
-                df_ref,
-                use_container_width=True
-            )
-
-        else:
-            st.info("Bank Referensi masih kosong.")
-
-    st.warning(
-        "Pada Tahap 1 data ini masih tersimpan selama sesi. "
-        "Database permanen nanti memisahkan data berdasarkan "
-        "User ID → Project ID → File/Reference ID."
-    )
-
-
-# ============================================================
-# AUDIT
-# ============================================================
-elif menu == "✅ Audit Akademik":
-
-    st.header("✅ Audit Akademik")
-
-    st.selectbox(
-        "Jenis Audit",
-        [
-            "Audit Lengkap",
-            "Konsistensi Judul",
-            "Rumusan Masalah ↔ Tujuan",
-            "Teori ↔ Variabel/Fokus",
-            "Metode ↔ Instrumen",
-            "Instrumen ↔ Data",
-            "Temuan ↔ Kesimpulan",
-            "Sitasi ↔ Daftar Pustaka",
-            "Validasi Referensi",
-            "Klaim Tanpa Sumber",
-            "Research Gap",
-            "Novelty",
-            "Kesiapan Tesis",
-            "Kesiapan Disertasi"
-        ]
-    )
-
-    st.file_uploader(
-        "Unggah naskah",
-        type=["pdf", "docx"],
-        key="audit"
-    )
-
-    st.write(
-        """
-        Rantai konsistensi utama:
-
-        **Judul → Masalah → Rumusan Masalah → Tujuan →
-        Teori → Metode → Instrumen → Data →
-        Temuan → Kesimpulan**
-        """
-    )
-
-
-# ============================================================
-# PROGRES
-# ============================================================
-elif menu == "📈 Progres Penelitian":
-
-    st.header("📈 Dashboard Progres Penelitian")
-
-    st.write(
-        """
-        Dashboard permanen nantinya menampilkan:
-
-        **Judul → Proposal → Seminar → Instrumen →
-        Pengumpulan Data → Analisis → BAB IV →
-        BAB V → Publikasi → Sidang**
-        """
-    )
-
-    st.progress(0)
-
-    st.caption(
-        "Progres aktual akan dihitung dari proyek pengguna "
-        "setelah database dipasang."
-    )
-
-
-# ============================================================
-# PRESENTASI
-# ============================================================
-elif menu == "🖥️ Presentasi":
-
-    st.header("🖥️ Asisten Presentasi Akademik")
-
-    st.selectbox(
-        "Jenis Presentasi",
-        [
-            "Tugas Kuliah",
-            "Presentasi Artikel",
-            "Seminar Proposal",
-            "Seminar Hasil",
-            "Sidang Tesis",
-            "Proposal Disertasi",
-            "Ujian Disertasi"
-        ]
-    )
-
-    st.file_uploader(
-        "Unggah sumber presentasi",
-        type=["pdf", "docx", "pptx"],
-        key="presentasi"
-    )
-
-    st.write(
-        """
-        Nantinya aplikasi membantu membuat:
-
-        • Struktur slide  
-        • Isi slide  
-        • Naskah presentasi  
-        • Catatan pembicara  
-        • Ringkasan waktu  
-        • Prediksi pertanyaan
-        """
-    )
-
-
-# ============================================================
-# SIMULASI SIDANG
-# ============================================================
-elif menu == "🎓 Simulasi Sidang":
-
-    st.header("🎓 Simulasi Seminar & Sidang")
-
-    st.selectbox(
-        "Jenis Ujian",
-        [
-            "Seminar Proposal",
-            "Seminar Hasil",
-            "Sidang Tesis S2",
-            "Ujian Proposal Disertasi",
-            "Ujian Disertasi / Doktoral"
-        ]
-    )
-
-    st.multiselect(
-        "Mode Penguji",
-        [
-            "Ketua Sidang",
-            "Penguji Substansi",
-            "Penguji Teori",
-            "Penguji Metodologi",
-            "Penguji Statistik",
-            "Penguji Referensi",
-            "Penguji Novelty",
-            "Penguji Kritis"
-        ]
-    )
-
-    st.select_slider(
-        "Tingkat",
-        options=[
-            "Mudah",
-            "Sedang",
-            "Kritis",
-            "Sangat Kritis"
-        ]
-    )
-
-    st.file_uploader(
-        "Unggah naskah ujian",
-        type=["pdf", "docx"],
-        key="sidang"
-    )
-
-    st.write(
-        """
-        Fitur AI selanjutnya:
-
-        **Prediksi Pertanyaan → Pertanyaan Satu per Satu →
-        Jawaban Pengguna → Analisis Jawaban →
-        Pertanyaan Lanjutan → Catatan Perbaikan →
-        Laporan Latihan Sidang**
-
-        Termasuk pencarian bagian naskah yang berpotensi
-        mendapat pertanyaan sulit dari penguji.
-        """
-    )
-
-
-# ============================================================
-# DONASI
-# ============================================================
-elif menu == "💚 Donasi & Akses":
-
-    st.header("💚 Donasi & Akses")
-
-    st.write(
-        """
-        Rancangan akses:
-
-        **Daftar → Verifikasi → Donasi → Aktivasi →
-        Masa Aktif → Kredit AI → Perpanjangan Kredit**
-        """
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric("Status Akun", "Tahap Pengembangan")
-    c2.metric("Masa Aktif", "-")
-    c3.metric("Kredit AI", "-")
-
-    st.info(
-        "Pembayaran/QRIS belum diaktifkan pada Tahap 1. "
-        "Rahasia pembayaran dan API nantinya tidak ditempatkan "
-        "di kode yang dapat dilihat pengguna."
-    )
-
-
-# ============================================================
-# ADMIN
-# ============================================================
-elif menu == "⚙️ Admin":
-
-    st.header("⚙️ Admin & Sistem")
-
-    st.write(
-        """
-        Dashboard admin nantinya mengelola:
-
-        • Pengguna  
-        • Verifikasi akun  
-        • Aktivasi akses  
-        • Donasi  
-        • Masa aktif  
-        • Kredit AI  
-        • Perpanjangan kredit  
-        • Fitur aplikasi  
-        • Log penggunaan  
-        • Backup  
-        • Keamanan
-        """
-    )
-
-    st.warning(
-        "Menu Admin pada Tahap 1 belum memiliki autentikasi. "
-        "Jangan memasukkan data pembayaran atau API key di sini."
-    )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-st.divider()
-
-st.caption(
-    "Asisten Akademik AI — S1 • S2 • S3 • OBE • penelitian • "
-    "referensi tervalidasi • publikasi • buku • presentasi • sidang."
-)
+PROMPT MASTER PEMBARUAN AKADEMIA AI
+VERSI INTEGRASI PERKULIAHAN, PENELITIAN, LITERATUR, PENYUNTINGAN, DAN JURNAL
+
+============================================================
+INSTRUKSI PALING PENTING
+============================================================
+
+Lakukan PENGEMBANGAN pada aplikasi AKADEMIA AI yang SUDAH ADA.
+
+JANGAN membangun ulang aplikasi dari nol.
+JANGAN mengganti struktur dasar aplikasi.
+JANGAN menghapus fitur yang sudah berfungsi.
+JANGAN mengubah menu yang sudah berfungsi tanpa alasan teknis.
+JANGAN menghapus data, konfigurasi, API, koneksi AI, atau fungsi yang sudah berjalan.
+JANGAN mengubah desain utama secara drastis.
+JANGAN membuat aplikasi baru yang terpisah.
+
+Pertahankan seluruh fungsi lama yang sudah berjalan, khususnya fungsi pada LITERATUR & REFERENSI.
+
+Tugas utama adalah MENAMBAHKAN dan MENYEMPURNAKAN modul akademik sehingga AKADEMIA AI menjadi asisten akademik terpadu untuk mahasiswa Pascasarjana/S2.
+
+Semua fitur baru harus terintegrasi dengan aplikasi yang sudah ada.
+
+Jika ditemukan kode lama yang sudah berfungsi, pertahankan.
+Jika penambahan fitur membutuhkan perubahan kode lama, lakukan perubahan seminimal mungkin.
+Utamakan kompatibilitas dengan struktur aplikasi saat ini.
+
+============================================================
+A. TUJUAN UTAMA AKADEMIA AI
+============================================================
+
+AKADEMIA AI dikembangkan sebagai ruang kerja akademik terpadu untuk membantu:
+
+1. Perkuliahan S2.
+2. Penyelesaian tugas kuliah.
+3. Pembuatan paper akademik.
+4. Analisis studi kasus.
+5. Penyusunan solusi akademik.
+6. Seminar Proposal Tesis.
+7. Penyusunan proposal tesis.
+8. Penyusunan tesis.
+9. Penelitian.
+10. Pencarian dan pengelolaan literatur.
+11. Pengelolaan referensi.
+12. Analisis karya akademik.
+13. Penyuntingan akademik.
+14. Parafrase akademik.
+15. Pemeriksaan sitasi.
+16. Pengembangan artikel jurnal.
+17. Penyiapan artikel untuk publikasi SINTA.
+
+Aplikasi harus berfungsi sebagai ASISTEN AKADEMIK.
+
+AI membantu pengguna berpikir, menganalisis, menyusun, memeriksa, dan memperbaiki karya.
+
+AI TIDAK boleh menggantikan keputusan akademik pengguna.
+
+============================================================
+B. PRINSIP KEAMANAN PENGEMBANGAN
+============================================================
+
+WAJIB:
+
+1. Pertahankan semua menu lama yang masih berfungsi.
+2. Pertahankan Literatur & Referensi beserta seluruh fungsinya.
+3. Jangan merusak fungsi upload dokumen yang sudah ada.
+4. Jangan merusak fungsi generatif AI yang sudah berjalan.
+5. Jangan mengubah API/configuration yang sudah bekerja.
+6. Jangan menghapus session state yang sudah digunakan.
+7. Jangan mengubah nama fungsi lama apabila tidak diperlukan.
+8. Jangan membuat duplikasi fitur.
+9. Jangan memindahkan fitur lama secara sembarangan.
+10. Tambahkan fitur baru secara modular.
+
+Jika terdapat fungsi serupa, gunakan kembali fungsi lama dan kembangkan seperlunya.
+
+============================================================
+C. STRUKTUR MENU UTAMA
+============================================================
+
+Susun atau pertahankan menu AKADEMIA AI agar secara konseptual memiliki kelompok berikut:
+
+BERANDA
+
+PERKULIAHAN & OBE
+
+PENELITIAN & TESIS
+
+LITERATUR & REFERENSI
+
+ANALISIS KARYA AKADEMIK
+
+PENYUNTING AKADEMIK AI
+
+JURNAL AKADEMIK
+
+RIWAYAT / ARSIP KERJA
+
+PENGATURAN
+
+Jangan menghapus menu lama yang sudah ada hanya karena nama di atas berbeda.
+
+Jika menu lama sudah mewakili fungsi tersebut, pertahankan dan integrasikan.
+
+============================================================
+D. BERANDA
+============================================================
+
+Beranda harus sederhana, profesional, dan tidak terlalu penuh.
+
+Tampilkan:
+
+AKADEMIA AI
+Asisten Akademik Pascasarjana
+
+Deskripsi singkat:
+
+"Ruang kerja akademik terpadu untuk mendukung perkuliahan, penelitian, tesis, literatur, penyuntingan akademik, dan publikasi ilmiah."
+
+Tampilkan kartu akses cepat:
+
+1. Perkuliahan & OBE
+2. Penelitian & Tesis
+3. Literatur & Referensi
+4. Analisis Karya Akademik
+5. Penyunting Akademik AI
+6. Jurnal Akademik
+
+Tambahkan informasi singkat:
+
+"AI membantu proses akademik. Pengguna tetap bertanggung jawab melakukan verifikasi terhadap data, kutipan, sumber, dan hasil akhir."
+
+============================================================
+E. MENU PERKULIAHAN & OBE
+============================================================
+
+Menu ini menjadi pusat kegiatan perkuliahan Pascasarjana.
+
+Sediakan:
+
+1. Daftar Mata Kuliah
+2. RPS / Rencana Pembelajaran
+3. Materi Perkuliahan
+4. Tugas
+5. Paper
+6. Studi Kasus
+7. Analisis Permasalahan
+8. Solusi Permasalahan
+9. Presentasi
+10. Catatan Perkuliahan
+11. Referensi Mata Kuliah
+12. Capaian Pembelajaran / OBE
+
+Setiap mata kuliah harus dapat memiliki ruang kerja tersendiri.
+
+Pengguna dapat:
+
+- menambahkan mata kuliah;
+- mengedit mata kuliah;
+- menghapus mata kuliah setelah konfirmasi;
+- mengunggah RPS;
+- mengunggah modul;
+- mengunggah PDF;
+- mengunggah DOCX;
+- mengunggah bahan dosen;
+- menyimpan tugas;
+- menyimpan hasil analisis.
+
+Dokumen yang diunggah harus dapat menjadi sumber analisis AI.
+
+============================================================
+F. MATA KULIAH SEMINAR PROPOSAL TESIS
+============================================================
+
+Tambahkan SEMINAR PROPOSAL TESIS sebagai salah satu mata kuliah khusus pada PERKULIAHAN & OBE.
+
+Jangan menjadikannya sekadar teks statis.
+
+Buat sebagai ruang kerja interaktif.
+
+Judul:
+
+SEMINAR PROPOSAL TESIS
+
+Deskripsi:
+
+"Ruang pendampingan akademik untuk merancang, mengembangkan, memeriksa, dan mempersiapkan proposal tesis sampai siap diseminarkan."
+
+Sediakan tab/submenu:
+
+1. Materi Perkuliahan
+2. RPS / Modul
+3. Pengembangan Judul
+4. BAB I
+5. BAB II
+6. Kerangka Berpikir
+7. BAB III
+8. Research Gap
+9. Penelitian Terdahulu
+10. Konsistensi Proposal
+11. Referensi
+12. Simulasi Seminar
+13. Pertanyaan Penguji
+14. Catatan Dosen
+15. Presentasi
+16. Artikel/Jurnal
+
+============================================================
+G. MATERI 1 SAMPAI 16 SEMINAR PROPOSAL TESIS
+============================================================
+
+Sediakan sistem Materi 1 sampai Materi 16.
+
+Jangan mengunci isi materi secara permanen karena pengguna harus dapat menyesuaikannya berdasarkan RPS/modul resmi yang diunggah.
+
+Setiap materi memiliki:
+
+Nomor Materi
+Judul
+Capaian
+Ringkasan
+Konsep Utama
+Penjelasan
+Contoh
+Tugas
+Referensi
+Catatan Pengguna
+Hasil Analisis AI
+
+Tambahkan tombol:
+
+ANALISIS MATERI
+
+RINGKAS MATERI
+
+BUAT CATATAN BELAJAR
+
+BUAT PERTANYAAN DISKUSI
+
+BUAT CONTOH
+
+HUBUNGKAN DENGAN TESIS
+
+BUAT TUGAS
+
+SIMPAN HASIL
+
+Jika RPS/modul telah diunggah, AI harus mengutamakan isi dokumen tersebut.
+
+Jangan mengarang isi RPS yang tidak tersedia.
+
+============================================================
+H. PENGEMBANGAN JUDUL TESIS
+============================================================
+
+Buat alat:
+
+PENGEMBANGAN JUDUL TESIS
+
+Input:
+
+Bidang kajian
+Masalah
+Lokasi/konteks
+Subjek
+Variabel/fokus
+Metode yang diminati
+Keterangan tambahan
+
+Output AI:
+
+1. Analisis masalah.
+2. Beberapa alternatif judul.
+3. Fokus penelitian.
+4. Objek penelitian.
+5. Subjek penelitian.
+6. Variabel atau fokus utama.
+7. Potensi research gap.
+8. Potensi novelty.
+9. Metode yang sesuai.
+10. Kelayakan awal.
+11. Risiko judul terlalu luas.
+12. Saran penyempurnaan.
+
+Tambahkan:
+
+UJI KELAYAKAN JUDUL S2
+
+Gunakan kategori:
+
+Sangat Layak
+Layak
+Layak dengan Revisi
+Perlu Dikaji Ulang
+
+AI harus memberikan alasan akademik.
+
+Jangan hanya memberi skor.
+
+============================================================
+I. BAB I PENDAHULUAN
+============================================================
+
+Buat ruang kerja BAB I.
+
+Bagian:
+
+Latar Belakang
+Identifikasi Masalah
+Batasan/Fokus Penelitian
+Rumusan Masalah
+Tujuan Penelitian
+Manfaat Penelitian
+Definisi Operasional jika diperlukan
+
+Fungsi AI:
+
+ANALISIS LATAR BELAKANG
+
+CEK ALUR ARGUMENTASI
+
+CEK MASALAH EMPIRIS
+
+CEK DATA PENDUKUNG
+
+CEK RESEARCH GAP
+
+CEK NOVELTY
+
+CEK KESESUAIAN RUMUSAN MASALAH
+
+CEK KESESUAIAN TUJUAN
+
+SARANKAN PERBAIKAN
+
+PENTING:
+
+Jangan langsung mengganti tulisan pengguna.
+
+Gunakan sistem:
+
+TEKS ASLI
+SARAN
+HASIL REVISI
+
+Pengguna memilih apakah revisi digunakan.
+
+============================================================
+J. BAB II KAJIAN PUSTAKA
+============================================================
+
+Sediakan:
+
+Landasan Teori
+Konsep Utama
+Penelitian Terdahulu
+Research Gap
+Kerangka Berpikir
+Hipotesis untuk penelitian kuantitatif
+Proposisi/Fokus untuk penelitian kualitatif bila diperlukan
+
+AI harus dapat:
+
+- memetakan teori;
+- membandingkan teori;
+- mengidentifikasi teori utama;
+- mencari hubungan antar konsep;
+- memeriksa kecukupan kajian;
+- menghubungkan teori dengan rumusan masalah;
+- menghubungkan penelitian terdahulu dengan gap;
+- mengidentifikasi posisi penelitian pengguna.
+
+============================================================
+K. RESEARCH GAP
+============================================================
+
+Buat fitur khusus:
+
+ANALISIS RESEARCH GAP
+
+Pengguna dapat memasukkan:
+
+Judul penelitian
+Latar belakang
+Daftar penelitian terdahulu
+Artikel
+PDF
+DOCX
+Ringkasan jurnal
+
+AI menganalisis:
+
+1. Empirical gap.
+2. Theoretical gap.
+3. Methodological gap.
+4. Contextual gap.
+5. Population gap.
+6. Practical gap.
+
+Tidak semua penelitian harus memiliki seluruh jenis gap.
+
+AI harus memilih gap yang benar-benar didukung sumber.
+
+Output:
+
+Temuan penelitian terdahulu
+Persamaan
+Perbedaan
+Keterbatasan
+Celah
+Posisi penelitian baru
+Potensi novelty
+Narasi research gap
+
+Jangan menciptakan gap palsu.
+
+============================================================
+L. PENELITIAN TERDAHULU
+============================================================
+
+Buat tabel analisis:
+
+No.
+Peneliti
+Tahun
+Judul
+Tujuan
+Metode
+Subjek/Lokasi
+Temuan
+Keterbatasan
+Persamaan
+Perbedaan
+Relevansi
+Gap
+
+Jika informasi tidak ditemukan pada dokumen:
+
+Tulis:
+
+"Tidak ditemukan dalam sumber."
+
+Jangan mengarang.
+
+============================================================
+M. KERANGKA BERPIKIR
+============================================================
+
+Buat generator kerangka berpikir berdasarkan:
+
+Rumusan masalah
+Teori
+Variabel/fokus
+Penelitian terdahulu
+Research gap
+
+Output:
+
+1. Narasi kerangka berpikir.
+2. Hubungan konsep.
+3. Urutan logika.
+4. Komponen diagram.
+5. Saran visualisasi.
+
+Jika aplikasi mendukung diagram, buat visual sederhana.
+
+Jika tidak, tampilkan struktur teks yang dapat dipindahkan ke PowerPoint/Word.
+
+============================================================
+N. BAB III METODE PENELITIAN
+============================================================
+
+Buat ruang kerja metode.
+
+Pilihan:
+
+Kuantitatif
+Kualitatif
+Mixed Methods
+R&D
+PTK
+Library Research
+Metode lainnya
+
+Sistem menyesuaikan komponen berdasarkan metode.
+
+Contoh Kuantitatif:
+
+Jenis/desain penelitian
+Populasi
+Sampel
+Variabel
+Definisi operasional
+Instrumen
+Validitas
+Reliabilitas
+Teknik pengumpulan data
+Teknik analisis data
+
+Contoh Kualitatif:
+
+Pendekatan
+Lokasi
+Subjek/informan
+Sumber data
+Teknik pengumpulan data
+Analisis data
+Keabsahan data
+
+Contoh R&D:
+
+Model pengembangan
+Tahapan
+Subjek uji
+Instrumen
+Validasi
+Uji coba
+Analisis
+
+AI harus memeriksa hubungan:
+
+JUDUL
+→ MASALAH
+→ RUMUSAN MASALAH
+→ TUJUAN
+→ METODE
+→ DATA
+→ ANALISIS
+
+============================================================
+O. PEMERIKSA KONSISTENSI PROPOSAL
+============================================================
+
+Buat fitur:
+
+CEK KONSISTENSI PROPOSAL
+
+Periksa:
+
+Judul
+Latar belakang
+Fokus/variabel
+Rumusan masalah
+Tujuan
+Teori
+Penelitian terdahulu
+Kerangka berpikir
+Hipotesis/proposisi
+Metode
+Instrumen
+Analisis data
+
+Output tabel:
+
+Komponen
+Status
+Masalah
+Alasan
+Saran
+
+Status:
+
+Konsisten
+Cukup Konsisten
+Perlu Revisi
+Tidak Konsisten
+
+Tambahkan:
+
+PRIORITAS PERBAIKAN
+
+Pisahkan:
+
+Prioritas Tinggi
+Prioritas Sedang
+Prioritas Rendah
+
+============================================================
+P. SIMULASI SEMINAR PROPOSAL
+============================================================
+
+Buat fitur:
+
+SIMULASI SEMINAR PROPOSAL
+
+AI bertindak sebagai:
+
+Penguji 1
+Penguji 2
+Pembimbing
+
+Tetapi tetap tampil sebagai simulasi AI, bukan dosen sebenarnya.
+
+AI membuat pertanyaan berdasarkan proposal pengguna.
+
+Kelompok pertanyaan:
+
+Judul
+Latar belakang
+Gap
+Novelty
+Teori
+Metode
+Instrumen
+Analisis data
+Kontribusi
+Kelayakan penelitian
+
+Pengguna menjawab.
+
+AI kemudian memberikan:
+
+Penilaian jawaban
+Kekuatan
+Kelemahan
+Jawaban yang perlu diperbaiki
+Contoh jawaban akademik yang lebih tepat
+
+Tambahkan mode:
+
+LATIHAN CEPAT
+
+SIMULASI LENGKAP
+
+PERTANYAAN SULIT
+
+============================================================
+Q. CATATAN DOSEN / HASIL SEMINAR
+============================================================
+
+Sediakan tempat memasukkan:
+
+Catatan dosen
+Catatan pembimbing
+Catatan penguji
+Hasil seminar
+Revisi yang diminta
+
+AI mengubahnya menjadi:
+
+Daftar revisi
+Lokasi revisi
+Prioritas
+Saran tindakan
+Status pengerjaan
+
+Status:
+
+Belum
+Proses
+Selesai
+
+============================================================
+R. ANALISIS KARYA AKADEMIK
+============================================================
+
+Buat ANALISIS KARYA AKADEMIK sebagai menu tersendiri.
+
+Jangan gabungkan seluruhnya ke Literatur & Referensi.
+
+Menu ini digunakan untuk menganalisis:
+
+Paper
+Makalah
+Proposal
+Tesis
+Disertasi
+Artikel jurnal
+Laporan penelitian
+Dokumen akademik lainnya
+
+Upload:
+
+PDF
+DOCX
+TXT bila didukung
+
+Analisis:
+
+Judul
+Abstrak
+Latar belakang
+Masalah
+Tujuan
+Teori
+Metode
+Hasil
+Pembahasan
+Kesimpulan
+Keterbatasan
+Research gap
+Novelty
+Kontribusi
+Kualitas argumentasi
+Konsistensi
+Referensi
+
+Tampilkan:
+
+RINGKASAN
+
+KEKUATAN
+
+KELEMAHAN
+
+CATATAN KRITIS
+
+SARAN PERBAIKAN
+
+POTENSI PENGEMBANGAN
+
+============================================================
+S. LITERATUR & REFERENSI
+============================================================
+
+PENTING:
+
+FITUR INI SUDAH ADA DAN SUDAH BERFUNGSI.
+
+JANGAN MEMBANGUN ULANG.
+
+JANGAN MENGHAPUS.
+
+JANGAN MERUSAK.
+
+Kembangkan hanya jika diperlukan.
+
+Fungsi ideal:
+
+Bank Literatur
+Bank Referensi
+Upload PDF/DOCX
+Metadata sumber
+Pencarian
+Filter
+Kategori
+Tag
+Tahun
+Penulis
+Judul
+DOI/URL bila tersedia
+Status validasi
+Catatan
+
+Pisahkan:
+
+BANK LITERATUR
+
+dan
+
+BANK REFERENSI VALID
+
+Literatur adalah bahan yang dikumpulkan.
+
+Referensi Valid adalah sumber yang telah diperiksa dan dipilih untuk digunakan.
+
+Sediakan aksi:
+
+PINDAHKAN KE BANK REFERENSI VALID
+
+Tetapi jangan menghapus sumber dari Bank Literatur kecuali pengguna meminta.
+
+============================================================
+T. PRINSIP REFERENSI
+============================================================
+
+AI DILARANG membuat referensi palsu.
+
+AI DILARANG membuat DOI palsu.
+
+AI DILARANG membuat nama jurnal palsu.
+
+AI DILARANG membuat nomor halaman palsu.
+
+AI DILARANG mengubah identitas sumber tanpa bukti.
+
+Jika data tidak ditemukan:
+
+Tampilkan:
+
+"Data belum terverifikasi."
+
+Jika AI membuat saran sumber yang belum diperiksa:
+
+Tandai:
+
+"Saran sumber, perlu verifikasi."
+
+Jangan mencampur sumber valid dengan sumber rekomendasi AI.
+
+============================================================
+U. PEMERIKSA SITASI
+============================================================
+
+Sediakan:
+
+PEMERIKSA KONSISTENSI SITASI
+
+Bandingkan:
+
+Sitasi dalam teks
+
+dengan
+
+Daftar Pustaka
+
+Identifikasi:
+
+Sitasi ada tetapi referensi tidak ada.
+Referensi ada tetapi tidak disitasi.
+Nama penulis tidak konsisten.
+Tahun berbeda.
+Duplikasi referensi.
+Format tidak konsisten.
+
+Jangan mengubah otomatis.
+
+Tampilkan saran terlebih dahulu.
+
+============================================================
+V. FORMAT REFERENSI
+============================================================
+
+Sediakan format:
+
+APA 7
+Chicago
+Harvard
+MLA
+IEEE
+
+Jika aplikasi sebelumnya sudah mempunyai fungsi format sitasi, pertahankan.
+
+Pengguna memilih gaya.
+
+Sistem menampilkan:
+
+Format asli
+Format hasil
+Data yang belum lengkap
+
+============================================================
+W. PENYUNTING AKADEMIK AI
+============================================================
+
+Buat menu tersendiri:
+
+PENYUNTING AKADEMIK AI
+
+Menu ini berbeda dengan Literatur & Referensi.
+
+Tujuan:
+
+Memperbaiki kualitas tulisan akademik tanpa mengubah fakta dan maksud penulis.
+
+Subfitur:
+
+1. Penyuntingan Ringan
+2. Penyuntingan Akademik
+3. Penyuntingan Mendalam
+4. Parafrase Akademik
+5. Pemeriksaan Alur
+6. Pemeriksaan Argumentasi
+7. Pemeriksaan Konsistensi Istilah
+8. Pemeriksaan Bahasa
+9. Pemeriksaan Struktur Paragraf
+
+============================================================
+X. PARAFRASE AKADEMIK
+============================================================
+
+PARAFRASE AKADEMIK harus menjadi fitur khusus di dalam PENYUNTING AKADEMIK AI.
+
+JANGAN menjalankan parafrase otomatis di Literatur & Referensi.
+
+Pilihan:
+
+PARAFRASE RINGAN
+
+PARAFRASE AKADEMIK
+
+PARAFRASE MENDALAM
+
+PARAFRASE PER PARAGRAF
+
+Prinsip wajib:
+
+1. Pertahankan makna.
+2. Pertahankan fakta.
+3. Pertahankan angka.
+4. Pertahankan nama.
+5. Pertahankan sumber.
+6. Pertahankan sitasi.
+7. Jangan membuat data baru.
+8. Jangan membuat kutipan baru.
+9. Jangan menghilangkan sumber.
+10. Jangan mengubah kesimpulan penulis.
+
+Tampilkan:
+
+SEBELUM
+
+↓
+
+SESUDAH
+
+Pengguna harus dapat:
+
+TERIMA
+
+EDIT
+
+TOLAK
+
+SALIN HASIL
+
+============================================================
+Y. PROTEKSI NASKAH ASLI
+============================================================
+
+Dalam seluruh proses penyuntingan:
+
+NASKAH ASLI harus tetap tersimpan.
+
+Jangan overwrite naskah asli secara otomatis.
+
+Gunakan versi:
+
+Versi Asli
+Versi Revisi 1
+Versi Revisi 2
+dan seterusnya.
+
+Jika memungkinkan tambahkan:
+
+KEMBALIKAN KE VERSI ASLI
+
+============================================================
+Z. JURNAL AKADEMIK
+============================================================
+
+Buat JURNAL AKADEMIK sebagai menu tersendiri.
+
+Jangan menjadikannya hanya bagian kecil dari tesis.
+
+Menu Jurnal Akademik digunakan untuk:
+
+1. Tugas perkuliahan berbentuk artikel.
+2. Artikel hasil penelitian.
+3. Artikel turunan tesis.
+4. Artikel untuk publikasi SINTA.
+5. Penyesuaian artikel dengan template rumah jurnal.
+
+============================================================
+AA. RUANG KERJA ARTIKEL JURNAL
+============================================================
+
+Sediakan alur:
+
+IDE / TOPIK
+
+↓
+
+JUDUL
+
+↓
+
+TARGET JURNAL
+
+↓
+
+TEMPLATE
+
+↓
+
+STRUKTUR ARTIKEL
+
+↓
+
+PENULISAN
+
+↓
+
+REFERENSI
+
+↓
+
+PENYUNTINGAN
+
+↓
+
+PEMERIKSAAN
+
+↓
+
+FINAL
+
+Komponen artikel:
+
+Judul
+Identitas Penulis
+Abstrak
+Kata Kunci
+Pendahuluan
+Metode
+Hasil
+Pembahasan
+Kesimpulan
+Referensi
+
+Struktur dapat menyesuaikan template jurnal.
+
+============================================================
+AB. TEMPLATE RUMAH JURNAL
+============================================================
+
+Tambahkan:
+
+UNGGAH TEMPLATE JURNAL
+
+Format:
+
+DOCX
+PDF bila memungkinkan
+
+AI menganalisis:
+
+Nama jurnal
+Struktur artikel
+Format judul
+Abstrak
+Jumlah kata bila ditemukan
+Heading
+Subheading
+Sistem sitasi
+Format daftar pustaka
+Ketentuan tabel
+Ketentuan gambar
+Ketentuan lainnya yang ditemukan
+
+PENTING:
+
+Jangan mengarang ketentuan jurnal.
+
+Jika tidak ditemukan:
+
+"Ketentuan tidak ditemukan pada template yang diunggah."
+
+============================================================
+AC. PENYESUAIAN ARTIKEL DENGAN TEMPLATE
+============================================================
+
+Buat fitur:
+
+CEK KESESUAIAN TEMPLATE
+
+Bandingkan artikel dengan template.
+
+Output:
+
+Komponen
+Ketentuan
+Kondisi Artikel
+Status
+Saran
+
+Status:
+
+Sesuai
+Perlu Perbaikan
+Tidak Ditemukan
+Tidak Sesuai
+
+Jangan mengubah otomatis tanpa persetujuan pengguna.
+
+============================================================
+AD. ARTIKEL SINTA
+============================================================
+
+Sediakan mode:
+
+PERSIAPAN ARTIKEL SINTA
+
+AI membantu:
+
+Memeriksa fokus
+Kebaruan
+Research gap
+Kualitas pendahuluan
+Metode
+Hasil
+Pembahasan
+Kontribusi
+Referensi
+Konsistensi sitasi
+Kesesuaian template
+
+Jangan menjanjikan artikel pasti diterima SINTA.
+
+Gunakan istilah:
+
+"Persiapan artikel untuk jurnal terindeks SINTA."
+
+============================================================
+AE. MATERI 16 DAN JURNAL
+============================================================
+
+Pada Seminar Proposal Tesis, Materi 16 dapat dihubungkan dengan pengembangan artikel ilmiah apabila sesuai RPS.
+
+Namun:
+
+JURNAL AKADEMIK tetap menjadi menu tersendiri.
+
+Materi 16 hanya menjadi jembatan menuju ruang kerja Jurnal Akademik.
+
+Tambahkan tombol:
+
+LANJUTKAN KE JURNAL AKADEMIK
+
+Data yang relevan dapat dibawa:
+
+Judul
+Topik
+Masalah
+Gap
+Referensi
+Draft
+
+Tetapi jangan memindahkan atau menghapus data asli.
+
+============================================================
+AF. MATA KULIAH KEPEMIMPINAN DAN SUPERVISI PAI
+============================================================
+
+Tambahkan dukungan ruang kerja untuk mata kuliah:
+
+KEPEMIMPINAN DAN SUPERVISI PAI
+
+Kebutuhan tugas utama:
+
+1. Bentuk paper.
+2. Memuat studi kasus.
+3. Memuat solusi permasalahan.
+
+Sediakan template:
+
+JUDUL PAPER
+
+PENDAHULUAN
+
+LANDASAN TEORI
+
+DESKRIPSI STUDI KASUS
+
+ANALISIS PERMASALAHAN
+
+ALTERNATIF SOLUSI
+
+SOLUSI YANG DIREKOMENDASIKAN
+
+ARGUMENTASI AKADEMIK
+
+IMPLIKASI TERHADAP KEPEMIMPINAN/SUPERVISI PAI
+
+KESIMPULAN
+
+REFERENSI
+
+AI membantu mengembangkan paper berdasarkan sumber yang tersedia.
+
+Jangan membuat kasus faktual palsu.
+
+Jika pengguna belum memberikan kasus nyata, tawarkan:
+
+"Contoh kasus simulatif."
+
+Tandai dengan jelas sebagai simulasi.
+
+============================================================
+AG. OBE
+============================================================
+
+Pada Perkuliahan & OBE, sediakan hubungan:
+
+Capaian Mata Kuliah
+→ Materi
+→ Aktivitas
+→ Tugas
+→ Bukti Capaian
+→ Refleksi
+
+Jika RPS memiliki CPMK/Sub-CPMK, gunakan data tersebut.
+
+Jangan membuat CPMK resmi baru jika dokumen RPS sudah tersedia.
+
+Jika tidak tersedia, AI boleh memberikan:
+
+"Saran CPMK untuk ditinjau pengguna."
+
+============================================================
+AH. UPLOAD DOKUMEN
+============================================================
+
+Pertahankan upload yang sudah berjalan.
+
+Idealnya dukung:
+
+PDF
+DOCX
+TXT
+
+Jika sistem sudah mendukung format lain, jangan hapus.
+
+Setelah upload, pengguna memilih fungsi:
+
+Ringkas
+Analisis
+Ambil referensi
+Hubungkan dengan mata kuliah
+Hubungkan dengan tesis
+Hubungkan dengan jurnal
+Simpan ke literatur
+
+Jangan otomatis melakukan semua fungsi sekaligus.
+
+============================================================
+AI. SUMBER INTERNAL AKADEMIA AI
+============================================================
+
+Dokumen pengguna harus dapat menjadi sumber internal.
+
+Prioritas jawaban:
+
+1. Dokumen yang dipilih pengguna.
+2. Bank Referensi Valid.
+3. Bank Literatur.
+4. Pengetahuan AI, jika memang dibutuhkan.
+
+Bedakan secara jelas hasil berdasarkan dokumen dan pengetahuan umum AI.
+
+Jangan menyatakan sesuatu berasal dari dokumen jika tidak ada dalam dokumen.
+
+============================================================
+AJ. SISTEM GENERATIF AI
+============================================================
+
+Pertahankan sistem AI/generative AI yang sudah berjalan.
+
+Jangan mengganti provider/model/API yang sudah berhasil hanya untuk menambahkan menu.
+
+Tambahkan prompt khusus per fitur.
+
+Contoh:
+
+Analisis Materi
+Analisis Proposal
+Research Gap
+Penyuntingan
+Parafrase
+Analisis Jurnal
+
+Semua harus menggunakan sistem AI yang sudah tersedia jika memungkinkan.
+
+============================================================
+AK. RIWAYAT DAN ARSIP
+============================================================
+
+Tambahkan penyimpanan hasil kerja bila arsitektur memungkinkan.
+
+Kategori:
+
+Perkuliahan
+Paper
+Proposal
+Tesis
+Analisis Dokumen
+Penyuntingan
+Parafrase
+Jurnal
+Referensi
+
+Sediakan:
+
+Tanggal
+Judul
+Jenis
+Status
+Buka
+Edit
+Duplikasi
+Hapus dengan konfirmasi
+
+Jangan menghapus data tanpa konfirmasi.
+
+============================================================
+AL. STATUS PEKERJAAN
+============================================================
+
+Gunakan status sederhana:
+
+DRAFT
+
+PROSES
+
+PERLU REVISI
+
+FINAL
+
+Untuk proposal:
+
+DRAFT
+SIAP BIMBINGAN
+REVISI
+SIAP SEMINAR
+
+Untuk jurnal:
+
+DRAFT
+PENYUNTINGAN
+CEK TEMPLATE
+SIAP SUBMIT
+
+============================================================
+AM. ANTARMUKA
+============================================================
+
+Pertahankan karakter tampilan AKADEMIA AI yang sudah ada.
+
+Gunakan Bahasa Indonesia.
+
+Tampilan harus:
+
+Profesional
+Akademik
+Bersih
+Ringan
+Mudah dibaca
+Tidak terlalu ramai
+
+Hindari terlalu banyak warna.
+
+Gunakan kartu, tab, accordion, dan tombol seperlunya.
+
+Jangan menampilkan seluruh fitur sekaligus dalam satu halaman panjang.
+
+Gunakan navigasi bertingkat.
+
+============================================================
+AN. RESPONSIF
+============================================================
+
+Pastikan aplikasi nyaman digunakan pada:
+
+Laptop
+Tablet
+HP
+
+Pada HP:
+
+Menu tidak boleh melebar keluar layar.
+Tabel harus dapat digulir.
+Tombol tidak saling menimpa.
+Teks tetap terbaca.
+Upload tetap mudah digunakan.
+
+============================================================
+AO. SISTEM KONFIRMASI
+============================================================
+
+Gunakan konfirmasi untuk tindakan berisiko:
+
+Hapus
+Reset
+Ganti naskah
+Hapus referensi
+Hapus proyek
+
+Contoh:
+
+"Apakah Anda yakin ingin menghapus data ini?"
+
+============================================================
+AP. PESAN KESALAHAN
+============================================================
+
+Jangan tampilkan error teknis mentah kepada pengguna jika dapat dihindari.
+
+Gunakan pesan:
+
+"Dokumen belum dapat diproses."
+
+"Format belum didukung."
+
+"Koneksi AI belum tersedia."
+
+"Data belum lengkap."
+
+Kemudian berikan tindakan yang dapat dilakukan pengguna.
+
+============================================================
+AQ. PRINSIP AKADEMIK
+============================================================
+
+Semua output AI harus mengikuti prinsip:
+
+1. Logis.
+2. Sistematis.
+3. Akademik.
+4. Berdasarkan bukti.
+5. Tidak membuat sumber palsu.
+6. Tidak membuat data palsu.
+7. Tidak membuat hasil penelitian palsu.
+8. Tidak membuat kutipan palsu.
+9. Tidak mengubah fakta.
+10. Memberikan ruang verifikasi pengguna.
+
+============================================================
+AR. MODE HASIL
+============================================================
+
+Untuk output akademik panjang, sediakan:
+
+HASIL AI
+
+EDIT
+
+SALIN
+
+SIMPAN
+
+EKSPOR
+
+Jika ekspor sudah tersedia, pertahankan format yang sudah ada.
+
+Jika belum tersedia, jangan merusak aplikasi hanya untuk memaksakan ekspor.
+
+============================================================
+AS. HUBUNGAN ANTARMENU
+============================================================
+
+Bangun hubungan data secara logis.
+
+PERKULIAHAN
+→ dapat mengirim bahan ke ANALISIS KARYA AKADEMIK
+
+PERKULIAHAN
+→ dapat mengirim sumber ke LITERATUR
+
+LITERATUR
+→ dapat dipilih sebagai REFERENSI VALID
+
+REFERENSI VALID
+→ dapat digunakan dalam TESIS
+
+REFERENSI VALID
+→ dapat digunakan dalam JURNAL
+
+TESIS
+→ dapat dianalisis di ANALISIS KARYA AKADEMIK
+
+TESIS
+→ dapat diperbaiki di PENYUNTING AKADEMIK
+
+TESIS
+→ dapat dikembangkan menjadi ARTIKEL JURNAL
+
+JURNAL
+→ dapat menggunakan PENYUNTING AKADEMIK
+
+JURNAL
+→ dapat menggunakan REFERENSI VALID
+
+Jangan membuat duplikasi file bila tidak diperlukan.
+
+============================================================
+AT. ALUR SEMINAR PROPOSAL
+============================================================
+
+Buat alur visual sederhana:
+
+RPS/MODUL
+↓
+MATERI PERKULIAHAN
+↓
+TOPIK
+↓
+JUDUL
+↓
+MASALAH
+↓
+RESEARCH GAP
+↓
+BAB I
+↓
+BAB II
+↓
+KERANGKA BERPIKIR
+↓
+BAB III
+↓
+CEK KONSISTENSI
+↓
+SIMULASI SEMINAR
+↓
+REVISI
+↓
+SIAP SEMINAR
+
+============================================================
+AU. PENGEMBANGAN BERTAHAP
+============================================================
+
+Karena aplikasi sudah berjalan, lakukan pengembangan bertahap.
+
+PRIORITAS 1:
+
+Pastikan aplikasi lama tetap berjalan.
+
+PRIORITAS 2:
+
+Tambahkan struktur menu tanpa merusak fungsi lama.
+
+PRIORITAS 3:
+
+Aktifkan Seminar Proposal Tesis.
+
+PRIORITAS 4:
+
+Aktifkan Analisis Karya Akademik.
+
+PRIORITAS 5:
+
+Aktifkan Penyunting Akademik AI.
+
+PRIORITAS 6:
+
+Aktifkan Jurnal Akademik.
+
+PRIORITAS 7:
+
+Hubungkan antarfitur.
+
+Jangan mencoba mengganti seluruh sistem dalam satu operasi apabila berisiko merusak aplikasi.
+
+============================================================
+AV. VALIDASI SETELAH PEMBARUAN
+============================================================
+
+Setelah perubahan, WAJIB periksa:
+
+1. Aplikasi dapat dibuka.
+2. Tidak ada halaman kosong.
+3. Menu lama masih ada.
+4. Literatur & Referensi masih berfungsi.
+5. Upload masih berfungsi.
+6. AI masih dapat digunakan.
+7. Navigasi berfungsi.
+8. Menu baru dapat dibuka.
+9. Tidak ada tombol mati.
+10. Tidak ada menu ganda.
+11. Tidak ada import/module error.
+12. Tidak ada syntax error.
+13. Tidak ada dependency yang rusak.
+14. Tampilan HP tetap baik.
+15. Tampilan laptop tetap baik.
+
+============================================================
+AW. JANGAN LAKUKAN INI
+============================================================
+
+DILARANG:
+
+Menghapus fitur lama tanpa instruksi.
+
+Mengganti aplikasi dengan demo sederhana.
+
+Menghasilkan aplikasi kosong.
+
+Menghapus Literatur & Referensi.
+
+Menggabungkan semua menu menjadi satu halaman.
+
+Membuat referensi palsu.
+
+Mengubah isi karya pengguna tanpa persetujuan.
+
+Melakukan parafrase otomatis terhadap semua dokumen.
+
+Menghapus sitasi.
+
+Mengubah angka/data.
+
+Mengarang hasil penelitian.
+
+Mengarang isi dokumen yang tidak terbaca.
+
+Mengarang aturan jurnal.
+
+Menganggap saran AI sebagai sumber ilmiah.
+
+============================================================
+AX. HASIL YANG DIHARAPKAN
+============================================================
+
+Setelah pengembangan, AKADEMIA AI harus menjadi aplikasi akademik terpadu dengan struktur:
+
+AKADEMIA AI
+
+├── Beranda
+│
+├── Perkuliahan & OBE
+│   ├── Mata Kuliah
+│   ├── RPS
+│   ├── Materi
+│   ├── Tugas
+│   ├── Paper
+│   ├── Studi Kasus
+│   └── Seminar Proposal Tesis
+│
+├── Penelitian & Tesis
+│   ├── Judul
+│   ├── BAB I
+│   ├── BAB II
+│   ├── Research Gap
+│   ├── Kerangka Berpikir
+│   ├── BAB III
+│   └── Konsistensi Proposal
+│
+├── Literatur & Referensi
+│   ├── Bank Literatur
+│   ├── Referensi Valid
+│   ├── Pemeriksa Sitasi
+│   └── Format Referensi
+│
+├── Analisis Karya Akademik
+│
+├── Penyunting Akademik AI
+│   ├── Penyuntingan
+│   ├── Parafrase Akademik
+│   ├── Alur
+│   ├── Argumentasi
+│   └── Bahasa
+│
+├── Jurnal Akademik
+│   ├── Artikel Perkuliahan
+│   ├── Artikel Penelitian
+│   ├── Artikel Turunan Tesis
+│   ├── Template Rumah Jurnal
+│   ├── Cek Template
+│   └── Persiapan SINTA
+│
+└── Riwayat / Arsip
+
+============================================================
+AY. INSTRUKSI EKSEKUSI TERAKHIR
+============================================================
+
+Sekarang kerjakan pembaruan pada PROJECT AKADEMIA AI YANG SEDANG TERBUKA.
+
+JANGAN membuat project baru.
+
+JANGAN menghapus implementasi lama yang sudah bekerja.
+
+BACA struktur kode yang ada terlebih dahulu.
+
+IDENTIFIKASI fungsi yang sudah berjalan.
+
+PERTAHANKAN fungsi tersebut.
+
+Tambahkan fitur dengan pendekatan incremental dan modular.
+
+Jika ditemukan perbedaan antara struktur aplikasi lama dengan rancangan di prompt ini, PRIORITASKAN KEAMANAN FITUR YANG SUDAH BERFUNGSI.
+
+Jangan mengubah fungsi hanya untuk menyamakan nama menu.
+
+Pastikan hasil akhirnya dapat langsung dijalankan.
+
+Setelah implementasi selesai:
+
+1. Jalankan pemeriksaan error.
+2. Perbaiki error yang ditemukan.
+3. Pastikan aplikasi dapat dimuat.
+4. Uji menu utama.
+5. Uji Literatur & Referensi.
+6. Uji Perkuliahan & OBE.
+7. Uji Seminar Proposal Tesis.
+8. Uji Analisis Karya Akademik.
+9. Uji Penyunting Akademik AI.
+10. Uji Jurnal Akademik.
+11. Pastikan tombol baru benar-benar mempunyai fungsi.
+12. Jangan berhenti hanya setelah membuat tampilan.
+
+Jika pekerjaan terlalu besar untuk satu proses, jangan merusak bagian yang sudah selesai.
+
+Kerjakan PRIORITAS 1 terlebih dahulu dan lanjutkan secara aman ke prioritas berikutnya.
+
+TUJUAN AKHIR:
+
+SELESAIKAN PENAMBAHAN FITUR DI ATAS TANPA MENGUBAH BAGIAN APLIKASI YANG SUDAH ADA. PERTAHANKAN 100% KONTEN DAN FUNGSI LAMA. TAMBAHKAN SAJA FITUR YANG BELUM ADA.
