@@ -1118,6 +1118,7 @@ elif menu == "📚 Perkuliahan & OBE":
     fitur = st.selectbox(
         "Pilih pekerjaan",
         [
+            "📚 Mata Kuliah Saya",
             "Pahami Instruksi Dosen",
             "Tugas Kuliah",
             "Makalah",
