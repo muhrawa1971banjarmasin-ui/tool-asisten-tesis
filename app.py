@@ -1,9 +1,5 @@
 
-
-Masukkan instruksi dosen, tema, atau kebutuhan tugas
-
-Unggah bahan tugas
-200MB per file • PDF, DOCX, TXT, CSV, XLSX, PPTX, JPimport streamlit as st
+import streamlit as st
 import pandas as pd
 import PyPDF2
 from datetime import datetime
