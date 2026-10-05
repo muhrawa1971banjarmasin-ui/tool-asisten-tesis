@@ -3386,38 +3386,13 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             st.session_state["hasil_koreksi_ide_s2"] = ""
             st.session_state["masalah_terakhir_ide_s2"] = ""
             st.session_state["versi_naskah_ide_s2"] = 0
+            st.session_state["versi_input_masalah_ide_s2"] = int(
+                st.session_state.get("versi_input_masalah_ide_s2", 0)
+            ) + 1
             st.session_state["pesan_hapus_total_no1_s2"] = True
             st.rerun()
 
 
-        masalah_ide_s2 = st.text_area(
-            "Permasalahan/gagasan awal",
-            placeholder="Tuliskan masalah nyata yang ingin diteliti...",
-            height=160,
-            key="masalah_ide_s2",
-        )
-        lokasi_ide_s2 = ""
-        if mode_ide_s2 == "📄 Adaptasi Tesis ke Lokasi/Objek Baru":
-            lokasi_ide_s2 = st.text_input(
-                "Lokasi/objek penelitian baru",
-                key="lokasi_ide_s2",
-            )
-        tesis_ide_s2 = st.file_uploader(
-            "Unggah tesis selesai sebagai bahan (PDF/DOCX)",
-            type=["pdf","docx"],
-            accept_multiple_files=True,
-            key="tesis_ide_s2",
-        )
-        arah_ide_s2 = st.text_area(
-            "Arah penelitian yang diinginkan (opsional)",
-            placeholder="Contoh: pertahankan variabel, ubah lokasi, tambah variabel, atau kembangkan penelitian.",
-            key="arah_ide_s2",
-        )
-
-
-        # ============================================================
-        # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
-        # ============================================================
         st.markdown("### 🆕 Mulai / Ganti Masalah Penelitian")
         st.caption("Gunakan tombol ini jika ingin memulai topik baru agar hasil lama tidak terbawa.")
         if st.session_state.pop("pesan_reset_topik_ide_s2", False):
@@ -3445,9 +3420,44 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                 if _key in _hapus_reset_topik or any(_frag in _ks for _frag in _frag_reset_topik):
                     if _ks not in ("bank_referensi", "library_referensi"):
                         del st.session_state[_key]
+            st.session_state["versi_input_masalah_ide_s2"] = int(
+                st.session_state.get("versi_input_masalah_ide_s2", 0)
+            ) + 1
             st.session_state["pesan_reset_topik_ide_s2"] = True
             st.rerun()
 
+
+        if "versi_input_masalah_ide_s2" not in st.session_state:
+            st.session_state["versi_input_masalah_ide_s2"] = 0
+        _key_masalah_ide_s2 = f"masalah_ide_s2_{st.session_state['versi_input_masalah_ide_s2']}"
+        masalah_ide_s2 = st.text_area(
+            "Permasalahan/gagasan awal",
+            placeholder="Tuliskan masalah nyata yang ingin diteliti...",
+            height=160,
+            key=_key_masalah_ide_s2,
+        )
+        lokasi_ide_s2 = ""
+        if mode_ide_s2 == "📄 Adaptasi Tesis ke Lokasi/Objek Baru":
+            lokasi_ide_s2 = st.text_input(
+                "Lokasi/objek penelitian baru",
+                key="lokasi_ide_s2",
+            )
+        tesis_ide_s2 = st.file_uploader(
+            "Unggah tesis selesai sebagai bahan (PDF/DOCX)",
+            type=["pdf","docx"],
+            accept_multiple_files=True,
+            key="tesis_ide_s2",
+        )
+        arah_ide_s2 = st.text_area(
+            "Arah penelitian yang diinginkan (opsional)",
+            placeholder="Contoh: pertahankan variabel, ubah lokasi, tambah variabel, atau kembangkan penelitian.",
+            key="arah_ide_s2",
+        )
+
+
+        # ============================================================
+        # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
+        # ============================================================
         st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
         st.caption(
             "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
