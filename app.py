@@ -1055,7 +1055,7 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
 
         # 1) Ambil isi catatan kaki dari hasil AI: [^1] isi...
         footnotes = {}
-        for m in re.finditer(r'(?ms)^\[\^(\d+)\]\s*(.+?)(?=^\[\^\d+\]|\n\*\*\*|\n#{1,6}\s|\Z)', str(teks_hasil_ai)):
+        for m in re.finditer(r'(?ms)^\[\^(\d+)\]\s*:?\s*(.+?)(?=^\[\^\d+\]\s*:|\n\*\*\*|\n#{1,6}\s|\Z)', str(teks_hasil_ai)):
             nomor = int(m.group(1))
             isi = re.sub(r'\s+', ' ', m.group(2)).strip()
             isi = re.sub(r'\[halaman perlu verifikasi\]\.?', '[halaman perlu verifikasi]', isi, flags=re.I)
@@ -1136,8 +1136,8 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             # Tidak mengubah teks/run yang sudah ada.
             run = etree.Element(q(W, "r"))
             rpr = etree.SubElement(run, q(W, "rPr"))
-            va = etree.SubElement(rpr, q(W, "vertAlign"))
-            va.set(q(W, "val"), "superscript")
+            rstyle = etree.SubElement(rpr, q(W, "rStyle"))
+            rstyle.set(q(W, "val"), "FootnoteReference")
             ref = etree.SubElement(run, q(W, "footnoteReference"))
             ref.set(q(W, "id"), str(nomor))
             best_p.append(run)
@@ -1178,24 +1178,50 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             fn.set(q(W, "id"), str(nomor))
             p = etree.SubElement(fn, q(W, "p"))
 
-            # Nomor footnote asli Word
+            # Paragraf footnote: Times New Roman 10 pt, spasi tunggal.
+            ppr = etree.SubElement(p, q(W, "pPr"))
+            pstyle = etree.SubElement(ppr, q(W, "pStyle"))
+            pstyle.set(q(W, "val"), "FootnoteText")
+            spacing = etree.SubElement(ppr, q(W, "spacing"))
+            spacing.set(q(W, "line"), "240")
+            spacing.set(q(W, "lineRule"), "auto")
+            spacing.set(q(W, "before"), "0")
+            spacing.set(q(W, "after"), "0")
+
+            # Nomor footnote Word asli/superscript.
             rnum = etree.SubElement(p, q(W, "r"))
             rpr = etree.SubElement(rnum, q(W, "rPr"))
-            va = etree.SubElement(rpr, q(W, "vertAlign"))
-            va.set(q(W, "val"), "superscript")
+            rstyle = etree.SubElement(rpr, q(W, "rStyle"))
+            rstyle.set(q(W, "val"), "FootnoteReference")
             etree.SubElement(rnum, q(W, "footnoteRef"))
 
-            # spasi + isi catatan kaki
+            # Tab/spasi pemisah setelah nomor.
+            rspace = etree.SubElement(p, q(W, "r"))
+            tspace = etree.SubElement(rspace, q(W, "t"))
+            tspace.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            tspace.text = " "
+
+            # Isi footnote: bersihkan markdown link/italic agar tidak muncul *, [], URL ganda.
+            isi_bersih = footnotes[nomor]
+            isi_bersih = re.sub(r'\[([^\]]+)\]\((https?://[^)]+)\)', r'\1', isi_bersih)
+            isi_bersih = isi_bersih.replace("**", "").replace("*", "")
+            isi_bersih = isi_bersih.replace("&#x20;", " ")
+            isi_bersih = re.sub(r'\s+', ' ', isi_bersih).strip()
+
             rtxt = etree.SubElement(p, q(W, "r"))
             rpr2 = etree.SubElement(rtxt, q(W, "rPr"))
             rfonts = etree.SubElement(rpr2, q(W, "rFonts"))
             rfonts.set(q(W, "ascii"), "Times New Roman")
             rfonts.set(q(W, "hAnsi"), "Times New Roman")
+            rfonts.set(q(W, "eastAsia"), "Times New Roman")
+            rfonts.set(q(W, "cs"), "Times New Roman")
             sz = etree.SubElement(rpr2, q(W, "sz"))
-            sz.set(q(W, "val"), "20")  # 10 pt
+            sz.set(q(W, "val"), "20")
+            szcs = etree.SubElement(rpr2, q(W, "szCs"))
+            szcs.set(q(W, "val"), "20")
             t = etree.SubElement(rtxt, q(W, "t"))
             t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            t.text = " " + footnotes[nomor]
+            t.text = isi_bersih
 
         files["word/footnotes.xml"] = etree.tostring(
             fn_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
