@@ -1030,13 +1030,11 @@ ATURAN WAJIB:
 # ============================================================
 def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
     """
-    Membuat salinan DOCX asli dan menambahkan TRUE Word footnote.
-    Strategi aman:
-    - seluruh package DOCX asli dipertahankan;
-    - ID footnote baru selalu melanjutkan ID yang sudah ada;
-    - separator footnote Word tidak ditulis ulang bila sudah ada;
-    - relationship/content-type hanya ditambah bila memang belum ada;
-    - teks/layout lain tidak dibangun ulang.
+    Salinan DOCX asli. Hanya footnote/kutipan yang ditambahkan.
+    - marker ditempatkan tepat setelah klaim, bukan di akhir paragraf;
+    - nomor referensi di naskah dan nomor di footnote dibuat superscript;
+    - mencegah footnote ganda pada posisi/isi yang sama;
+    - package Word asli tetap dipertahankan.
     """
     if file_asli is None or not str(getattr(file_asli, "name", "")).lower().endswith(".docx"):
         return None, "Fitur ini memerlukan naskah sumber DOCX."
@@ -1047,133 +1045,216 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
     W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     REL = "http://schemas.openxmlformats.org/package/2006/relationships"
     CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+    XML = "http://www.w3.org/XML/1998/namespace"
     ns = {"w": W}
     def q(uri, tag): return f"{{{uri}}}{tag}"
+
+    def clean_md(s):
+        s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', s or "")
+        s = re.sub(r'\\([*_`])', r'\1', s)
+        s = re.sub(r'[*_`#>]', '', s)
+        return re.sub(r'\s+', ' ', s).strip()
+
+    def para_text(p):
+        return "".join(p.xpath(".//w:t/text()", namespaces=ns))
+
+    def add_superscript_props(run):
+        rpr = run.find(q(W, "rPr"))
+        if rpr is None:
+            rpr = etree.Element(q(W, "rPr"))
+            run.insert(0, rpr)
+        va = rpr.find(q(W, "vertAlign"))
+        if va is None:
+            va = etree.SubElement(rpr, q(W, "vertAlign"))
+        va.set(q(W, "val"), "superscript")
+        rs = rpr.find(q(W, "rStyle"))
+        if rs is None:
+            rs = etree.SubElement(rpr, q(W, "rStyle"))
+        rs.set(q(W, "val"), "FootnoteReference")
+
+    def insert_ref_after_char(p, char_pos, fid):
+        """
+        Sisipkan footnoteReference tepat sesudah char_pos pada teks paragraf.
+        Run teks yang terkena dibelah; formatting run disalin.
+        """
+        cursor = 0
+        text_nodes = p.xpath(".//w:t", namespaces=ns)
+        for tnode in text_nodes:
+            txt = tnode.text or ""
+            end = cursor + len(txt)
+            if cursor <= char_pos <= end:
+                local = max(0, min(len(txt), char_pos - cursor))
+                run = tnode.getparent()
+                if run.tag != q(W, "r"):
+                    break
+
+                before, after = txt[:local], txt[local:]
+                tnode.text = before
+                if before.startswith(" ") or before.endswith(" "):
+                    tnode.set(q(XML, "space"), "preserve")
+
+                parent = run.getparent()
+                idx = parent.index(run)
+
+                ref_run = etree.Element(q(W, "r"))
+                # Salin properti karakter dari run asli lalu paksa superscript.
+                old_rpr = run.find(q(W, "rPr"))
+                if old_rpr is not None:
+                    ref_run.append(etree.fromstring(etree.tostring(old_rpr)))
+                add_superscript_props(ref_run)
+                ref = etree.SubElement(ref_run, q(W, "footnoteReference"))
+                ref.set(q(W, "id"), str(fid))
+                parent.insert(idx + 1, ref_run)
+
+                if after:
+                    after_run = etree.Element(q(W, "r"))
+                    if old_rpr is not None:
+                        after_run.append(etree.fromstring(etree.tostring(old_rpr)))
+                    nt = etree.SubElement(after_run, q(W, "t"))
+                    nt.text = after
+                    if after.startswith(" ") or after.endswith(" "):
+                        nt.set(q(XML, "space"), "preserve")
+                    parent.insert(idx + 2, after_run)
+                return True
+            cursor = end
+        return False
 
     try:
         file_asli.seek(0)
         original = file_asli.read()
-
-        # Ambil footnote AI. Mendukung [^1]: isi maupun [^1] isi.
         ai = str(teks_hasil_ai or "")
+
+        # Catatan kaki AI.
         note_pat = re.compile(
             r'(?ms)^\[\^(\d+)\]\s*:?\s*(.+?)(?=^\[\^\d+\]\s*:|^\[\^\d+\]\s+|\n---|\n\*\*\*|\n#{1,6}\s|\Z)'
         )
         ai_notes = {}
         for m in note_pat.finditer(ai):
-            txt = re.sub(r'\s+', ' ', m.group(2)).strip()
-            # Bersihkan markdown link: [url](url) -> url
-            txt = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', txt)
-            txt = txt.replace(r'\*', '*')
-            ai_notes[int(m.group(1))] = txt
+            ai_notes[int(m.group(1))] = clean_md(m.group(2))
 
         if not ai_notes:
-            return None, "Hasil AI belum memiliki CATATAN KAKI dengan marker [^1], [^2], dan seterusnya."
+            return None, "Hasil AI belum memiliki marker footnote [^1], [^2], dan seterusnya."
 
-        # Konteks sebelum marker untuk mencari paragraf asli.
+        # Ambil kalimat/klaim tepat sebelum masing-masing marker dari bagian SESUDAH.
         contexts = {}
-        for n in ai_notes:
-            pos = ai.find(f"[^{n}]")
+        for n in sorted(ai_notes):
+            marker = f"[^{n}]"
+            pos = ai.find(marker)
             if pos < 0:
                 continue
             before = ai[:pos]
-            # Ambil bagian SESUDAH terakhir bila format before/after digunakan.
             if "**SESUDAH:**" in before:
                 before = before.rsplit("**SESUDAH:**", 1)[-1]
             elif "SESUDAH:" in before:
                 before = before.rsplit("SESUDAH:", 1)[-1]
-            before = re.sub(r'[*_`#>]', '', before)
+            # buang marker sebelumnya agar tidak mengganggu pencocokan
+            before = re.sub(r'\[\^\d+\]', '', before)
             before = re.sub(r'\[PERLU REFERENSI TERVERIFIKASI\]', '', before)
-            sentences = re.split(r'(?<=[.!?])\s+', before.strip())
-            ctx = sentences[-1].strip() if sentences else before.strip()
-            contexts[n] = re.sub(r'\s+', ' ', ctx)
+            before = clean_md(before)
+            # Klaim adalah segmen sesudah tanda akhir kalimat terakhir.
+            parts = re.split(r'(?<=[.!?])\s+', before)
+            ctx = clean_md(parts[-1] if parts else before)
+            contexts[n] = ctx
 
         with zipfile.ZipFile(io.BytesIO(original), "r") as zin:
             infos = zin.infolist()
             files = {i.filename: zin.read(i.filename) for i in infos}
 
-        if "word/document.xml" not in files:
-            return None, "DOCX tidak memiliki word/document.xml."
-
         parser = etree.XMLParser(remove_blank_text=False, recover=False)
         doc_root = etree.fromstring(files["word/document.xml"], parser)
 
-        # Baca footnotes yang sudah ada, jangan menimpa ID lama.
         fn_path = "word/footnotes.xml"
         if fn_path in files:
             fn_root = etree.fromstring(files[fn_path], parser)
-            existing_ids = []
-            for x in fn_root.xpath("./w:footnote", namespaces=ns):
-                try:
-                    existing_ids.append(int(x.get(q(W, "id"))))
-                except Exception:
-                    pass
         else:
             fn_root = etree.Element(q(W, "footnotes"), nsmap={"w": W})
-            existing_ids = []
+            for fid, tag in [(-1, "separator"), (0, "continuationSeparator")]:
+                fn = etree.SubElement(fn_root, q(W, "footnote"))
+                fn.set(q(W, "id"), str(fid))
+                p = etree.SubElement(fn, q(W, "p"))
+                r = etree.SubElement(p, q(W, "r"))
+                etree.SubElement(r, q(W, tag))
 
-            # Reserved separators Word: -1 separator, 0 continuation separator.
-            fsep = etree.SubElement(fn_root, q(W, "footnote"))
-            fsep.set(q(W, "id"), "-1")
-            p = etree.SubElement(fsep, q(W, "p"))
-            r = etree.SubElement(p, q(W, "r"))
-            etree.SubElement(r, q(W, "separator"))
-
-            fcont = etree.SubElement(fn_root, q(W, "footnote"))
-            fcont.set(q(W, "id"), "0")
-            p = etree.SubElement(fcont, q(W, "p"))
-            r = etree.SubElement(p, q(W, "r"))
-            etree.SubElement(r, q(W, "continuationSeparator"))
+        existing_ids = []
+        existing_note_text = {}
+        for fn in fn_root.xpath("./w:footnote", namespaces=ns):
+            try:
+                fid = int(fn.get(q(W, "id")))
+                existing_ids.append(fid)
+                if fid > 0:
+                    existing_note_text[clean_md("".join(fn.xpath(".//w:t/text()", namespaces=ns)))] = fid
+            except Exception:
+                pass
 
         next_id = max([x for x in existing_ids if x > 0], default=0) + 1
-        id_map = {}
-        inserted = []
-        missing = []
+        inserted, skipped, missing = [], [], []
 
-        # Cari paragraf asli dan sisipkan reference dengan ID BARU.
-        paragraphs = doc_root.xpath(".//w:p", namespaces=ns)
+        paragraphs = doc_root.xpath(".//w:body//w:p", namespaces=ns)
+
         for marker_no in sorted(ai_notes):
             ctx = contexts.get(marker_no, "")
-            ctx_norm = re.sub(r'\s+', ' ', ctx).strip()
-            best_p, best_score = None, 0
-
-            for p in paragraphs:
-                ptxt = "".join(p.xpath(".//w:t/text()", namespaces=ns))
-                pnorm = re.sub(r'\s+', ' ', ptxt).strip()
-                if not pnorm:
-                    continue
-                score = 0
-                if ctx_norm and ctx_norm in pnorm:
-                    score = 1000 + len(ctx_norm)
-                elif pnorm and pnorm in ctx_norm:
-                    score = 850 + len(pnorm)
-                else:
-                    words = ctx_norm.split()
-                    for count, base in ((14,700),(10,650),(7,600)):
-                        phrase = " ".join(words[-count:]) if len(words) >= count else ""
-                        if phrase and phrase in pnorm:
-                            score = max(score, base + len(phrase))
-                if score > best_score:
-                    best_p, best_score = p, score
-
-            if best_p is None:
+            note_text = ai_notes[marker_no]
+            if not ctx:
                 missing.append(marker_no)
+                continue
+
+            best_p = None
+            match_start = match_end = -1
+            ctx_norm = clean_md(ctx)
+
+            # Utamakan kecocokan kalimat persis.
+            for p in paragraphs:
+                ptxt = para_text(p)
+                pnorm = re.sub(r'\s+', ' ', ptxt)
+                idx = pnorm.find(ctx_norm)
+                if idx >= 0:
+                    best_p = p
+                    # Karena pnorm bisa mengubah whitespace, cari suffix unik pada teks asli.
+                    suffix = " ".join(ctx_norm.split()[-10:])
+                    raw_idx = ptxt.find(suffix)
+                    if raw_idx >= 0:
+                        match_end = raw_idx + len(suffix)
+                    else:
+                        raw_idx = ptxt.find(ctx_norm)
+                        match_end = raw_idx + len(ctx_norm) if raw_idx >= 0 else len(ptxt)
+                    break
+
+            # Fallback: cari 10/7 kata terakhir klaim.
+            if best_p is None:
+                words = ctx_norm.split()
+                for count in (10, 7, 5):
+                    if len(words) < count:
+                        continue
+                    phrase = " ".join(words[-count:])
+                    for p in paragraphs:
+                        ptxt = para_text(p)
+                        idx = ptxt.find(phrase)
+                        if idx >= 0:
+                            best_p = p
+                            match_end = idx + len(phrase)
+                            break
+                    if best_p is not None:
+                        break
+
+            if best_p is None or match_end < 0:
+                missing.append(marker_no)
+                continue
+
+            # Jangan menambahkan lagi bila tepat sesudah lokasi itu sudah ada footnoteReference.
+            existing_refs = best_p.xpath(".//w:footnoteReference", namespaces=ns)
+            # Jika isi catatan identik sudah ada di dokumen, jangan membuat nomor kedua.
+            if note_text in existing_note_text:
+                skipped.append(marker_no)
                 continue
 
             fid = next_id
             next_id += 1
-            id_map[marker_no] = fid
 
-            # Reference run. footnoteReference sendiri yang mengontrol tampilan angka.
-            rr = etree.Element(q(W, "r"))
-            rpr = etree.SubElement(rr, q(W, "rPr"))
-            rstyle = etree.SubElement(rpr, q(W, "rStyle"))
-            rstyle.set(q(W, "val"), "FootnoteReference")
-            ref = etree.SubElement(rr, q(W, "footnoteReference"))
-            ref.set(q(W, "id"), str(fid))
-            best_p.append(rr)
+            if not insert_ref_after_char(best_p, match_end, fid):
+                missing.append(marker_no)
+                continue
 
-            # Footnote body
+            # True footnote body.
             fn = etree.SubElement(fn_root, q(W, "footnote"))
             fn.set(q(W, "id"), str(fid))
             p = etree.SubElement(fn, q(W, "p"))
@@ -1181,21 +1262,27 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             pstyle = etree.SubElement(ppr, q(W, "pStyle"))
             pstyle.set(q(W, "val"), "FootnoteText")
 
+            # Nomor pada footnote: hanya SATU footnoteRef, superscript.
             rnum = etree.SubElement(p, q(W, "r"))
-            rpr = etree.SubElement(rnum, q(W, "rPr"))
-            rstyle = etree.SubElement(rpr, q(W, "rStyle"))
-            rstyle.set(q(W, "val"), "FootnoteReference")
+            add_superscript_props(rnum)
             etree.SubElement(rnum, q(W, "footnoteRef"))
 
             rtxt = etree.SubElement(p, q(W, "r"))
+            rpr = etree.SubElement(rtxt, q(W, "rPr"))
+            fonts = etree.SubElement(rpr, q(W, "rFonts"))
+            fonts.set(q(W, "ascii"), "Times New Roman")
+            fonts.set(q(W, "hAnsi"), "Times New Roman")
+            sz = etree.SubElement(rpr, q(W, "sz"))
+            sz.set(q(W, "val"), "20")
             t = etree.SubElement(rtxt, q(W, "t"))
-            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            t.text = " " + ai_notes[marker_no]
+            t.set(q(XML, "space"), "preserve")
+            t.text = " " + note_text
 
+            existing_note_text[note_text] = fid
             inserted.append(marker_no)
 
-        if not inserted:
-            return None, "Tidak ada kalimat hasil AI yang dapat dicocokkan secara aman dengan paragraf Word asli."
+        if not inserted and not skipped:
+            return None, "Tidak ada marker yang dapat dicocokkan secara aman dengan naskah Word asli."
 
         files["word/document.xml"] = etree.tostring(
             doc_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
@@ -1204,64 +1291,61 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             fn_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
         )
 
-        # Relationship footnotes
+        # Relationship footnotes.
         rel_path = "word/_rels/document.xml.rels"
         rel_type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
-        if rel_path in files:
-            rel_root = etree.fromstring(files[rel_path], parser)
-        else:
-            rel_root = etree.Element(q(REL, "Relationships"))
-
+        rel_root = etree.fromstring(files[rel_path], parser) if rel_path in files else etree.Element(q(REL, "Relationships"))
         if not any(x.get("Type") == rel_type for x in rel_root):
-            used = set(x.get("Id") for x in rel_root)
+            used = {x.get("Id") for x in rel_root}
             i = 1
-            while f"rId{i}" in used: i += 1
+            while f"rId{i}" in used:
+                i += 1
             rel = etree.SubElement(rel_root, q(REL, "Relationship"))
             rel.set("Id", f"rId{i}")
             rel.set("Type", rel_type)
             rel.set("Target", "footnotes.xml")
-            files[rel_path] = etree.tostring(
-                rel_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
-            )
+            files[rel_path] = etree.tostring(rel_root, xml_declaration=True, encoding="UTF-8", standalone="yes")
 
-        # Content type footnotes
+        # Content type footnotes.
         ct_path = "[Content_Types].xml"
         ct_root = etree.fromstring(files[ct_path], parser)
         if not any(x.get("PartName") == "/word/footnotes.xml" for x in ct_root):
             ov = etree.SubElement(ct_root, q(CT, "Override"))
             ov.set("PartName", "/word/footnotes.xml")
-            ov.set("ContentType",
-                   "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml")
-            files[ct_path] = etree.tostring(
-                ct_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
-            )
+            ov.set("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml")
+            files[ct_path] = etree.tostring(ct_root, xml_declaration=True, encoding="UTF-8", standalone="yes")
 
-        # Tulis ulang ZIP dengan nama part yang sama.
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zout:
             written = set()
             for info in infos:
-                name = info.filename
-                if name in files and name not in written:
-                    zout.writestr(name, files[name])
-                    written.add(name)
+                if info.filename in files and info.filename not in written:
+                    zout.writestr(info, files[info.filename])
+                    written.add(info.filename)
             for name, data in files.items():
                 if name not in written:
                     zout.writestr(name, data)
 
-        # Pemeriksaan internal package sebelum diberikan ke pengguna.
-        test_bytes = output.getvalue()
-        with zipfile.ZipFile(io.BytesIO(test_bytes), "r") as ztest:
-            bad = ztest.testzip()
-            if bad:
-                return None, f"Validasi DOCX gagal pada bagian: {bad}"
-            etree.fromstring(ztest.read("word/document.xml"), parser)
-            etree.fromstring(ztest.read("word/footnotes.xml"), parser)
+        result = output.getvalue()
 
-        msg = f"Berhasil membuat salinan Word dengan {len(inserted)} true footnote."
+        # Validasi ZIP/XML dan pasangan ID reference ↔ footnote.
+        with zipfile.ZipFile(io.BytesIO(result), "r") as z:
+            if z.testzip():
+                return None, "Validasi paket DOCX gagal."
+            droot = etree.fromstring(z.read("word/document.xml"), parser)
+            froot = etree.fromstring(z.read("word/footnotes.xml"), parser)
+            refs = [int(x.get(q(W, "id"))) for x in droot.xpath(".//w:footnoteReference", namespaces=ns)]
+            fids = {int(x.get(q(W, "id"))) for x in froot.xpath("./w:footnote", namespaces=ns)}
+            orphan = [x for x in refs if x not in fids]
+            if orphan:
+                return None, "Validasi footnote gagal: ada reference tanpa footnote."
+
+        msg = f"Berhasil menambahkan {len(inserted)} footnote Word pada posisi kutipan."
+        if skipped:
+            msg += f" {len(skipped)} footnote identik tidak digandakan."
         if missing:
-            msg += " Marker yang tidak dicocokkan demi keamanan naskah: " + ", ".join(map(str, missing)) + "."
-        return test_bytes, msg
+            msg += " Marker yang tidak aman dicocokkan: " + ", ".join(map(str, missing)) + "."
+        return result, msg
 
     except Exception as e:
         return None, f"Gagal membuat salinan Word: {e}"
