@@ -658,6 +658,9 @@ TUGAS:
 2. Audit semua footnote/endnote/in-text citation dan cocokkan dengan sumber di LIBRARY.
 3. Jangan mengarang penulis, judul, DOI, tahun, halaman, kutipan langsung, atau sumber.
 4. Jika sumber tidak dapat diverifikasi dari Library, beri label [PERLU VERIFIKASI], jangan menggantinya dengan tebakan.
+4a. Untuk sumber yang belum ditemukan, berikan SARAN PENCARIAN berdasarkan penulis/judul/tahun/DOI/topik yang benar-benar terbaca dari naskah.
+4b. Jika ada sumber Library yang relevan tetapi bukan sumber asli, labeli jelas sebagai [REFERENSI ALTERNATIF - BUKAN SUMBER ASLI] dan jangan mengganti otomatis.
+4c. Gunakan tiga status: ✅ TERVERIFIKASI, ⚠️ KANDIDAT/PERLU KONFIRMASI, ❌ TIDAK DITEMUKAN.
 5. Jika mode mempertahankan gaya bawaan, ikuti pola footnote/sitasi yang sudah dominan di naskah. Jangan memaksa Chicago.
 6. Jika gaya target memakai footnote/endnote, rapikan nomor dan konsistensinya. Jika gaya target memakai sitasi dalam teks, pertahankan sistem in-text tersebut.
 7. Sinkronkan daftar pustaka hanya dengan sumber yang benar-benar digunakan/teridentifikasi.
@@ -2334,7 +2337,7 @@ elif menu == "🔎 Literatur & Referensi":
     st.caption("Chicago Notes & Bibliography menjadi default. Artikel jurnal tetap mengikuti gaya rumah jurnal/template yang diunggah.")
     bagian_ref = st.radio(
         "Bagian Literatur & Referensi",
-        ["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","🔧 Perbaiki Footnote & Kutipan","✅ Audit Sitasi"],
+        ["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","📝 Generasi Sitasi & Daftar Pustaka","✍️ Pakai di Naskah","🔧 Perbaiki Footnote & Kutipan","✅ Audit Sitasi"],
         key="bagian_literatur_referensi"
     )
 
@@ -2391,40 +2394,71 @@ elif menu == "🔎 Literatur & Referensi":
             df=pd.DataFrame(refs); kol=[x for x in ["Judul","Penulis","Tahun","Jurnal","DOI","Sumber","Status"] if x in df.columns]
             st.dataframe(df[kol],use_container_width=True,hide_index=True)
 
-            st.markdown("#### 🗑️ Hapus Referensi")
+            st.markdown("#### 🗑️ Kelola / Hapus Referensi")
+            st.caption("Menghapus di Akademia AI tidak menghapus referensi yang sudah diimpor ke Zotero, Mendeley, EndNote, atau file ekspor yang sudah disimpan.")
+
+            # Hapus per item tetap tersedia.
+            with st.expander("🗑️ Hapus satu referensi"):
+                for i, r in enumerate(list(refs)):
+                    cjudul, chapus = st.columns([8,2])
+                    cjudul.write(f"**{i+1}. {r.get('Judul','Tanpa judul')}** ({r.get('Tahun','')})")
+                    if chapus.button("🗑️ Hapus", key=f"hapus_ref_item_{i}", use_container_width=True):
+                        st.session_state.bank_referensi.pop(i)
+                        st.success("Referensi dihapus dari Library Akademia AI.")
+                        st.rerun()
+
             opsi_hapus = [
                 f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})"
                 for i, r in enumerate(refs)
             ]
-            pilih_hapus = st.multiselect(
-                "Pilih referensi yang akan dihapus",
-                opsi_hapus,
-                key="pilih_hapus_referensi"
+            pilih_semua = st.checkbox("☑️ Pilih semua referensi untuk penghapusan massal", key="pilih_semua_hapus_ref")
+            if pilih_semua:
+                pilih_hapus = opsi_hapus
+                st.caption(f"{len(pilih_hapus)} referensi dipilih.")
+            else:
+                pilih_hapus = st.multiselect(
+                    "Pilih beberapa referensi yang akan dihapus",
+                    opsi_hapus,
+                    key="pilih_hapus_referensi"
+                )
+
+            konfirmasi_hapus = st.checkbox(
+                "Saya mengerti referensi terpilih akan dihapus dari Library Akademia AI.",
+                key="konfirmasi_hapus_massal",
+                value=False
             )
             if st.button(
                 "🗑️ Hapus Referensi Terpilih",
-                disabled=not bool(pilih_hapus),
+                disabled=not bool(pilih_hapus) or not konfirmasi_hapus,
                 key="hapus_referensi_library"
             ):
                 indeks_hapus = {opsi_hapus.index(x) for x in pilih_hapus}
                 st.session_state.bank_referensi = [
                     r for i, r in enumerate(refs) if i not in indeks_hapus
                 ]
-                st.success(f"{len(indeks_hapus)} referensi dihapus dari Library.")
+                st.success(f"{len(indeks_hapus)} referensi dihapus dari Library Akademia AI.")
                 st.rerun()
 
             st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
             peta_manager = {
-                "Zotero": "RIS (.ris)", "Mendeley": "RIS (.ris)", "EndNote": "EndNote Tagged (.enw)",
-                "RefWorks": "RIS (.ris)", "Paperpile": "RIS (.ris)", "Citavi": "RIS (.ris)",
-                "JabRef / LaTeX": "BibTeX (.bib)", "Excel / Spreadsheet": "CSV (.csv)",
+                "Zotero": "RIS (.ris)",
+                "Mendeley": "RIS (.ris)",
+                "EndNote": "EndNote Tagged (.enw)",
+                "RefWorks": "RIS (.ris)",
+                "Paperpile": "RIS (.ris)",
+                "Citavi": "RIS (.ris)",
+                "BibTeX / LaTeX / JabRef": "BibTeX (.bib)",
+                "Excel / Spreadsheet": "CSV (.csv)",
                 "Lainnya / format universal": "RIS (.ris)"
             }
             ec1,ec2=st.columns([2,1])
             with ec1:
                 manager=st.selectbox("Pilih aplikasi tujuan", list(peta_manager.keys()), key="reference_manager")
             with ec2:
-                st.text_input("Format otomatis", value=peta_manager[manager], disabled=True, key="format_otomatis_manager")
+                # Jangan gunakan text_input ber-key untuk nilai turunan karena Session State dapat menahan nilai lama.
+                st.markdown("**Format otomatis**")
+                st.info(peta_manager[manager])
+
             opsi_ref=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
             cakupan=st.radio("Referensi yang diekspor", ["Semua Referensi","Referensi yang Dipilih"], horizontal=True, key="cakupan_ekspor_ref")
             refs_ekspor=refs
@@ -2432,6 +2466,30 @@ elif menu == "🔎 Literatur & Referensi":
                 pilihan_ekspor=st.multiselect("Pilih referensi", opsi_ref, key="pilihan_ekspor_ref")
                 idx={opsi_ref.index(x) for x in pilihan_ekspor}
                 refs_ekspor=[r for i,r in enumerate(refs) if i in idx]
+
+            if st.button("🤖 Periksa Metadata dengan AI Sebelum Ekspor", disabled=not bool(refs_ekspor), key="ai_periksa_sebelum_ekspor"):
+                daftar_ai="\n".join(
+                    f"{i+1}. {format_referensi(r)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}"
+                    for i,r in enumerate(refs_ekspor[:100])
+                )
+                prompt_ai = """Audit metadata referensi berikut sebelum ekspor.
+Jangan mengarang metadata, DOI, halaman, penulis, tahun, jurnal, atau URL.
+Untuk setiap item beri status:
+✅ SIAP EKSPOR
+⚠️ PERLU KONFIRMASI
+❌ DATA PENTING TIDAK DITEMUKAN
+Jika ada kekurangan, berikan saran pemeriksaan/pencarian. Jangan mengganti data secara otomatis.
+REFERENSI:
+""" + daftar_ai
+                with st.spinner("AI memeriksa metadata tanpa mengubah Library..."):
+                    h_ai=panggil_gemini(prompt_ai)
+                if h_ai["sukses"]:
+                    st.session_state.hasil_ai_ekspor_ref=h_ai["hasil"]
+                else:
+                    st.error(h_ai["error"])
+            if st.session_state.get("hasil_ai_ekspor_ref"):
+                st.text_area("Hasil pemeriksaan AI sebelum ekspor", st.session_state.hasil_ai_ekspor_ref, height=320, key="hasil_ai_ekspor_ref_tampil")
+
             fmt=peta_manager[manager]
             if fmt.startswith("RIS"):
                 data_ekspor=ekspor_ris(refs_ekspor).encode("utf-8"); nama_ekspor="library_referensi.ris"; mime="application/x-research-info-systems"
@@ -2449,8 +2507,45 @@ elif menu == "🔎 Literatur & Referensi":
                 with c3: st.download_button("EndNote",ekspor_endnote_tagged(refs_ekspor).encode("utf-8"),"library_referensi.enw","text/plain",disabled=not bool(refs_ekspor),key="exp_enw_manual")
                 with c4: st.download_button("CSV",ekspor_csv_referensi(refs_ekspor).encode("utf-8-sig"),"library_referensi.csv","text/csv",disabled=not bool(refs_ekspor),key="exp_csv_manual")
             st.caption("Metadata yang belum terverifikasi tetap ditandai. Akademia AI tidak membuat metadata yang tidak ditemukan.")
-        else: st.info("Library Referensi masih kosong.")
+        else:
+            st.info("Library Referensi masih kosong.")
 
+    elif bagian_ref == "📝 Generasi Sitasi & Daftar Pustaka":
+        st.subheader("📝 Generasi Sitasi & Daftar Pustaka")
+        refs=st.session_state.bank_referensi
+        if not refs:
+            st.info("Library Referensi masih kosong. Tambahkan atau validasi sumber terlebih dahulu.")
+        else:
+            opsi=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
+            pilihan=st.multiselect("Pilih referensi; kosong = semua referensi Library", opsi, key="pilih_ref_generasi_sitasi")
+            refs_pakai=[refs[opsi.index(x)] for x in pilihan] if pilihan else refs
+            gaya_gen=st.selectbox("Gaya sitasi", gaya_list, index=gaya_list.index(st.session_state.gaya_sitasi), key="gaya_generasi_sitasi")
+            konteks_gen=st.text_area("Konteks/klaim yang akan diberi sitasi (opsional)", height=180, key="konteks_generasi_sitasi")
+            if st.button("🤖 Generate Sitasi & Daftar Pustaka", type="primary", key="btn_generasi_sitasi"):
+                daftar="\n".join(
+                    f"[{i}] {format_referensi(r,gaya_gen)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}"
+                    for i,r in enumerate(refs_pakai,1)
+                )
+                prompt=f"""Buat sitasi/footnote dan daftar pustaka dari REFERENSI YANG DISEDIAKAN SAJA.
+GAYA: {gaya_gen}
+ATURAN:
+- Jangan membuat referensi, DOI, penulis, tahun, halaman, kutipan, atau metadata baru.
+- Jika gaya menggunakan footnote, buat nomor/penanda konsisten.
+- Jika gaya menggunakan in-text citation, gunakan pola gaya tersebut.
+- Jika halaman sumber tidak tersedia, tulis [halaman perlu verifikasi].
+- Daftar pustaka hanya memuat sumber yang benar-benar dipakai.
+KONTEKS/KLAIM:
+{konteks_gen or "Tidak ada konteks khusus; buat contoh sitasi bibliografis tanpa mengarang isi sumber."}
+REFERENSI:
+{daftar}"""
+                with st.spinner("Menyusun sitasi dari referensi Library..."):
+                    h=panggil_gemini(prompt)
+                if h["sukses"]:
+                    st.session_state.hasil_generasi_sitasi=h["hasil"]
+                else:
+                    st.error(h["error"])
+            if st.session_state.get("hasil_generasi_sitasi"):
+                st.text_area("Hasil — dapat diperiksa dan diedit", st.session_state.hasil_generasi_sitasi, height=500, key="hasil_generasi_sitasi_edit")
     elif bagian_ref == "✍️ Pakai di Naskah":
         st.subheader("✍️ Masukkan Referensi ke BAB / Naskah")
         file_naskah_ref = st.file_uploader(
@@ -2458,9 +2553,13 @@ elif menu == "🔎 Literatur & Referensi":
             type=["pdf", "docx", "txt"],
             key="upload_naskah_pakai_referensi"
         )
+
+        teks_upload=""
+        sumber_id="manual"
         if file_naskah_ref is not None:
             try:
                 teks_upload = ekstrak_teks(file_naskah_ref)
+                sumber_id=f"{file_naskah_ref.name}_{getattr(file_naskah_ref,'size',0)}"
                 if teks_upload and teks_upload.strip():
                     st.session_state.naskah_upload_ref = teks_upload
                     st.session_state.naskah_aktif = teks_upload
@@ -2469,33 +2568,68 @@ elif menu == "🔎 Literatur & Referensi":
                     st.warning("Teks naskah belum dapat dibaca. Anda tetap dapat menempel teks secara manual.")
             except Exception as e:
                 st.error(f"Naskah gagal dibaca: {e}")
+
+        isi_awal = teks_upload if teks_upload.strip() else st.session_state.get("naskah_upload_ref","")
+        st.markdown("#### 👁️ Naskah / hasil ekstraksi")
         naskah_awal=st.text_area(
-            "Tempel / edit paragraf atau BAB",
-            value=st.session_state.get("naskah_aktif", st.session_state.get("naskah_upload_ref", "")),
-            height=300,
-            key="naskah_ref"
+            "Naskah / hasil ekstraksi",
+            value=isi_awal,
+            height=360,
+            key=f"naskah_ref_{abs(hash(sumber_id))}",
+            label_visibility="collapsed"
         )
         st.session_state.naskah_aktif = naskah_awal
-        refs=st.session_state.bank_referensi; opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
+
+        refs=st.session_state.bank_referensi
+        opsi=[f"{i+1}. {r.get('Judul','')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
         pilihan=st.multiselect("Pilih referensi; kosong = semua yang terverifikasi",opsi,key="pilih_ref_naskah")
         dipilih=[refs[opsi.index(x)] for x in pilihan] if pilihan else [r for r in refs if str(r.get("Status","")).startswith("✅")]
-        arahan=st.text_area("Arahan",placeholder="Perkuat paragraf ini dengan sumber yang benar-benar relevan.",key="arah_ref")
-        if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
+        bagian_target=st.text_input("Bagian/BAB target (opsional)", placeholder="Contoh: BAB I Latar Belakang", key="bagian_target_ref")
+        arahan=st.text_area("Arahan",placeholder="Perkuat bagian yang membutuhkan dukungan sumber, tanpa mengubah format dan substansi naskah asli.",key="arah_ref")
+
+        st.info("AI hanya memberi usulan berdasarkan referensi Library. Perubahan tidak diterapkan diam-diam ke naskah asli.")
+        if st.button("🤖 Generate AI — Pasang Referensi, Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip()),key="btn_generate_pakai_naskah"):
+            arahan_final=(arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.") + (
+                f"\nFokus bagian: {bagian_target}." if bagian_target.strip() else ""
+            )
+            panel_ai_penulisan(
+                naskah_awal,
+                "Pemasangan sitasi/footnote pada naskah dengan proteksi substansi asli",
+                arahan_final + "\nTampilkan usulan SEBELUM -> SESUDAH. Jangan mengubah bagian lain. Jika sumber asli tidak ditemukan, beri saran pencarian atau referensi alternatif berlabel jelas dan jangan mengganti otomatis.",
+                dipilih,
+                "pasang_ref"
+            )
         if st.session_state.get("hasil_penulisan_ai"):
-            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
+            st.markdown("#### ✨ Hasil AI — periksa sebelum digunakan")
+            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah")
+            st.session_state.naskah_aktif=h
 
     elif bagian_ref == "🔧 Perbaiki Footnote & Kutipan":
         st.subheader("🔧 Perbaiki Footnote & Kutipan")
-        st.caption("Mendukung footnote, endnote, dan sitasi dalam teks. Mode otomatis berusaha mempertahankan gaya bawaan dokumen, bukan memaksanya menjadi Chicago.")
+        st.caption("Mendukung footnote, endnote, dan sitasi dalam teks. Mode otomatis mempertahankan gaya bawaan dokumen dan tidak memaksa Chicago.")
         file_perbaikan = st.file_uploader("📤 Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="upload_perbaiki_footnote")
         teks_perbaikan=""
+        sumber_foot="manual"
         if file_perbaikan is not None:
             try:
                 teks_perbaikan=ekstrak_teks(file_perbaikan)
-                if teks_perbaikan.strip(): st.success(f"Naskah '{file_perbaikan.name}' berhasil dibaca.")
-                else: st.warning("Teks belum dapat dibaca. Tempel teks secara manual di bawah.")
-            except Exception as e: st.error(f"Naskah gagal dibaca: {e}")
-        teks_perbaikan=st.text_area("Naskah / hasil ekstraksi",value=teks_perbaikan,height=260,key="teks_perbaikan_footnote")
+                sumber_foot=f"{file_perbaikan.name}_{getattr(file_perbaikan,'size',0)}"
+                if teks_perbaikan.strip():
+                    st.success(f"Naskah '{file_perbaikan.name}' berhasil dibaca.")
+                else:
+                    st.warning("Teks belum dapat dibaca. Tempel teks secara manual di bawah.")
+            except Exception as e:
+                st.error(f"Naskah gagal dibaca: {e}")
+
+        st.markdown("#### 👁️ Naskah / hasil ekstraksi")
+        teks_perbaikan=st.text_area(
+            "Naskah / hasil ekstraksi",
+            value=teks_perbaikan,
+            height=320,
+            key=f"teks_perbaikan_footnote_{abs(hash(sumber_foot))}",
+            label_visibility="collapsed"
+        )
+
         mode_gaya=st.radio("Cara menentukan gaya sitasi/footnote",["🔍 Deteksi Otomatis & Pertahankan Gaya Bawaan","✍️ Pilih Gaya Manual"],key="mode_gaya_footnote")
         gaya_target="Gaya bawaan/Custom"
         if mode_gaya.startswith("🔍"):
@@ -2503,24 +2637,32 @@ elif menu == "🔎 Literatur & Referensi":
                 hasil_deteksi=deteksi_gaya_sitasi_otomatis(teks_perbaikan); gaya_target=hasil_deteksi["gaya"]
                 st.info(f"Gaya terdeteksi: **{gaya_target}** | Keyakinan: **{hasil_deteksi['keyakinan']}** | {hasil_deteksi['alasan']}")
                 st.caption("Deteksi otomatis adalah bantuan awal. Jika pola naskah khusus kampus/jurnal, sistem mempertahankan pola tersebut dan menandai bagian yang perlu verifikasi.")
-            else: st.info("Unggah atau tempel naskah untuk mendeteksi gaya bawaan.")
+            else:
+                st.info("Unggah atau tempel naskah untuk mendeteksi gaya bawaan.")
         else:
             gaya_target=st.selectbox("Pilih gaya",["Chicago Notes & Bibliography","Turabian Notes-Bibliography","OSCOLA","APA 7","Harvard","MLA","IEEE","Vancouver","AMA","ACS","CSE","APSA","Pedoman Kampus/Jurnal","Custom"],key="gaya_manual_footnote")
+
         refs=st.session_state.bank_referensi
         st.write(f"**Library tersedia:** {len(refs)} referensi")
         hanya_verified=st.checkbox("Utamakan hanya referensi terverifikasi",value=True,key="verified_footnote")
         refs_pakai=[r for r in refs if str(r.get("Status","")).startswith("✅")] if hanya_verified else refs
-        if hanya_verified and refs and not refs_pakai: st.warning("Belum ada referensi berstatus terverifikasi. Sistem tidak akan menebak sumber pengganti.")
-        if st.button("🤖 Analisis & Perbaiki Footnote/Kutipan",type="primary",disabled=not bool(teks_perbaikan.strip()),key="btn_perbaiki_footnote"):
+        if hanya_verified and refs and not refs_pakai:
+            st.warning("Belum ada referensi berstatus terverifikasi. Sistem tidak akan menebak sumber pengganti.")
+
+        st.info("Jika sumber footnote tidak ditemukan, AI memberi saran pencarian/kandidat atau referensi alternatif yang diberi label jelas. Tidak ada penggantian otomatis.")
+        if st.button("🤖 Generate AI — Audit & Perbaiki Footnote/Kutipan",type="primary",disabled=not bool(teks_perbaikan.strip()),key="btn_perbaiki_footnote"):
             prompt=prompt_perbaiki_footnote_kutipan(teks_perbaikan,gaya_target,refs_pakai,"Pertahankan gaya bawaan" if mode_gaya.startswith("🔍") else "Gaya manual")
-            with st.spinner("Mengaudit sitasi, footnote, dan sumber tanpa mengubah substansi naskah..."): h=panggil_gemini(prompt)
+            with st.spinner("Mengaudit sitasi, footnote, dan sumber tanpa mengubah substansi naskah..."):
+                h=panggil_gemini(prompt)
             if h["sukses"]:
-                st.session_state.hasil_perbaikan_footnote=h["hasil"]; st.success("Audit dan usulan perbaikan selesai. Periksa bagian PERLU VERIFIKASI sebelum digunakan.")
-            else: st.error(h["error"])
+                st.session_state.hasil_perbaikan_footnote=h["hasil"]
+                st.success("Audit dan usulan perbaikan selesai. Periksa bagian PERLU VERIFIKASI sebelum digunakan.")
+            else:
+                st.error(h["error"])
         if st.session_state.get("hasil_perbaikan_footnote"):
             hasil_edit=st.text_area("Hasil — dapat diedit dan diperiksa sebelum dipakai",st.session_state.hasil_perbaikan_footnote,height=650,key="hasil_perbaikan_footnote_edit")
             st.download_button("📥 Unduh Hasil Audit/Perbaikan (.txt)",hasil_edit.encode("utf-8"),"hasil_perbaikan_footnote_kutipan.txt","text/plain",use_container_width=True)
-            st.warning("Untuk DOCX, hasil ini adalah audit dan usulan perbaikan berbasis teks. Tata letak asli Word tidak diklaim berubah otomatis pada tahap ini.")
+            st.warning("Naskah asli tidak ditimpa otomatis. Hasil ini adalah audit/usulan yang harus diperiksa pengguna terlebih dahulu.")
 
     elif bagian_ref == "✅ Audit Sitasi":
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
