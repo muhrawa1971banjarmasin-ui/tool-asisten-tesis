@@ -3331,6 +3331,63 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             if st.session_state.get("hasil_uji_judul_s2"):
                 st.text_area("Hasil Analisis Kelayakan Judul", st.session_state["hasil_uji_judul_s2"], height=420, key="hasil_uji_judul_s2_area")
 
+        # ------------------------------------------------------------
+        # PEMBERSIHAN TOTAL NO.1
+        # Diletakkan tepat di bawah pilihan cara memulai dan Analisis Kelayakan Judul.
+        # Tidak menghapus Library utama atau fitur/menu lain.
+        # ------------------------------------------------------------
+        st.markdown("### 🗑️ Pembersihan No. 1")
+        st.caption(
+            "Gunakan tombol ini untuk menghapus seluruh hasil kerja pada Pencarian Ide & Pengajuan Judul "
+            "dan memulai dari kondisi bersih. Library utama aplikasi tidak ikut dihapus."
+        )
+        if st.button(
+            "🗑️ Hapus Semua Hasil No. 1 & Mulai Bersih",
+            key="hapus_total_no1_s2",
+            use_container_width=True,
+        ):
+            _prefix_hapus_no1 = (
+                "judul_alt_s2_",
+                "editor_naskah_ide_s2_",
+            )
+            _kunci_hapus_no1 = {
+                "masalah_ide_s2",
+                "lokasi_ide_s2",
+                "tesis_ide_s2",
+                "arah_ide_s2",
+                "hasil_ai_ide_judul_s2",
+                "hasil_koreksi_ide_s2",
+                "judul_alternatif_s2",
+                "judul_tesis_s2_terpilih",
+                "dasar_proposal_tesis_s2",
+                "bank_bahan_ide_s2",
+                "masalah_terakhir_ide_s2",
+                "versi_naskah_ide_s2",
+                "muat_judul_ai_s2",
+                "judul_utama_pilihan_s2",
+                "referensi_penguat_ide_s2",
+                "kata_kunci_ref_ide_s2",
+                "pilih_ref_penguat_ide_s2",
+                "kelayakan_ref_5_judul_s2",
+                "judul_uji_kelayakan_s2",
+                "hasil_uji_judul_s2",
+                "data_uji_judul_s2",
+                "hasil_penulisan_ai",
+                "naskah_aktif",
+            }
+            for _key in list(st.session_state.keys()):
+                if _key in _kunci_hapus_no1 or any(
+                    str(_key).startswith(_p) for _p in _prefix_hapus_no1
+                ):
+                    del st.session_state[_key]
+
+            # Bank dan judul dimulai benar-benar kosong.
+            st.session_state["bank_bahan_ide_s2"] = []
+            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+            st.session_state["versi_naskah_ide_s2"] = 0
+            st.success("Semua hasil No. 1 sudah dibersihkan. Library utama tetap aman.")
+            st.rerun()
+
         masalah_ide_s2 = st.text_area(
             "Permasalahan/gagasan awal",
             placeholder="Tuliskan masalah nyata yang ingin diteliti...",
