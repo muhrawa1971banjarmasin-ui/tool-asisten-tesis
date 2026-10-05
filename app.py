@@ -3095,6 +3095,449 @@ REFERENSI:
 # ============================================================
 elif menu == "🎓 Penelitian S1 • S2 • S3":
     st.header("🎓 Asisten Skripsi S1")
+    # SUBMENU 1 — Pencarian Ide & Pengajuan Judul
+    if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟":
+        st.markdown("### 🌟 Ruang Kerja Ide, Permasalahan & Judul")
+        mode_ide_s2 = st.radio(
+            "Cara memulai",
+            [
+                "🧠 Mulai dari Permasalahan Penelitian",
+                "📄 Adaptasi Tesis ke Lokasi/Objek Baru",
+                "🔄 Penelitian Lanjutan dari Tesis",
+                "🆕 Penelitian Baru dari Tesis Referensi",
+                "🔍 Analisis Beberapa Tesis",
+            ],
+            key="mode_ide_s2",
+        )
+        masalah_ide_s2 = st.text_area(
+            "Permasalahan/gagasan awal",
+            placeholder="Tuliskan masalah nyata yang ingin diteliti...",
+            height=160,
+            key="masalah_ide_s2",
+        )
+        lokasi_ide_s2 = ""
+        if mode_ide_s2 == "📄 Adaptasi Tesis ke Lokasi/Objek Baru":
+            lokasi_ide_s2 = st.text_input(
+                "Lokasi/objek penelitian baru",
+                key="lokasi_ide_s2",
+            )
+        tesis_ide_s2 = st.file_uploader(
+            "Unggah tesis selesai sebagai bahan (PDF/DOCX)",
+            type=["pdf","docx"],
+            accept_multiple_files=True,
+            key="tesis_ide_s2",
+        )
+        arah_ide_s2 = st.text_area(
+            "Arah penelitian yang diinginkan (opsional)",
+            placeholder="Contoh: pertahankan variabel, ubah lokasi, tambah variabel, atau kembangkan penelitian.",
+            key="arah_ide_s2",
+        )
+
+        if st.button("🤖 Analisis Ide, Gap, Novelty & Judul", key="gen_ide_s2", type="primary"):
+            bahan_ide_s2 = ""
+            for _f in tesis_ide_s2 or []:
+                _t = ekstrak_teks(_f)
+                if not _t.startswith("ERROR:"):
+                    bahan_ide_s2 += f"\\nTESIS SUMBER {_f.name}:\\n{_t}"
+            instr_ide_s2 = f"""Anda adalah asisten akademik tesis S2.
+Mode: {mode_ide_s2}
+Masalah awal: {masalah_ide_s2}
+Lokasi/objek baru: {lokasi_ide_s2}
+Arah pengguna: {arah_ide_s2}
+
+Analisis secara akademik dan hasilkan:
+1. masalah utama dan akar masalah;
+2. analisis tesis sumber bila tersedia;
+3. bagian yang dapat dijadikan acuan dan bagian yang wajib direvisi;
+4. research gap awal;
+5. novelty yang dapat dipertanggungjawabkan;
+6. lima alternatif judul;
+7. penilaian kelayakan setiap judul;
+8. satu judul paling direkomendasikan beserta alasan;
+9. identifikasi dan batasan/fokus masalah;
+10. rumusan masalah;
+11. tujuan dan manfaat penelitian;
+12. arah teori dan metode awal;
+13. informasi/data yang masih harus diverifikasi.
+
+Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi. Sesuaikan konteks,
+data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
+Tesis sumber tetap harus diakui sebagai penelitian terdahulu.
+Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi palsu."""
+            panel_ai_penulisan(
+                bahan_ide_s2 or masalah_ide_s2,
+                "Ide & Pengajuan Judul Tesis S2",
+                instr_ide_s2,
+                st.session_state.bank_referensi,
+                "s2_ide",
+            )
+
+
+        # ------------------------------------------------------------
+        # BANK 5 ALTERNATIF JUDUL — dapat diedit sebelum masuk proposal
+        # ------------------------------------------------------------
+        st.markdown("#### 🏷️ Bank Alternatif Judul")
+        st.caption(
+            "Setelah analisis masalah/ide, susun hingga 5 judul. "
+            "Semua judul dapat diedit manual sebelum satu judul ditetapkan."
+        )
+
+        if "judul_alternatif_s2" not in st.session_state:
+            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+
+        # Pengguna dapat menyalin 5 judul hasil AI ke kotak ini atau menulis versinya sendiri.
+        judul_edit_s2 = []
+        for _i in range(5):
+            _j = st.text_input(
+                f"Alternatif Judul {_i+1}",
+                value=st.session_state["judul_alternatif_s2"][_i],
+                key=f"judul_alt_s2_{_i}",
+                placeholder=f"Tulis/edit alternatif judul {_i+1}",
+            )
+            judul_edit_s2.append(_j)
+        st.session_state["judul_alternatif_s2"] = judul_edit_s2
+
+        judul_tersedia_s2 = [j.strip() for j in judul_edit_s2 if j.strip()]
+        if judul_tersedia_s2:
+            judul_pilihan_s2 = st.selectbox(
+                "⭐ Pilih Judul Utama",
+                judul_tersedia_s2,
+                key="judul_utama_pilihan_s2",
+            )
+
+            cjudul1, cjudul2 = st.columns(2)
+            with cjudul1:
+                if st.button(
+                    "🔍 Koreksi Judul Terpilih dengan AI",
+                    key="koreksi_judul_terpilih_s2",
+                    use_container_width=True,
+                ):
+                    instr_koreksi_judul_s2 = f"""Periksa kelayakan judul tesis S2 berikut:
+{judul_pilihan_s2}
+
+Konteks masalah:
+{masalah_ide_s2}
+
+Arah penelitian:
+{arah_ide_s2}
+
+Periksa:
+1. kesesuaian judul dengan masalah;
+2. ketajaman fokus;
+3. research gap dan potensi novelty;
+4. variabel/fokus, subjek/objek, dan lokasi bila relevan;
+5. kelayakan metodologis;
+6. kelayakan untuk tesis S2;
+7. risiko terlalu mirip dengan penelitian sumber.
+
+Berikan:
+A. penilaian singkat;
+B. bagian yang perlu diperbaiki;
+C. maksimal 3 versi judul perbaikan.
+Jangan membuat data atau referensi palsu."""
+                    panel_ai_penulisan(
+                        judul_pilihan_s2,
+                        "Koreksi Judul Terpilih Tesis S2",
+                        instr_koreksi_judul_s2,
+                        st.session_state.bank_referensi,
+                        "s2_koreksi_judul",
+                    )
+
+            with cjudul2:
+                if st.button(
+                    "✅ Tetapkan Judul & Lanjutkan ke Proposal",
+                    key="tetapkan_judul_s2",
+                    use_container_width=True,
+                ):
+                    st.session_state["judul_tesis_s2_terpilih"] = judul_pilihan_s2
+                    st.session_state["dasar_proposal_tesis_s2"] = {
+                        "judul": judul_pilihan_s2,
+                        "masalah": masalah_ide_s2,
+                        "arah": arah_ide_s2,
+                        "mode": mode_ide_s2,
+                    }
+                    st.success(
+                        "Judul utama sudah ditetapkan sebagai dasar Proposal Tesis. "
+                        "Permasalahan dan arah penelitian ikut disimpan."
+                    )
+        else:
+            st.info(
+                "Isi atau salin terlebih dahulu beberapa alternatif judul dari hasil analisis AI."
+            )
+
+
+    # ============================================================
+    # SUBMENU 2 — PROPOSAL TESIS
+    # Alur: Pendahuluan → Kajian Pustaka → Metode → Siap Seminar
+    # Setiap bagian: Generate AI → Edit → Koreksi Ulang → Simpan
+    # ============================================================
+    if submenu_s2 == "📑 Proposal Tesis":
+        st.markdown("### 📑 Ruang Kerja Proposal Tesis")
+        st.caption(
+            "Proposal dibangun bertahap. Judul/masalah dari submenu Ide & Judul "
+            "digunakan sebagai dasar bila sudah ditetapkan."
+        )
+
+        _dasar = st.session_state.get("dasar_proposal_tesis_s2", {})
+        if isinstance(_dasar, dict):
+            _judul_dasar = _dasar.get("judul", st.session_state.get("judul_tesis_s2_terpilih", ""))
+            _masalah_dasar = _dasar.get("masalah", "")
+            _arah_dasar = _dasar.get("arah", "")
+        else:
+            _judul_dasar = st.session_state.get("judul_tesis_s2_terpilih", "")
+            _masalah_dasar = str(_dasar or "")
+            _arah_dasar = ""
+
+        judul_prop_s2 = st.text_input(
+            "Judul Tesis",
+            value=_judul_dasar,
+            key="judul_proposal_s2",
+        )
+        masalah_prop_s2 = st.text_area(
+            "Permasalahan / konteks awal",
+            value=_masalah_dasar,
+            height=130,
+            key="masalah_proposal_s2",
+        )
+
+        fase_prop_s2 = st.radio(
+            "Tahapan Proposal",
+            [
+                "I. Pendahuluan Penelitian",
+                "II. Kajian Pustaka & Kerangka Pikir",
+                "III. Metode Penelitian & Sistematika",
+                "IV. Simulasi Seminar Proposal",
+            ],
+            key="fase_proposal_s2",
+        )
+
+        bagian_per_fase_s2 = {
+            "I. Pendahuluan Penelitian": [
+                "Judul Penelitian",
+                "Latar Belakang Masalah",
+                "Rumusan Masalah / Fokus Penelitian",
+                "Tujuan dan Signifikansi Penelitian",
+                "Definisi Operasional / Istilah",
+            ],
+            "II. Kajian Pustaka & Kerangka Pikir": [
+                "Penelitian Terdahulu",
+                "Kajian Teori",
+                "Research Gap & Novelty",
+                "Kerangka Berpikir / Kerangka Konseptual",
+                "Asumsi Dasar & Hipotesis (jika diperlukan)",
+            ],
+            "III. Metode Penelitian & Sistematika": [
+                "Metode Penelitian",
+                "Sumber Data / Populasi & Sampel",
+                "Teknik Pengumpulan Data",
+                "Instrumen Penelitian",
+                "Teknik Analisis Data",
+                "Keabsahan Data / Uji Prasyarat",
+                "Tahapan / Prosedur Penelitian",
+                "Sistematika Penulisan",
+            ],
+            "IV. Simulasi Seminar Proposal": [
+                "Outline Presentasi Proposal",
+                "Catatan Presenter",
+                "Prediksi Pertanyaan Dosen/Penguji",
+                "Latihan Jawaban",
+                "Evaluasi & Perbaikan Proposal",
+            ],
+        }
+
+        bagian_prop_s2 = st.selectbox(
+            "Bagian yang dikerjakan",
+            bagian_per_fase_s2[fase_prop_s2],
+            key="bagian_proposal_s2",
+        )
+
+        metode_prop_s2 = st.selectbox(
+            "Pendekatan/Metode Penelitian",
+            [
+                "Belum ditentukan",
+                "Kualitatif",
+                "Kuantitatif",
+                "R&D (Research and Development)",
+                "Action Research / PTK",
+                "Penelitian Literatur",
+                "Mixed Methods",
+            ],
+            key="metode_proposal_s2",
+        )
+
+        catatan_prop_s2 = st.text_area(
+            "Catatan, arahan dosen, atau bahan tambahan (opsional)",
+            height=120,
+            key="catatan_proposal_s2",
+        )
+
+        unggah_prop_s2 = st.file_uploader(
+            "Unggah bahan pendukung untuk bagian ini (PDF/DOCX/TXT)",
+            type=["pdf", "docx", "txt"],
+            accept_multiple_files=True,
+            key=f"unggah_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}",
+        )
+
+        bahan_prop_s2 = ""
+        for _f in unggah_prop_s2 or []:
+            try:
+                _txt = ekstrak_teks(_f)
+                if _txt and not str(_txt).startswith("ERROR:"):
+                    bahan_prop_s2 += f"\n\nBAHAN {_f.name}:\n{_txt}"
+            except Exception:
+                pass
+
+        key_draft_prop = f"draft_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}"
+        key_review_prop = f"review_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}"
+
+        if st.button(
+            f"🤖 Generate AI — {bagian_prop_s2}",
+            key=f"generate_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}",
+            type="primary",
+            use_container_width=True,
+        ):
+            instr_prop_s2 = f"""Anda adalah Asisten Akademik AI untuk penyusunan Proposal Tesis S2.
+
+JUDUL:
+{judul_prop_s2}
+
+MASALAH/KONTEKS:
+{masalah_prop_s2}
+
+ARAH AWAL:
+{_arah_dasar}
+
+FASE:
+{fase_prop_s2}
+
+BAGIAN YANG HARUS DITULIS:
+{bagian_prop_s2}
+
+METODE:
+{metode_prop_s2}
+
+CATATAN/ARAHAN DOSEN:
+{catatan_prop_s2}
+
+Tulis hanya bagian yang sedang dikerjakan, tetapi jaga konsistensinya dengan judul,
+masalah, research gap, tujuan, metode, data, analisis, dan kontribusi penelitian.
+
+KETENTUAN:
+- Gunakan bahasa akademik tingkat magister.
+- Jangan membuat data lapangan yang belum tersedia.
+- Jangan membuat referensi, DOI, halaman, kutipan, atau hasil penelitian palsu.
+- Jika sumber belum tersedia, tandai bagian yang memerlukan sumber.
+- Untuk penelitian terdahulu, gap, dan novelty, gunakan sumber yang tersedia di Library.
+- Metode harus mengikuti pertanyaan/tujuan penelitian.
+- Jika Kualitatif: jelaskan fokus, subjek/konteks, sumber data, pengumpulan data,
+  analisis, dan keabsahan sesuai kebutuhan bagian.
+- Jika Kuantitatif: jelaskan variabel, populasi/sampel, instrumen, dan analisis
+  sesuai kebutuhan bagian.
+- Jika R&D: jelaskan produk/model, model pengembangan, validasi, uji coba,
+  dan kriteria keberhasilan sesuai kebutuhan bagian.
+- Jika Action Research/PTK: jelaskan masalah praktik, tindakan, siklus,
+  observasi, refleksi, dan indikator keberhasilan sesuai kebutuhan bagian.
+- Jika Literatur: jelaskan pertanyaan, korpus/batasan sumber, strategi penelusuran,
+  seleksi, ekstraksi, analisis/sintesis, gap, dan kontribusi sesuai kebutuhan.
+- Jangan mengubah fakta atau maksud penelitian pengguna.
+
+BAHAN PENDUKUNG:
+{bahan_prop_s2[:50000]}
+"""
+            panel_ai_penulisan(
+                bahan_prop_s2 or masalah_prop_s2 or judul_prop_s2,
+                f"Proposal Tesis S2 — {bagian_prop_s2}",
+                instr_prop_s2,
+                st.session_state.bank_referensi,
+                "s2_proposal",
+            )
+            _hasil = st.session_state.get("hasil_penulisan_ai", "")
+            if _hasil:
+                st.session_state[key_draft_prop] = _hasil
+
+        if st.session_state.get(key_draft_prop):
+            st.markdown(f"#### ✍️ Edit — {bagian_prop_s2}")
+            draft_prop_s2 = st.text_area(
+                "Edit hasil sampai sesuai arahan pembimbing",
+                value=st.session_state[key_draft_prop],
+                height=560,
+                key=f"editor_{key_draft_prop}",
+            )
+            st.session_state[key_draft_prop] = draft_prop_s2
+
+            cp1, cp2 = st.columns(2)
+            with cp1:
+                if st.button(
+                    "🔍 Koreksi Ulang Bagian Ini",
+                    key=f"koreksi_{key_draft_prop}",
+                    use_container_width=True,
+                ):
+                    instr_review_prop = f"""Review akademik bagian proposal tesis berikut.
+
+Judul: {judul_prop_s2}
+Bagian: {bagian_prop_s2}
+Metode: {metode_prop_s2}
+
+Periksa:
+1. kesesuaian dengan judul dan masalah;
+2. kedalaman akademik tingkat S2;
+3. alur argumentasi dan koherensi;
+4. kesesuaian gap/novelty bila relevan;
+5. kesesuaian metode;
+6. klaim yang memerlukan referensi;
+7. relevansi sitasi/referensi;
+8. bahasa akademik;
+9. konsistensi dengan bagian proposal lainnya.
+
+Jangan membuat data atau sumber palsu.
+Berikan catatan koreksi dan versi revisi yang disarankan.
+
+NASKAH TERBARU:
+{draft_prop_s2}
+"""
+                    panel_ai_penulisan(
+                        draft_prop_s2,
+                        f"Koreksi Proposal — {bagian_prop_s2}",
+                        instr_review_prop,
+                        st.session_state.bank_referensi,
+                        "s2_proposal_review",
+                    )
+                    st.session_state[key_review_prop] = st.session_state.get(
+                        "hasil_penulisan_ai", ""
+                    )
+
+            with cp2:
+                if st.button(
+                    "✅ Simpan Bagian sebagai Final",
+                    key=f"final_{key_draft_prop}",
+                    use_container_width=True,
+                ):
+                    st.session_state[f"final_{key_draft_prop}"] = draft_prop_s2
+                    st.success(f"{bagian_prop_s2} disimpan sebagai versi final.")
+
+        if st.session_state.get(key_review_prop):
+            st.markdown("#### 🤖 Hasil Koreksi Ulang")
+            st.text_area(
+                "Hasil review AI",
+                value=st.session_state[key_review_prop],
+                height=420,
+                key=f"display_{key_review_prop}",
+            )
+
+        # Ringkasan progres proposal
+        st.markdown("#### 📈 Progres Proposal")
+        semua_bagian_prop = [
+            _b for _fase, _list in bagian_per_fase_s2.items() for _b in _list
+        ]
+        selesai_prop = 0
+        for _fase, _list in bagian_per_fase_s2.items():
+            for _b in _list:
+                if st.session_state.get(f"final_draft_proposal_s2_{_fase}_{_b}"):
+                    selesai_prop += 1
+        st.progress(selesai_prop / max(len(semua_bagian_prop), 1))
+        st.caption(f"{selesai_prop} dari {len(semua_bagian_prop)} bagian proposal telah difinalisasi.")
+
+
     metode=st.selectbox("Jenis Penelitian",[
         "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
         "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
@@ -3277,8 +3720,109 @@ Arahan: {arah}
 Tunjukkan kedalaman analisis tingkat magister. Untuk gap/novelty, dasarkan pada bahan dan referensi yang tersedia. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
         panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s2")
     if st.session_state.get("hasil_penulisan_ai"):
-        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s2")
-        st.session_state.naskah_aktif=edit
+        edit = st.text_area(
+            "✍️ Hasil AI — dapat diedit",
+            st.session_state.hasil_penulisan_ai,
+            height=650,
+            key="hasil_s2"
+        )
+        st.session_state.naskah_aktif = edit
+
+        st.caption(
+            "Edit hasil AI langsung di atas. Setelah selesai, gunakan Koreksi Ulang AI. "
+            "AI menilai versi terbaru dan tidak mengganti tulisan Anda secara otomatis."
+        )
+
+        col_koreksi, col_final = st.columns(2)
+
+        with col_koreksi:
+            if st.button(
+                "🔍 Koreksi Ulang Hasil Edit",
+                key="koreksi_ulang_s2",
+                use_container_width=True
+            ):
+                if not edit.strip():
+                    st.warning("Belum ada teks yang dapat dikoreksi.")
+                else:
+                    instr_koreksi = f"""Jenjang: S2 — Tesis
+Submenu: {submenu_s2}
+Tahap: {tahap}
+Jenis penelitian: {metode}
+
+Tugas Anda adalah menjadi reviewer akademik tesis tingkat magister.
+Periksa NASKAH VERSI TERBARU yang sudah diedit pengguna.
+
+Periksa secara menyeluruh:
+1. kesesuaian isi dengan fokus/judul dan tahap tesis;
+2. struktur akademik dan kelogisan argumentasi;
+3. koherensi antarparagraf dan konsistensi istilah;
+4. bahasa akademik, tata bahasa, dan kejelasan kalimat;
+5. kesesuaian metodologi bila bagian berkaitan dengan metode;
+6. konsistensi rumusan masalah, tujuan, teori, metode, hasil, dan kesimpulan bila tersedia;
+7. klaim yang membutuhkan referensi;
+8. relevansi referensi/sitasi terhadap klaim;
+9. konsistensi sitasi, footnote, dan daftar pustaka bila tersedia;
+10. kelemahan substantif yang masih perlu diperbaiki.
+
+ATURAN:
+- Jangan membuat data, DOI, halaman, kutipan, atau referensi palsu.
+- Jangan mengubah fakta penelitian pengguna.
+- Pertahankan maksud asli naskah.
+- Berikan saran terlebih dahulu. Jangan mengganti naskah pengguna secara diam-diam.
+
+Susun hasil:
+A. Ringkasan penilaian
+B. Bagian yang perlu diperbaiki
+C. Usulan perbaikan
+D. Versi revisi yang disarankan
+E. Catatan referensi/sitasi yang perlu diverifikasi
+
+NASKAH VERSI TERBARU:
+{edit}
+"""
+                    # Tetap memakai mesin AI lama yang sudah berfungsi.
+                    panel_ai_penulisan(
+                        edit,
+                        f"Koreksi Ulang — {tahap}",
+                        instr_koreksi,
+                        st.session_state.bank_referensi,
+                        "s2_koreksi"
+                    )
+                    st.session_state["hasil_koreksi_s2"] = st.session_state.get(
+                        "hasil_penulisan_ai", ""
+                    )
+
+        with col_final:
+            if st.button(
+                "✅ Tetapkan Versi Edit sebagai Final",
+                key="final_s2",
+                use_container_width=True
+            ):
+                if edit.strip():
+                    st.session_state["final_tesis_s2"] = edit
+                    st.success("Versi edit terbaru ditetapkan sebagai versi final.")
+                else:
+                    st.warning("Belum ada teks untuk difinalisasi.")
+
+        if st.session_state.get("hasil_koreksi_s2"):
+            st.markdown("### 🤖 Hasil Koreksi Ulang AI")
+            hasil_koreksi_edit = st.text_area(
+                "Hasil koreksi juga dapat diedit",
+                st.session_state["hasil_koreksi_s2"],
+                height=500,
+                key="hasil_koreksi_s2_edit"
+            )
+            st.session_state["hasil_koreksi_s2"] = hasil_koreksi_edit
+
+        if st.session_state.get("final_tesis_s2"):
+            st.markdown("### ✅ Versi Final")
+            final_edit = st.text_area(
+                "Versi final tetap dapat diedit bila masih diperlukan",
+                st.session_state["final_tesis_s2"],
+                height=500,
+                key="final_tesis_s2_edit"
+            )
+            st.session_state["final_tesis_s2"] = final_edit
 
 
 # ============================================================
