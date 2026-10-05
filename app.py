@@ -8,6 +8,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import re
+import base64
 import html
 import difflib
 import csv
@@ -2052,840 +2053,194 @@ ke PowerPoint.
 # ANALISIS KARYA AKADEMIK
 # ============================================================
 elif menu == "🔬 Analisis Karya Akademik":
-
     st.header("🔬 Analisis Karya Akademik")
+    st.caption("Analisis dokumen, teks, video, atau audio dengan indikator bawaan opsional dan indikator manual tanpa batas.")
 
-    st.caption(
-        "Analisis satu atau banyak karya akademik. "
-        "PDF, DOCX, dan TXT dapat dibaca langsung."
-    )
+    if "indikator_manual_analisis" not in st.session_state:
+        st.session_state.indikator_manual_analisis = []
+    if "hasil_ai_gemini" not in st.session_state:
+        st.session_state.hasil_ai_gemini = ""
 
-    # --------------------------------------------------------
-    # PILIH MODE
-    # --------------------------------------------------------
-    mode = st.radio(
-        "Mode Analisis",
-        [
-            "Analisis 1 Dokumen",
-            "Analisis Banyak Dokumen"
-        ],
+    sumber = st.radio(
+        "Sumber yang dianalisis",
+        ["📄 Dokumen", "✍️ Teks langsung", "🎥 Video", "🎧 Audio"],
         horizontal=True,
-        key="mode_analisis_karya"
+        key="sumber_analisis_karya"
     )
-
-    banyak = mode == "Analisis Banyak Dokumen"
-
-    # --------------------------------------------------------
-    # PILIH JENIS KARYA
-    # --------------------------------------------------------
     jenis = st.selectbox(
-        "Jenis karya",
-        [
-            "Deteksi Otomatis",
-            "Tugas Kuliah",
-            "Makalah",
-            "Artikel Jurnal",
-            "Buku",
-            "Bab Buku",
-            "Proposal",
-            "Tesis",
-            "Disertasi",
-            "Laporan Penelitian",
-            "Regulasi",
-            "Dokumen Lain"
-        ],
+        "Jenis karya / tayangan",
+        ["Deteksi Otomatis", "Tugas Kuliah", "Makalah", "Artikel Jurnal", "Buku", "Bab Buku", "Proposal", "Tesis", "Disertasi", "Laporan Penelitian", "Pembelajaran / Supervisi", "Seminar / Presentasi", "Regulasi", "Dokumen Lain"],
         key="jenis_karya_analisis"
     )
 
-    # --------------------------------------------------------
-    # UPLOAD
-    # --------------------------------------------------------
-    files = st.file_uploader(
-        "Unggah dokumen",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=banyak,
-        key="upload_analisis_karya"
-    )
+    bahan_teks = ""
+    media_bytes = None
+    media_mime = None
+    nama_sumber = "Teks langsung"
 
-    daftar_file = []
-
-    if files:
-        daftar_file = files if banyak else [files]
-
-    # ========================================================
-    # JIKA BELUM ADA DOKUMEN
-    # ========================================================
-    if not daftar_file:
-
-        st.info(
-            "Unggah minimal satu dokumen untuk memulai analisis."
-        )
-
-        st.markdown("### 🧠 Kemampuan Analisis")
-
-        st.write(
-            """
-            Sistem ini disiapkan untuk menganalisis:
-
-            - tugas kuliah dan makalah
-            - artikel jurnal
-            - buku dan bab buku
-            - proposal penelitian
-            - tesis
-            - disertasi
-            - laporan penelitian
-            - regulasi dan dokumen akademik lainnya
-            """
-        )
-
-        st.markdown("### 🔜 Mesin AI")
-
-        st.caption(
-            "Analisis semantik penuh menggunakan AI Gemini langsung. "
-            "Struktur aplikasi dan alur analisis disiapkan terlebih dahulu."
-        )
-
-    # ========================================================
-    # JIKA DOKUMEN SUDAH DIUNGGAH
-    # ========================================================
-    else:
-
-        hasil_dokumen = []
-
-        # ----------------------------------------------------
-        # BACA SEMUA DOKUMEN
-        # ----------------------------------------------------
-        for nomor, file in enumerate(daftar_file, start=1):
-
-            st.divider()
-            st.subheader(f"📄 Dokumen {nomor}: {file.name}")
-
-            teks = ekstrak_teks(file)
-
-            if teks.startswith("ERROR:"):
-                st.error(teks)
-                continue
-
-            if not teks.strip():
-                st.warning(
-                    "Teks tidak berhasil dibaca dari dokumen ini."
-                )
-                continue
-
-            jumlah_kata = len(teks.split())
-            jumlah_karakter = len(teks)
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric(
-                "Jumlah Kata",
-                jumlah_kata
-            )
-
-            col2.metric(
-                "Jumlah Karakter",
-                jumlah_karakter
-            )
-
-            col3.metric(
-                "Ukuran File",
-                format_ukuran(file.size)
-            )
-
-            # -----------------------------------------------
-            # DETEKSI STRUKTUR
-            # -----------------------------------------------
-            struktur = deteksi_struktur(teks)
-
-            st.markdown("#### 🔎 Deteksi Struktur Dasar")
-
-            for bagian, ada in struktur.items():
-
-                if ada:
-                    st.success(f"✓ {bagian}")
-                else:
-                    st.caption(
-                        f"○ {bagian} belum terdeteksi secara otomatis"
-                    )
-
-            # -----------------------------------------------
-            # TEKS ASLI
-            # -----------------------------------------------
-            with st.expander("📖 Lihat teks dokumen"):
-
-                st.text_area(
-                    "Teks hasil ekstraksi",
-                    teks,
-                    height=350,
-                    key=f"teks_dokumen_{nomor}"
-                )
-
-            # -----------------------------------------------
-            # SIMPAN KE BANK KARYA
-            # -----------------------------------------------
-            if st.button(
-                "💾 Simpan ke Bank Karya",
-                key=f"simpan_bank_karya_{nomor}"
-            ):
-
-                berhasil = simpan_karya(
-                    file.name,
-                    jenis,
-                    format_ukuran(file.size)
-                )
-
-                if berhasil:
-                    st.success(
-                        "Dokumen berhasil disimpan ke Bank Karya."
-                    )
-                else:
-                    st.warning(
-                        "Dokumen ini sudah tercatat pada proyek aktif."
-                    )
-
-            hasil_dokumen.append(
-                {
-                    "nama": file.name,
-                    "teks": teks,
-                    "kata": jumlah_kata,
-                    "karakter": jumlah_karakter,
-                    "ukuran": format_ukuran(file.size),
-                    "struktur": struktur
-                }
-            )
-
-        # ====================================================
-        # ANALISIS AKADEMIK CERDAS
-        # ====================================================
-        if hasil_dokumen:
-
-            st.divider()
-
-            st.header("🧠 Analisis Akademik Cerdas")
-
-            st.caption(
-                "Kerangka analisis menyesuaikan jenis karya. "
-                "Mesin AI dihubungkan langsung ke Gemini API untuk analisis dokumen akademik."
-            )
-
-            # ------------------------------------------------
-            # FOKUS ANALISIS
-            # ------------------------------------------------
-            st.markdown("### 🎯 Fokus Analisis")
-
-            fokus_analisis = st.multiselect(
-                "Pilih bagian yang ingin dianalisis",
-                [
-                    "Identitas Dokumen",
-                    "Latar Belakang / Masalah",
-                    "Rumusan Masalah",
-                    "Tujuan Penelitian",
-                    "Teori / Konsep Utama",
-                    "Penelitian Terdahulu",
-                    "Metodologi",
-                    "Populasi / Sampel / Informan",
-                    "Instrumen Penelitian",
-                    "Teknik Pengumpulan Data",
-                    "Teknik Analisis Data",
-                    "Temuan / Hasil",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Research Gap",
-                    "Novelty / Kebaruan",
-                    "Kontribusi Penelitian",
-                    "Relevansi dengan Penelitian Saya"
-                ],
-                default=[
-                    "Latar Belakang / Masalah",
-                    "Tujuan Penelitian",
-                    "Metodologi",
-                    "Temuan / Hasil",
-                    "Keterbatasan",
-                    "Research Gap",
-                    "Novelty / Kebaruan"
-                ],
-                key="fokus_analisis_akademik"
-            )
-
-            # ------------------------------------------------
-            # KERANGKA BERDASARKAN JENIS
-            # ------------------------------------------------
-            st.markdown("### 📋 Kerangka Analisis")
-
-            if jenis == "Artikel Jurnal":
-
-                kerangka = [
-                    "Identitas artikel",
-                    "Topik penelitian",
-                    "Masalah penelitian",
-                    "Tujuan penelitian",
-                    "Teori atau konsep utama",
-                    "Penelitian terdahulu",
-                    "Metode penelitian",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik pengumpulan data",
-                    "Teknik analisis data",
-                    "Temuan utama",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan penelitian",
-                    "Research gap",
-                    "Novelty atau kebaruan",
-                    "Kontribusi penelitian",
-                    "Peluang penelitian lanjutan",
-                    "Relevansi dengan penelitian pengguna"
-                ]
-
-            elif jenis in ["Buku", "Bab Buku"]:
-
-                kerangka = [
-                    "Identitas buku",
-                    "Pokok bahasan",
-                    "Gagasan utama",
-                    "Konsep atau teori penting",
-                    "Argumentasi penulis",
-                    "Bagian penting",
-                    "Kekuatan pembahasan",
-                    "Keterbatasan pembahasan",
-                    "Relevansi dengan penelitian pengguna"
-                ]
-
-            elif jenis == "Proposal":
-
-                kerangka = [
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Identifikasi masalah",
-                    "Research gap",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "Manfaat penelitian",
-                    "Kajian teori",
-                    "Penelitian terdahulu",
-                    "Kerangka berpikir",
-                    "Hipotesis atau fokus penelitian",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik pengumpulan data",
-                    "Teknik analisis data",
-                    "Kelayakan rancangan penelitian"
-                ]
-
-            elif jenis == "Tesis":
-
-                kerangka = [
-                    "Identitas tesis",
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Masalah penelitian",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "Teori utama",
-                    "Penelitian terdahulu",
-                    "Research gap",
-                    "Kerangka berpikir",
-                    "Hipotesis atau fokus penelitian",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik analisis data",
-                    "Hasil penelitian",
-                    "Pembahasan",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Novelty",
-                    "Kontribusi penelitian",
-                    "Peluang penelitian lanjutan"
-                ]
-
-            elif jenis == "Disertasi":
-
-                kerangka = [
-                    "Identitas disertasi",
-                    "Judul penelitian",
-                    "Latar belakang",
-                    "Masalah penelitian",
-                    "Rumusan masalah",
-                    "Tujuan penelitian",
-                    "State of the Art",
-                    "Landasan teori",
-                    "Penelitian terdahulu",
-                    "Research gap",
-                    "Kerangka konseptual",
-                    "Metodologi",
-                    "Populasi, sampel, atau informan",
-                    "Instrumen penelitian",
-                    "Teknik analisis data",
-                    "Temuan utama",
-                    "Pembahasan",
-                    "Originalitas yang diklaim",
-                    "Novelty",
-                    "Kontribusi teoretis",
-                    "Kontribusi metodologis",
-                    "Kontribusi praktis",
-                    "Keterbatasan",
-                    "Peluang penelitian doktoral lanjutan"
-                ]
-
-            else:
-
-                kerangka = [
-                    "Identitas dokumen",
-                    "Topik utama",
-                    "Masalah utama",
-                    "Tujuan",
-                    "Konsep penting",
-                    "Metode atau pendekatan",
-                    "Temuan atau gagasan utama",
-                    "Kesimpulan",
-                    "Keterbatasan",
-                    "Relevansi"
-                ]
-
-            for no, item in enumerate(kerangka, start=1):
-                st.write(f"{no}. {item}")
-
-                       # =================================================
-            # MESIN ANALISIS AI 9ROUTER
-            # =================================================
-            st.markdown("### 🤖 Mesin Analisis AI")
-
-            st.info(
-                "Dokumen sudah berhasil dibaca. Gemini AI siap "
-                "menganalisis isi dokumen berdasarkan fokus yang dipilih."
-            )
-
-            if "hasil_ai_gemini" not in st.session_state:
-                st.session_state.hasil_ai_gemini = ""
-
-            if st.button(
-                "🤖 Analisis dengan AI",
-                type="primary",
-                use_container_width=True,
-                key="tombol_analisis_gemini"
-            ):
-                if not hasil_dokumen:
-                    st.warning(
-                        "Belum ada dokumen yang berhasil dibaca."
-                    )
-                else:
-                    dokumen_ai = hasil_dokumen[0]
-                    teks_ai = dokumen_ai["teks"]
-
-                    with st.spinner(
-                        "Gemini AI sedang membaca dan menganalisis dokumen..."
-                    ):
-                        hasil_ai = analisis_dengan_gemini(
-                            teks_ai,
-                            jenis,
-                            fokus_analisis
-                        )
-
-                    if hasil_ai.get("sukses"):
-                        st.session_state.hasil_ai_gemini = hasil_ai["hasil"]
-                        st.success("✅ Analisis AI berhasil.")
-                        if hasil_ai.get("model"):
-                            st.caption(f"Model AI: {hasil_ai['model']}")
+    if sumber == "📄 Dokumen":
+        file = st.file_uploader("Unggah dokumen", type=["pdf", "docx", "txt"], key="upload_analisis_karya_baru")
+        if file is not None:
+            nama_sumber = file.name
+            bahan_teks = ekstrak_teks(file)
+            if bahan_teks.startswith("ERROR:"):
+                st.error(bahan_teks); bahan_teks = ""
+            elif bahan_teks.strip():
+                c1,c2,c3=st.columns(3)
+                c1.metric("Jumlah Kata", len(bahan_teks.split()))
+                c2.metric("Jumlah Karakter", len(bahan_teks))
+                c3.metric("Ukuran File", format_ukuran(file.size))
+                with st.expander("📖 Lihat teks hasil ekstraksi"):
+                    st.text_area("Teks sumber", bahan_teks, height=300, key="preview_teks_analisis_baru")
+                if st.button("💾 Simpan ke Bank Karya", key="simpan_bank_karya_analisis_baru"):
+                    if simpan_karya(file.name, jenis, format_ukuran(file.size)):
+                        st.success("Dokumen berhasil disimpan ke Bank Karya.")
                     else:
-                        st.session_state.hasil_ai_gemini = ""
-                        st.error("❌ Analisis AI belum berhasil.")
-                        st.warning(hasil_ai.get("error", "Terjadi kesalahan yang belum diketahui."))
+                        st.warning("Dokumen ini sudah tercatat pada proyek aktif.")
+    elif sumber == "✍️ Teks langsung":
+        bahan_teks = st.text_area("Tempel atau ketik teks yang akan dianalisis", height=350, key="teks_langsung_analisis")
+    elif sumber == "🎥 Video":
+        file = st.file_uploader("Unggah video", type=["mp4", "mov", "m4v", "webm", "mpeg", "mpg"], key="upload_video_analisis")
+        if file is not None:
+            nama_sumber=file.name; media_bytes=file.getvalue(); media_mime=getattr(file,"type",None) or "video/mp4"
+            st.video(media_bytes)
+            st.caption(f"Ukuran video: {format_ukuran(file.size)}. Untuk unggahan langsung ke AI, gunakan file yang tidak terlalu besar.")
+    else:
+        file = st.file_uploader("Unggah audio", type=["mp3", "wav", "m4a", "aac", "ogg", "flac"], key="upload_audio_analisis")
+        if file is not None:
+            nama_sumber=file.name; media_bytes=file.getvalue(); media_mime=getattr(file,"type",None) or "audio/mpeg"
+            st.audio(media_bytes)
+            st.caption(f"Ukuran audio: {format_ukuran(file.size)}. AI akan menganalisis isi yang dapat dikenali dari tayangan/audio.")
 
-            # =================================================
-            # HASIL ANALISIS AI
-            # =================================================
-            st.markdown("### 📝 Hasil Analisis")
+    st.divider()
+    st.subheader("📋 Indikator Analisis")
+    st.caption("Indikator bawaan tidak dipilih otomatis. Centang hanya yang diperlukan. Indikator manual dapat ditambahkan tanpa batas aplikasi.")
 
-            if st.session_state.hasil_ai_gemini:
+    indikator_bawaan = [
+        "Identitas dan Jenis Sumber", "Topik Utama", "Latar Belakang / Masalah", "Rumusan Masalah", "Tujuan",
+        "Konsep / Landasan Teori", "Penelitian Terdahulu", "Metodologi", "Populasi / Sampel / Informan",
+        "Instrumen", "Teknik Pengumpulan Data", "Teknik Analisis Data", "Temuan / Hasil", "Pembahasan", "Kesimpulan",
+        "Keterbatasan", "Research Gap", "Novelty / Kebaruan", "Kontribusi Akademik", "Validitas / Kecukupan Referensi",
+        "Kelebihan Karya", "Kekurangan Karya", "Kritik Akademik", "Rekomendasi Perbaikan", "Peluang Penelitian Lanjutan",
+        "Relevansi dengan Penelitian Pengguna", "Bagaimana Sumber Ini Dapat Digunakan"
+    ]
+    if jenis == "Pembelajaran / Supervisi":
+        indikator_bawaan += [
+            "Tujuan Pembelajaran", "Kegiatan Pembukaan", "Penguasaan Materi", "Strategi / Metode Pembelajaran",
+            "Aktivitas Guru", "Aktivitas Peserta Didik", "Komunikasi Pembelajaran", "Penggunaan Media",
+            "Pertanyaan / HOTS", "Penerapan Deep Learning", "Integrasi KBC / Panca Cinta", "Asesmen Formatif",
+            "Pengelolaan Kelas", "Umpan Balik", "Kegiatan Penutup", "Tindak Lanjut Supervisi"
+        ]
 
-                st.success("✅ Analisis AI selesai.")
+    pilih_bawaan = st.multiselect("Indikator bawaan (opsional)", indikator_bawaan, default=[], key="indikator_bawaan_analisis")
 
-                hasil_edit = st.text_area(
-                    "Hasil analisis dapat diedit sebelum diekspor",
-                    value=st.session_state.hasil_ai_gemini,
-                    height=600,
-                    key="editor_hasil_ai_gemini"
-                )
+    st.markdown("#### ✍️ Indikator Manual")
+    cman1,cman2=st.columns([4,1])
+    with cman1:
+        indikator_baru=st.text_input("Ketik indikator baru", key="indikator_manual_baru", placeholder="Contoh: Kesesuaian materi dengan tujuan pembelajaran")
+    with cman2:
+        st.write(""); st.write("")
+        if st.button("➕ Tambah", key="tambah_indikator_manual", use_container_width=True):
+            x=indikator_baru.strip()
+            if x and x not in st.session_state.indikator_manual_analisis:
+                st.session_state.indikator_manual_analisis.append(x); st.rerun()
 
-                st.session_state.hasil_ai_gemini = hasil_edit
+    if st.session_state.indikator_manual_analisis:
+        for i,item in enumerate(list(st.session_state.indikator_manual_analisis)):
+            c1,c2=st.columns([8,1])
+            with c1:
+                nilai=st.text_input(f"Indikator manual {i+1}", value=item, key=f"edit_indikator_manual_{i}")
+                st.session_state.indikator_manual_analisis[i]=nilai.strip() or item
+            with c2:
+                st.write(""); st.write("")
+                if st.button("🗑️", key=f"hapus_indikator_manual_{i}", help="Hapus indikator"):
+                    st.session_state.indikator_manual_analisis.pop(i); st.rerun()
 
-            else:
-                st.text_area(
-                    "Hasil analisis AI akan tampil di sini",
-                    value="",
-                    height=300,
-                    disabled=True,
-                    key="hasil_ai_kosong"
-                )
-                        # =================================================
-            # SIMPAN DAN EKSPOR HASIL AI
-            # =================================================
-            st.markdown("### 💾 Simpan & Ekspor")
+    indikator_aktif = pilih_bawaan + [x for x in st.session_state.indikator_manual_analisis if x.strip()]
+    st.caption(f"Indikator aktif: {len(indikator_aktif)}")
+    mode_tambahan = st.checkbox("🤖 Jika tidak memilih indikator, izinkan AI membuat indikator yang paling relevan", value=True, key="ai_buat_indikator_otomatis")
 
-            hasil_final = st.session_state.get(
-                "hasil_ai_gemini",
-                ""
-            )
+    def _analisis_multimodal_akademik(teks_sumber, media_data, mime_type, nama, jenis_sumber, indikator):
+        try:
+            api_key=st.secrets["GEMINI_API_KEY"]
+        except Exception:
+            return {"sukses":False,"hasil":"","error":"GEMINI_API_KEY belum ditemukan di Streamlit Secrets.","model":""}
+        daftar = "\n".join(f"{i+1}. {x}" for i,x in enumerate(indikator)) if indikator else "Tentukan sendiri indikator paling relevan berdasarkan isi sumber."
+        prompt=f'''Anda adalah Asisten Akademik AI yang kritis dan teliti. Analisis sumber berikut hanya berdasarkan isi yang benar-benar tersedia.
 
-            if not hasil_final:
-                st.info(
-                    "Jalankan Analisis dengan AI terlebih dahulu. "
-                    "Setelah hasil tersedia, tombol simpan dan ekspor "
-                    "akan aktif."
-                )
+Jenis sumber: {jenis_sumber}
+Jenis karya/tayangan: {jenis}
+Nama sumber: {nama}
 
-            # =================================================
-            # SIMPAN HASIL KE PROYEK
-            # =================================================
-            col_simpan, col_word = st.columns(2)
+INDIKATOR YANG HARUS DINILAI:
+{daftar}
 
-            with col_simpan:
-
-                if st.button(
-                    "💾 Simpan Hasil ke Proyek",
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="simpan_hasil_proyek"
-                ):
-                    if "hasil_proyek" not in st.session_state:
-                        st.session_state.hasil_proyek = []
-
-                    data_hasil = {
-                        "Proyek": st.session_state.proyek_aktif,
-                        "Jenis": jenis,
-                        "Mode": mode,
-                        "Fokus": fokus_analisis,
-                        "Hasil": hasil_final,
-                        "Tanggal": datetime.now().strftime(
-                            "%d-%m-%Y %H:%M"
-                        )
-                    }
-
-                    st.session_state.hasil_proyek.append(
-                        data_hasil
-                    )
-
-                    st.success(
-                        "✅ Hasil analisis berhasil disimpan "
-                        "ke proyek aktif."
-                    )
-
-            # =================================================
-            # EKSPOR WORD
-            # =================================================
-            with col_word:
-
+ATURAN WAJIB UNTUK SETIAP INDIKATOR:
+1. Indikator tetap harus ditampilkan walaupun unsur tidak ditemukan.
+2. Gunakan tepat salah satu status: ✅ ADA, ❌ TIDAK ADA, atau ⚠️ TIDAK EKSPLISIT / PERLU INTERPRETASI.
+3. Jika ADA, tuliskan bukti/narasi yang ditemukan. Bila lokasi/halaman/waktu dapat dikenali, sebutkan; jangan mengarang.
+4. Jika TIDAK ADA, tulis bahwa unsur tidak ditemukan. Jangan membuat isi pengganti.
+5. Jika TIDAK EKSPLISIT, pisahkan dengan jelas ANALISIS AI dari pernyataan sumber.
+6. Untuk setiap indikator berikan: Status; Bukti/Narasi; Komentar Analisis; Kelebihan; Kekurangan; Rekomendasi. Jika suatu unsur penilaian tidak relevan, tulis Tidak relevan, bukan mengarang.
+7. Setelah semua indikator, berikan: Ringkasan Kelebihan Utama; Kekurangan Utama; Kritik Akademik; Rekomendasi Prioritas; Kesimpulan; dan Bagaimana sumber ini dapat digunakan.
+8. Jangan mengarang nama, data, teori, metode, hasil, referensi, DOI, halaman, kutipan, research gap, novelty, atau fakta.
+9. Untuk research gap/novelty yang hanya merupakan inferensi, beri label ANALISIS AI dan jangan menyatakannya sebagai klaim penulis.
+10. Gunakan bahasa Indonesia akademik yang jelas dan konkret.
+'''
+        if teks_sumber:
+            prompt += "\nTEKS SUMBER:\n--------------------\n" + teks_sumber[:70000] + "\n--------------------\n"
+        parts=[{"text":prompt}]
+        if media_data is not None:
+            if len(media_data) > 18*1024*1024:
+                return {"sukses":False,"hasil":"","error":"File audio/video lebih dari 18 MB. Kompres/potong file atau gunakan transkrip teks agar analisis stabil.","model":""}
+            parts.append({"inline_data":{"mime_type":mime_type,"data":base64.b64encode(media_data).decode("ascii")}})
+        payload={"contents":[{"parts":parts}],"generationConfig":{"temperature":0.2,"maxOutputTokens":8192}}
+        model_ids=["gemini-3.8-flash","gemini-3.5-flash-lite"]
+        transient={408,429,500,502,503,504}; err=""
+        for mi,model_id in enumerate(model_ids):
+            url="https://generativelanguage.googleapis.com/v1beta/models/"+model_id+":generateContent?key="+api_key
+            for attempt in range(4):
+                req=urllib.request.Request(url,data=json.dumps(payload).encode("utf-8"),headers={"Content-Type":"application/json"},method="POST")
                 try:
-                    from io import BytesIO
-                    from docx import Document
-
-                    dokumen_word = Document()
-
-                    dokumen_word.add_heading(
-                        "Analisis Karya Akademik",
-                        level=1
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Proyek: {st.session_state.proyek_aktif}"
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Jenis karya: {jenis}"
-                    )
-
-                    dokumen_word.add_paragraph(
-                        f"Mode analisis: {mode}"
-                    )
-
-                    dokumen_word.add_heading(
-                        "Dokumen yang Dianalisis",
-                        level=2
-                    )
-
-                    for item in hasil_dokumen:
-                        dokumen_word.add_paragraph(
-                            f"Nama file: {item['nama']}"
-                        )
-                        dokumen_word.add_paragraph(
-                            f"Jumlah kata: {item['kata']}"
-                        )
-                        dokumen_word.add_paragraph(
-                            f"Ukuran: {item['ukuran']}"
-                        )
-
-                    dokumen_word.add_heading(
-                        "Fokus Analisis",
-                        level=2
-                    )
-
-                    for fokus in fokus_analisis:
-                        dokumen_word.add_paragraph(
-                            fokus,
-                            style="List Bullet"
-                        )
-
-                    dokumen_word.add_heading(
-                        "Hasil Analisis AI",
-                        level=2
-                    )
-
-                    dokumen_word.add_paragraph(
-                        hasil_final if hasil_final
-                        else "Belum ada hasil analisis AI."
-                    )
-
-                    buffer_word = BytesIO()
-                    dokumen_word.save(buffer_word)
-                    buffer_word.seek(0)
-
-                    st.download_button(
-                        "📄 Ekspor Word",
-                        data=buffer_word.getvalue(),
-                        file_name="analisis_karya_akademik.docx",
-                        mime=(
-                            "application/vnd.openxmlformats-"
-                            "officedocument.wordprocessingml.document"
-                        ),
-                        disabled=not bool(hasil_final),
-                        use_container_width=True,
-                        key="download_analisis_word"
-                    )
-
+                    with urllib.request.urlopen(req,timeout=240) as resp: data=json.loads(resp.read().decode("utf-8"))
+                    out="\n".join(p.get("text","") for p in ((data.get("candidates") or [{}])[0].get("content",{}).get("parts",[])) if isinstance(p,dict) and p.get("text")).strip()
+                    if out: return {"sukses":True,"hasil":out,"error":"","model":model_id,"fallback":mi>0}
+                    err=f"{model_id} merespons tetapi hasil kosong."; break
+                except urllib.error.HTTPError as e:
+                    try: detail=e.read().decode("utf-8")
+                    except Exception: detail=""
+                    err=f"Gemini HTTP {e.code}. {detail}".strip()
+                    if e.code not in transient: return {"sukses":False,"hasil":"","error":err,"model":model_id}
+                    if attempt<3: time.sleep((2**(attempt+1))+random.uniform(.2,1.0)); continue
+                    break
                 except Exception as e:
-                    st.warning(
-                        f"Ekspor Word belum dapat dibuat: {e}"
-                    )
+                    err=str(e)
+                    if attempt<3: time.sleep((2**(attempt+1))+random.uniform(.2,1.0)); continue
+                    break
+        return {"sukses":False,"hasil":"","error":"Analisis belum berhasil setelah retry/fallback. "+err,"model":""}
 
-            # =================================================
-            # EKSPOR PDF
-            # =================================================
-            col_pdf, col_csv = st.columns(2)
+    siap = bool(bahan_teks.strip()) or media_bytes is not None
+    if st.button("🤖 Generate Analisis AI", type="primary", use_container_width=True, disabled=not siap, key="generate_analisis_karya_lengkap"):
+        if not indikator_aktif and not mode_tambahan:
+            st.warning("Pilih minimal satu indikator atau aktifkan pembuatan indikator otomatis oleh AI.")
+        else:
+            with st.spinner("AI sedang menganalisis sumber dan setiap indikator..."):
+                hasil=_analisis_multimodal_akademik(bahan_teks,media_bytes,media_mime,nama_sumber,sumber,indikator_aktif)
+            if hasil.get("sukses"):
+                st.session_state.hasil_ai_gemini=hasil["hasil"]
+                st.success("✅ Analisis AI berhasil.")
+                st.caption(f"Model AI: {hasil.get('model','')}")
+            else:
+                st.error("❌ Analisis AI belum berhasil.")
+                st.warning(hasil.get("error","Kesalahan tidak diketahui."))
 
-            with col_pdf:
-
-                try:
-                    from io import BytesIO
-                    from reportlab.lib.pagesizes import A4
-                    from reportlab.lib.styles import getSampleStyleSheet
-                    from reportlab.platypus import (
-                        SimpleDocTemplate,
-                        Paragraph,
-                        Spacer
-                    )
-
-                    buffer_pdf = BytesIO()
-
-                    pdf = SimpleDocTemplate(
-                        buffer_pdf,
-                        pagesize=A4,
-                        rightMargin=50,
-                        leftMargin=50,
-                        topMargin=50,
-                        bottomMargin=50
-                    )
-
-                    styles = getSampleStyleSheet()
-                    isi_pdf = []
-
-                    isi_pdf.append(
-                        Paragraph(
-                            "Analisis Karya Akademik",
-                            styles["Title"]
-                        )
-                    )
-
-                    isi_pdf.append(Spacer(1, 12))
-
-                    isi_pdf.append(
-                        Paragraph(
-                            f"Jenis karya: {jenis}",
-                            styles["Normal"]
-                        )
-                    )
-
-                    isi_pdf.append(
-                        Paragraph(
-                            f"Mode analisis: {mode}",
-                            styles["Normal"]
-                        )
-                    )
-
-                    isi_pdf.append(Spacer(1, 12))
-
-                    isi_pdf.append(
-                        Paragraph(
-                            "Hasil Analisis AI",
-                            styles["Heading2"]
-                        )
-                    )
-
-                    if hasil_final:
-                        for paragraf in hasil_final.split("\n"):
-                            if paragraf.strip():
-                                isi_pdf.append(
-                                    Paragraph(
-                                        paragraf.replace(
-                                            "&", "&amp;"
-                                        ).replace(
-                                            "<", "&lt;"
-                                        ).replace(
-                                            ">", "&gt;"
-                                        ),
-                                        styles["Normal"]
-                                    )
-                                )
-                                isi_pdf.append(
-                                    Spacer(1, 6)
-                                )
-
-                    pdf.build(isi_pdf)
-                    buffer_pdf.seek(0)
-
-                    st.download_button(
-                        "📕 Ekspor PDF",
-                        data=buffer_pdf.getvalue(),
-                        file_name="analisis_karya_akademik.pdf",
-                        mime="application/pdf",
-                        disabled=not bool(hasil_final),
-                        use_container_width=True,
-                        key="download_analisis_pdf"
-                    )
-
-                except Exception:
-                    st.info(
-                        "Ekspor PDF memerlukan reportlab. "
-                        "Jika tombol PDF belum tersedia, "
-                        "kita aktifkan dependensinya."
-                    )
-
-            # =================================================
-            # EKSPOR CSV
-            # =================================================
-            with col_csv:
-
-                data_ekspor = []
-
-                for item in hasil_dokumen:
-                    data_ekspor.append(
-                        {
-                            "Nama File": item["nama"],
-                            "Jenis Karya": jenis,
-                            "Jumlah Kata": item["kata"],
-                            "Ukuran": item["ukuran"],
-                            "Fokus Analisis": "; ".join(
-                                fokus_analisis
-                            ),
-                            "Hasil Analisis AI": hasil_final
-                        }
-                    )
-
-                df_ekspor = pd.DataFrame(data_ekspor)
-
-                st.download_button(
-                    "📊 Ekspor CSV",
-                    data=df_ekspor.to_csv(
-                        index=False
-                    ).encode("utf-8-sig"),
-                    file_name="hasil_analisis_akademik.csv",
-                    mime="text/csv",
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="download_analisis_csv"
-                )
-
-            # =================================================
-            # EKSPOR EXCEL
-            # =================================================
-            try:
-                from io import BytesIO
-
-                buffer_excel = BytesIO()
-
-                with pd.ExcelWriter(
-                    buffer_excel,
-                    engine="openpyxl"
-                ) as writer:
-                    df_ekspor.to_excel(
-                        writer,
-                        sheet_name="Hasil Analisis",
-                        index=False
-                    )
-
-                buffer_excel.seek(0)
-
-                st.download_button(
-                    "📗 Ekspor Excel",
-                    data=buffer_excel.getvalue(),
-                    file_name="hasil_analisis_akademik.xlsx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
-                    disabled=not bool(hasil_final),
-                    use_container_width=True,
-                    key="download_analisis_excel"
-                )
-
-            except Exception as e:
-                st.info(
-                    f"Ekspor Excel belum tersedia: {e}"
-                )
-
-            # =================================================
-            # ANALISIS BANYAK DOKUMEN
-            # =================================================
-            if banyak:
-
-                st.divider()
-                st.header("📚 Matriks Literatur")
-
-                data_matriks = []
-
-                for item in hasil_dokumen:
-                    data_matriks.append(
-                        {
-                            "Nama File": item["nama"],
-                            "Penulis": "",
-                            "Tahun": "",
-                            "Judul": "",
-                            "Masalah": "",
-                            "Teori": "",
-                            "Metode": "",
-                            "Sampel / Informan": "",
-                            "Instrumen": "",
-                            "Analisis Data": "",
-                            "Temuan": "",
-                            "Keterbatasan": "",
-                            "Research Gap": "",
-                            "Novelty": "",
-                            "Relevansi": "",
-                            "DOI / URL": ""
-                        }
-                    )
-
-                df_matriks = pd.DataFrame(
-                    data_matriks
-                )
-
-                st.dataframe(
-                    df_matriks,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                st.download_button(
-                    "📥 Ekspor Matriks CSV",
-                    data=df_matriks.to_csv(
-                        index=False
-                    ).encode("utf-8-sig"),
-                    file_name="matriks_literatur.csv",
-                    mime="text/csv",
-                    key="download_matriks_csv"
-                )
+    st.markdown("### 📝 Hasil Analisis")
+    if st.session_state.hasil_ai_gemini:
+        edit=st.text_area("Hasil analisis dapat diedit", value=st.session_state.hasil_ai_gemini, height=700, key="editor_hasil_ai_gemini_baru")
+        st.session_state.hasil_ai_gemini=edit
+        st.download_button("📥 Unduh Hasil Analisis (.txt)", edit.encode("utf-8"), "hasil_analisis_akademik.txt", "text/plain", use_container_width=True, key="download_hasil_analisis_baru")
+    else:
+        st.info("Unggah/masukkan sumber lalu jalankan Generate Analisis AI.")
 
 # ============================================================
 # LITERATUR & REFERENSI
@@ -2980,25 +2335,41 @@ elif menu == "🔎 Literatur & Referensi":
                 st.rerun()
 
             st.markdown("#### 🔄 Pengelola & Ekspor Referensi")
-            manager=st.selectbox(
-                "Pilih pengelola referensi",
-                ["Zotero","Mendeley","EndNote","RefWorks","Paperpile","Citavi","JabRef","Lainnya / format universal"],
-                key="reference_manager"
-            )
-            st.caption("Aplikasi menyiapkan file impor standar. Zotero, Mendeley, EndNote, RefWorks, Paperpile, Citavi, dan JabRef tetap merupakan pengelola referensi; Chicago/APA/IEEE/Harvard/MLA adalah gaya sitasi.")
-            c1,c2,c3=st.columns(3)
-            with c1:
-                st.download_button("📥 RIS (universal)",ekspor_ris(refs).encode("utf-8"),"library_referensi.ris","application/x-research-info-systems",use_container_width=True)
-            with c2:
-                st.download_button("📥 BibTeX",ekspor_bibtex(refs).encode("utf-8"),"library_referensi.bib","application/x-bibtex",use_container_width=True)
-            with c3:
-                st.download_button("📥 EndNote Tagged",ekspor_endnote_tagged(refs).encode("utf-8"),"library_referensi.enw","text/plain",use_container_width=True)
-            c4,c5=st.columns(2)
-            with c4:
-                st.download_button("📥 CSV Metadata",ekspor_csv_referensi(refs).encode("utf-8-sig"),"library_referensi.csv","text/csv",use_container_width=True)
-            with c5:
-                st.download_button("📥 Daftar Pustaka — "+st.session_state.gaya_sitasi,"\n\n".join(format_referensi(r) for r in refs).encode("utf-8"),"daftar_pustaka.txt","text/plain",use_container_width=True)
-            st.info(f"Pilihan aktif: {manager}. Gunakan RIS sebagai pilihan paling umum; BibTeX cocok untuk JabRef/LaTeX, dan EndNote Tagged untuk EndNote. Metadata yang belum terverifikasi tetap ditandai agar tidak dianggap valid otomatis.")
+            peta_manager = {
+                "Zotero": "RIS (.ris)", "Mendeley": "RIS (.ris)", "EndNote": "EndNote Tagged (.enw)",
+                "RefWorks": "RIS (.ris)", "Paperpile": "RIS (.ris)", "Citavi": "RIS (.ris)",
+                "JabRef / LaTeX": "BibTeX (.bib)", "Excel / Spreadsheet": "CSV (.csv)",
+                "Lainnya / format universal": "RIS (.ris)"
+            }
+            ec1,ec2=st.columns([2,1])
+            with ec1:
+                manager=st.selectbox("Pilih aplikasi tujuan", list(peta_manager.keys()), key="reference_manager")
+            with ec2:
+                st.text_input("Format otomatis", value=peta_manager[manager], disabled=True, key="format_otomatis_manager")
+            opsi_ref=[f"{i+1}. {r.get('Judul','Tanpa judul')} ({r.get('Tahun','')})" for i,r in enumerate(refs)]
+            cakupan=st.radio("Referensi yang diekspor", ["Semua Referensi","Referensi yang Dipilih"], horizontal=True, key="cakupan_ekspor_ref")
+            refs_ekspor=refs
+            if cakupan=="Referensi yang Dipilih":
+                pilihan_ekspor=st.multiselect("Pilih referensi", opsi_ref, key="pilihan_ekspor_ref")
+                idx={opsi_ref.index(x) for x in pilihan_ekspor}
+                refs_ekspor=[r for i,r in enumerate(refs) if i in idx]
+            fmt=peta_manager[manager]
+            if fmt.startswith("RIS"):
+                data_ekspor=ekspor_ris(refs_ekspor).encode("utf-8"); nama_ekspor="library_referensi.ris"; mime="application/x-research-info-systems"
+            elif fmt.startswith("EndNote"):
+                data_ekspor=ekspor_endnote_tagged(refs_ekspor).encode("utf-8"); nama_ekspor="library_referensi.enw"; mime="text/plain"
+            elif fmt.startswith("BibTeX"):
+                data_ekspor=ekspor_bibtex(refs_ekspor).encode("utf-8"); nama_ekspor="library_referensi.bib"; mime="application/x-bibtex"
+            else:
+                data_ekspor=ekspor_csv_referensi(refs_ekspor).encode("utf-8-sig"); nama_ekspor="library_referensi.csv"; mime="text/csv"
+            st.download_button(f"📥 Ekspor ke {manager} — {fmt}", data_ekspor, nama_ekspor, mime, use_container_width=True, disabled=not bool(refs_ekspor), key="ekspor_manager_otomatis")
+            with st.expander("⚙️ Format ekspor manual"):
+                c1,c2,c3,c4=st.columns(4)
+                with c1: st.download_button("RIS",ekspor_ris(refs_ekspor).encode("utf-8"),"library_referensi.ris","application/x-research-info-systems",disabled=not bool(refs_ekspor),key="exp_ris_manual")
+                with c2: st.download_button("BibTeX",ekspor_bibtex(refs_ekspor).encode("utf-8"),"library_referensi.bib","application/x-bibtex",disabled=not bool(refs_ekspor),key="exp_bib_manual")
+                with c3: st.download_button("EndNote",ekspor_endnote_tagged(refs_ekspor).encode("utf-8"),"library_referensi.enw","text/plain",disabled=not bool(refs_ekspor),key="exp_enw_manual")
+                with c4: st.download_button("CSV",ekspor_csv_referensi(refs_ekspor).encode("utf-8-sig"),"library_referensi.csv","text/csv",disabled=not bool(refs_ekspor),key="exp_csv_manual")
+            st.caption("Metadata yang belum terverifikasi tetap ditandai. Akademia AI tidak membuat metadata yang tidak ditemukan.")
         else: st.info("Library Referensi masih kosong.")
 
     elif bagian_ref == "✍️ Pakai di Naskah":
