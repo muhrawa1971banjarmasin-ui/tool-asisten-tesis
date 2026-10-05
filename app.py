@@ -1,5 +1,7 @@
+from copy import deepcopy
 
 import streamlit as st
+import shutil
 import pandas as pd
 import PyPDF2
 from datetime import datetime
@@ -1020,6 +1022,56 @@ ATURAN WAJIB:
         st.success("✅ Draf AI selesai dengan aturan referensi.")
     else: st.error(h["error"])
     return h
+
+
+# ============================================================
+# WORD HASIL REVISI - PROTEKSI FORMAT NASKAH ASLI
+# ============================================================
+def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
+    """
+    Membuat salinan DOCX dari naskah asli lalu menambahkan hasil audit/revisi AI
+    sebagai lampiran review. Dokumen asli tidak ditimpa dan layout utama tetap
+    dipertahankan. Ini lebih aman daripada membangun ulang DOCX dari teks polos.
+    """
+    if file_asli is None or not str(getattr(file_asli, "name", "")).lower().endswith(".docx"):
+        return None, "Word sempurna memerlukan naskah sumber berformat DOCX."
+
+    try:
+        from docx import Document
+        from docx.shared import Pt
+
+        file_asli.seek(0)
+        data_asli = file_asli.read()
+        sumber = Path("/tmp/akademia_ai_naskah_asli.docx")
+        hasil = Path("/tmp/akademia_ai_hasil_word.docx")
+        sumber.write_bytes(data_asli)
+        shutil.copy2(sumber, hasil)
+
+        doc = Document(str(hasil))
+
+        # Hasil AI ditempatkan sebagai lampiran review agar isi/layout naskah asli
+        # tidak berubah otomatis sebelum pengguna menyetujui koreksi.
+        doc.add_page_break()
+        p = doc.add_paragraph()
+        r = p.add_run("LAMPIRAN HASIL AUDIT & USULAN PERBAIKAN AKADEMIA AI")
+        r.bold = True
+
+        p = doc.add_paragraph(
+            "Naskah utama di atas dipertahankan. Bagian berikut adalah hasil audit/usulan "
+            "yang dapat diperiksa sebelum diterapkan ke naskah final."
+        )
+
+        for blok in str(teks_hasil_ai or "").splitlines():
+            p = doc.add_paragraph()
+            run = p.add_run(blok)
+            run.font.name = "Times New Roman"
+            run.font.size = Pt(10)
+
+        doc.save(str(hasil))
+        return hasil.read_bytes(), ""
+    except Exception as e:
+        return None, f"Gagal membuat Word hasil revisi: {e}"
+
 
 # ============================================================
 # HEADER
@@ -2661,8 +2713,37 @@ REFERENSI:
                 st.error(h["error"])
         if st.session_state.get("hasil_perbaikan_footnote"):
             hasil_edit=st.text_area("Hasil — dapat diedit dan diperiksa sebelum dipakai",st.session_state.hasil_perbaikan_footnote,height=650,key="hasil_perbaikan_footnote_edit")
-            st.download_button("📥 Unduh Hasil Audit/Perbaikan (.txt)",hasil_edit.encode("utf-8"),"hasil_perbaikan_footnote_kutipan.txt","text/plain",use_container_width=True)
-            st.warning("Naskah asli tidak ditimpa otomatis. Hasil ini adalah audit/usulan yang harus diperiksa pengguna terlebih dahulu.")
+            c_txt, c_word = st.columns(2)
+            with c_txt:
+                st.download_button(
+                    "📥 Unduh Hasil Audit (.txt)",
+                    hasil_edit.encode("utf-8"),
+                    "hasil_perbaikan_footnote_kutipan.txt",
+                    "text/plain",
+                    use_container_width=True,
+                    key="unduh_audit_footnote_txt"
+                )
+            with c_word:
+                if file_perbaikan is not None and str(file_perbaikan.name).lower().endswith(".docx"):
+                    word_bytes, word_error = buat_word_hasil_revisi(file_perbaikan, hasil_edit)
+                    if word_bytes:
+                        nama_word = Path(file_perbaikan.name).stem + "_HASIL_AKADEMIA_AI.docx"
+                        st.download_button(
+                            "📥 Unduh Word (.docx)",
+                            word_bytes,
+                            nama_word,
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True,
+                            key="unduh_word_footnote"
+                        )
+                    elif word_error:
+                        st.warning(word_error)
+                else:
+                    st.caption("Unggah naskah DOCX untuk menghasilkan Word dengan format asli dipertahankan.")
+            st.warning(
+                "Naskah asli tidak ditimpa otomatis. Word hasil tetap mempertahankan naskah asli "
+                "dan menempatkan hasil AI sebagai lampiran review agar perubahan belum diterapkan tanpa persetujuan."
+            )
 
     elif bagian_ref == "✅ Audit Sitasi":
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
