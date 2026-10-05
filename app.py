@@ -3137,6 +3137,22 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
         # ============================================================
         # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
         # ============================================================
+        st.markdown("### 🆕 Mulai / Ganti Masalah Penelitian")
+        st.caption("Gunakan tombol ini jika ingin memulai topik baru agar hasil lama tidak terbawa.")
+        if st.button("🧹 Bersihkan Hasil Ide Lama & Mulai Topik Baru", key="reset_topik_ide_s2"):
+            for _k in [
+                "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
+                "judul_alternatif_s2", "judul_tesis_s2_terpilih",
+                "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
+                "naskah_aktif", "hasil_penulisan_ai"
+            ]:
+                if _k in st.session_state:
+                    del st.session_state[_k]
+            st.session_state["bank_bahan_ide_s2"] = []
+            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+            st.success("Hasil/topik lama sudah dibersihkan. Silakan masukkan masalah penelitian baru.")
+            st.rerun()
+
         st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
         st.caption(
             "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
@@ -3165,21 +3181,25 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
             placeholder="Contoh: hasil supervisi MTs 2026, teori kokurikuler, transkrip bimtek, data persentase...",
             key="ket_bahan_ide_s2",
         )
-        unggah_bahan_ide = st.file_uploader(
-            "Unggah satu atau beberapa bahan",
-            type=["pdf", "docx", "txt", "xlsx", "xls", "csv", "pptx"],
-            accept_multiple_files=True,
-            key="unggah_bahan_ide_s2",
-            help="Boleh menambah unggahan beberapa kali. Untuk video/audio, unggah transkripnya di sini; "
-                 "mesin transkripsi video/audio yang sudah ada di Analisis Karya Akademik tetap dipertahankan.",
-        )
+        st.markdown("#### 📥 Unggahan Pendukung (boleh banyak dan bertahap)")
+        st.caption("Gunakan beberapa slot di bawah. Setiap slot dapat memuat banyak file sekaligus.")
+        _uploads_ide = []
+        for _slot in range(1, 5):
+            _u = st.file_uploader(
+                f"Unggahan {_slot}",
+                type=["pdf", "docx", "txt", "xlsx", "xls", "csv", "pptx"],
+                accept_multiple_files=True,
+                key=f"unggah_bahan_ide_s2_slot_{_slot}",
+            )
+            if _u:
+                _uploads_ide.extend(_u)
 
-        if st.button("➕ Tambahkan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2"):
-            if not unggah_bahan_ide:
-                st.warning("Pilih minimal satu file yang akan dimasukkan ke Bank Bahan Ide.")
+        if st.button("➕ Masukkan Semua Unggahan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2", type="primary"):
+            if not _uploads_ide:
+                st.warning("Pilih minimal satu file pada Unggahan 1-4.")
             else:
                 _tambah = 0
-                for _fb in unggah_bahan_ide:
+                for _fb in _uploads_ide:
                     _nama = getattr(_fb, "name", "Bahan")
                     _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
                     if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
@@ -3344,15 +3364,23 @@ PAGAR KONTEKS:
 
 OUTPUT WAJIB HANYA:
 A. ANALISIS MASALAH
-Ringkas masalah inti dan akar masalah.
+- Nyatakan masalah inti.
+- Bedakan gejala, akar masalah, dampak, dan kebutuhan penelitian.
+- Jangan menambah fakta yang tidak ada pada input/bahan.
 
-B. RESEARCH GAP AWAL
-Jelaskan celah yang perlu dibuktikan dengan penelusuran literatur.
+B. PETA BUKTI PENGUAT
+Buat tabel ringkas: Bahan/Sumber | Fakta/Teori yang Didukung | Hubungannya dengan Masalah | Kekuatan Bukti | Yang Masih Kurang.
+Jika Bank Bahan kosong, katakan bukti pendukung belum tersedia.
 
-C. POTENSI NOVELTY
-Berikan beberapa kemungkinan kebaruan, jangan menyatakan sudah terbukti.
+C. RESEARCH GAP AWAL
+- Bedakan gap empiris, teoretis, metodologis, dan kontekstual bila memang didukung bahan.
+- Jangan menyatakan "sebagian besar penelitian" tanpa bukti dari bahan.
+- Jika belum cukup, tulis: "Research gap masih perlu diperkuat dengan literatur."
 
-D. 5 ALTERNATIF JUDUL TESIS
+D. POTENSI NOVELTY
+Berikan 2-4 kemungkinan novelty yang logis dan tandai sebagai POTENSI, bukan klaim final.
+
+E. 5 ALTERNATIF JUDUL TESIS
 Tulis tepat dengan format:
 [JUDUL 1] ...
 [JUDUL 2] ...
@@ -3360,11 +3388,11 @@ Tulis tepat dengan format:
 [JUDUL 4] ...
 [JUDUL 5] ...
 
-E. CATATAN PEMILIHAN
-Jelaskan secara singkat kelebihan/risiko masing-masing judul dan kemungkinan arah metode.
-AI boleh memberi rekomendasi, tetapi keputusan tetap milik pengguna.
+F. CATATAN PEMILIHAN
+Untuk setiap judul jelaskan: fokus, kelebihan, risiko/kebutuhan data, dan metode yang mungkin.
+Beri rekomendasi maksimal 2 judul terkuat beserta alasan, tetapi keputusan tetap milik pengguna.
 
-BERHENTI setelah bagian E. JANGAN LANJUT KE PROPOSAL."""
+BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
 
                 with st.spinner("AI menganalisis masalah dan menyiapkan 5 alternatif judul..."):
                     _h_ide = panggil_gemini(_prompt_ide_s2)
@@ -3393,6 +3421,7 @@ BERHENTI setelah bagian E. JANGAN LANJUT KE PROPOSAL."""
                         )
                     else:
                         st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru
+                        st.session_state["masalah_terakhir_ide_s2"] = masalah_ide_s2.strip()
                         st.session_state["versi_naskah_ide_s2"] += 1
 
                         _judul_ai = re.findall(
@@ -3423,6 +3452,11 @@ BERHENTI setelah bagian E. JANGAN LANJUT KE PROPOSAL."""
                     st.error(_h_ide.get("error", "AI belum mengembalikan hasil."))
 
         _naskah_ide = str(st.session_state.get("hasil_ai_ide_judul_s2", "") or "").strip()
+        _masalah_hasil = str(st.session_state.get("masalah_terakhir_ide_s2", "") or "").strip()
+        # Hasil lama tidak boleh muncul untuk masalah yang berbeda.
+        if _naskah_ide and _masalah_hasil and _masalah_hasil != masalah_ide_s2.strip():
+            st.info("Masalah penelitian telah berubah. Klik Generate untuk membuat analisis baru; hasil lama tidak ditampilkan.")
+            _naskah_ide = ""
         if _naskah_ide:
             st.divider()
             st.subheader("📊 Hasil Analisis Ide, Gap, Novelty & 5 Alternatif Judul")
