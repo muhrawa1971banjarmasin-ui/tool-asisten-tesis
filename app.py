@@ -1284,6 +1284,19 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
         if not inserted and not skipped:
             return None, "Tidak ada marker yang dapat dicocokkan secara aman dengan naskah Word asli."
 
+        # Pastikan SEMUA nomor footnote, lama maupun baru, benar-benar superscript.
+        # Di badan naskah: w:footnoteReference
+        for ref_el in doc_root.xpath(".//w:footnoteReference", namespaces=ns):
+            run = ref_el.getparent()
+            if run is not None and run.tag == q(W, "r"):
+                add_superscript_props(run)
+
+        # Di bagian catatan kaki: w:footnoteRef
+        for ref_el in fn_root.xpath(".//w:footnoteRef", namespaces=ns):
+            run = ref_el.getparent()
+            if run is not None and run.tag == q(W, "r"):
+                add_superscript_props(run)
+
         files["word/document.xml"] = etree.tostring(
             doc_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
         )
