@@ -606,6 +606,76 @@ def format_referensi(ref,gaya=None):
     gaya=gaya or st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
     return format_chicago_bibliography(ref) if gaya.startswith("Chicago") else format_apa(ref)
 
+
+
+def deteksi_gaya_sitasi_otomatis(teks):
+    """Deteksi konservatif gaya sitasi/footnote dari pola naskah; hasil dapat dikoreksi pengguna."""
+    t=(teks or "").strip()
+    if not t:
+        return {"gaya":"Tidak terdeteksi","keyakinan":"Rendah","alasan":"Naskah belum tersedia."}
+    tl=t.lower()
+    scores={"Chicago Notes & Bibliography":0,"Turabian Notes-Bibliography":0,"OSCOLA":0,"APA 7":0,"Harvard":0,"MLA":0,"IEEE":0,"Vancouver":0,"AMA":0,"ACS":0,"CSE":0,"APSA":0}
+    reasons=[]
+    bracket=len(re.findall(r"\[(?:\d{1,3})(?:\s*[-,]\s*\d{1,3})*\]",t))
+    supers=len(re.findall(r"[¹²³⁴⁵⁶⁷⁸⁹⁰]+",t))
+    if bracket>=2:
+        scores["IEEE"]+=4; scores["Vancouver"]+=3; scores["AMA"]+=2; reasons.append("ditemukan pola sitasi numerik")
+    if supers>=2:
+        scores["Vancouver"]+=3; scores["AMA"]+=3; scores["Chicago Notes & Bibliography"]+=2; reasons.append("ditemukan penanda angka superscript")
+    paren_apa=len(re.findall(r"\([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’.-]+(?:\s+et\s+al\.)?,?\s+(?:19|20)\d{2}[a-z]?\)",t))
+    author_date=len(re.findall(r"[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’.-]+\s+\((?:19|20)\d{2}[a-z]?\)",t))
+    if paren_apa+author_date>=2:
+        scores["APA 7"]+=4; scores["Harvard"]+=3; scores["APSA"]+=2; reasons.append("ditemukan pola penulis-tahun")
+    mla=len(re.findall(r"\([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’.-]+\s+\d{1,4}(?:[-–]\d{1,4})?\)",t))
+    if mla>=2:
+        scores["MLA"]+=5; reasons.append("ditemukan pola penulis-halaman")
+    note_clues=sum(tl.count(x) for x in ["ibid.","ibid,","op. cit","loc. cit"])
+    if note_clues:
+        scores["Chicago Notes & Bibliography"]+=5; scores["Turabian Notes-Bibliography"]+=4; reasons.append("ditemukan pola catatan kaki bibliografis")
+    if re.search(r"\bvol\.\s*\d+.*\bno\.\s*\d+",tl):
+        scores["Chicago Notes & Bibliography"]+=2; scores["Turabian Notes-Bibliography"]+=2
+    if re.search(r"\b(v\.|vs\.|case|court|act\s+\d{4}|statute|regulation)\b",tl):
+        scores["OSCOLA"]+=5; reasons.append("ditemukan pola rujukan hukum")
+    best=max(scores,key=scores.get); val=scores[best]
+    if val<=1:
+        return {"gaya":"Gaya bawaan/Custom","keyakinan":"Rendah","alasan":"Pola belum cukup kuat; pertahankan format asli dan lakukan audit."}
+    sorted_vals=sorted(scores.values(),reverse=True); gap=val-(sorted_vals[1] if len(sorted_vals)>1 else 0)
+    conf="Tinggi" if val>=5 and gap>=2 else "Sedang" if val>=3 else "Rendah"
+    return {"gaya":best,"keyakinan":conf,"alasan":"; ".join(dict.fromkeys(reasons)) or "pola sitasi terdeteksi"}
+
+
+def prompt_perbaiki_footnote_kutipan(teks, gaya, refs, mode="Pertahankan gaya bawaan"):
+    daftar="\n".join(f"[{i}] {format_referensi(r, gaya if gaya not in ['Gaya bawaan/Custom','Deteksi Otomatis'] else None)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}" for i,r in enumerate(refs[:80],1)) or "LIBRARY KOSONG"
+    return f"""Anda adalah editor sitasi akademik yang sangat konservatif.
+MODE: {mode}
+GAYA TARGET: {gaya}
+
+TUGAS:
+1. Pertahankan isi, struktur, data, argumen, dan urutan naskah. Jangan menulis ulang substansi.
+2. Audit semua footnote/endnote/in-text citation dan cocokkan dengan sumber di LIBRARY.
+3. Jangan mengarang penulis, judul, DOI, tahun, halaman, kutipan langsung, atau sumber.
+4. Jika sumber tidak dapat diverifikasi dari Library, beri label [PERLU VERIFIKASI], jangan menggantinya dengan tebakan.
+5. Jika mode mempertahankan gaya bawaan, ikuti pola footnote/sitasi yang sudah dominan di naskah. Jangan memaksa Chicago.
+6. Jika gaya target memakai footnote/endnote, rapikan nomor dan konsistensinya. Jika gaya target memakai sitasi dalam teks, pertahankan sistem in-text tersebut.
+7. Sinkronkan daftar pustaka hanya dengan sumber yang benar-benar digunakan/teridentifikasi.
+8. Kalimat utama hanya boleh diperbaiki bila tidak cocok dengan sumber atau sangat tidak efektif. Setiap perubahan kalimat wajib ditampilkan sebagai SEBELUM -> SESUDAH dan jangan diterapkan diam-diam.
+9. Untuk halaman yang tidak diketahui, tulis [halaman perlu verifikasi], jangan menciptakan nomor halaman.
+
+KELUARAN WAJIB:
+A. Gaya yang digunakan/dipertahankan dan alasan singkat.
+B. Tabel audit: No | Lokasi/Penanda | Sumber Lama | Status | Sumber Benar/Usulan | Tindakan.
+C. Naskah hasil perbaikan sitasi/footnote.
+D. Daftar pustaka tersinkron.
+E. Daftar bagian [PERLU VERIFIKASI].
+F. SEBELUM -> SESUDAH hanya jika ada kalimat utama yang perlu perubahan.
+
+LIBRARY REFERENSI:
+{daftar}
+
+NASKAH:
+{teks[:70000]}"""
+
+
 def ekspor_ris(refs):
     out=[]
     for r in refs:
@@ -2825,12 +2895,12 @@ elif menu == "🔎 Literatur & Referensi":
     c1,c2=st.columns([2,1])
     with c1: mode_ref=st.radio("Mode Referensi",["🤖 Otomatis Terverifikasi","🔍 Verifikasi Dulu","📚 Referensi Saya"],horizontal=True)
     with c2:
-        gaya_list=["Chicago Notes & Bibliography","APA 7","Harvard","IEEE","MLA"]
+        gaya_list=["Chicago Notes & Bibliography","Turabian Notes-Bibliography","OSCOLA","APA 7","Harvard","MLA","IEEE","Vancouver","AMA","ACS","CSE","APSA","Pedoman Kampus/Jurnal","Custom"]
         st.session_state.gaya_sitasi=st.selectbox("Gaya sitasi default",gaya_list,index=gaya_list.index(st.session_state.gaya_sitasi))
     st.caption("Chicago Notes & Bibliography menjadi default. Artikel jurnal tetap mengikuti gaya rumah jurnal/template yang diunggah.")
     bagian_ref = st.radio(
         "Bagian Literatur & Referensi",
-        ["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","✅ Audit Sitasi"],
+        ["🔎 Cari Terintegrasi","🌐 Sumber Online","📤 Unggah Referensi","📚 Library","✍️ Pakai di Naskah","🔧 Perbaiki Footnote & Kutipan","✅ Audit Sitasi"],
         key="bagian_literatur_referensi"
     )
 
@@ -2963,6 +3033,44 @@ elif menu == "🔎 Literatur & Referensi":
         if st.button("🧩 Pasang Sitasi & Footnote",type="primary",disabled=not bool(naskah_awal.strip())): panel_ai_penulisan(naskah_awal,"Pemasangan sitasi pada naskah",arahan or "Pasang sumber relevan pada klaim yang membutuhkan dukungan.",dipilih,"pasang_ref")
         if st.session_state.get("hasil_penulisan_ai"):
             h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah"); st.session_state.naskah_aktif=h
+
+    elif bagian_ref == "🔧 Perbaiki Footnote & Kutipan":
+        st.subheader("🔧 Perbaiki Footnote & Kutipan")
+        st.caption("Mendukung footnote, endnote, dan sitasi dalam teks. Mode otomatis berusaha mempertahankan gaya bawaan dokumen, bukan memaksanya menjadi Chicago.")
+        file_perbaikan = st.file_uploader("📤 Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="upload_perbaiki_footnote")
+        teks_perbaikan=""
+        if file_perbaikan is not None:
+            try:
+                teks_perbaikan=ekstrak_teks(file_perbaikan)
+                if teks_perbaikan.strip(): st.success(f"Naskah '{file_perbaikan.name}' berhasil dibaca.")
+                else: st.warning("Teks belum dapat dibaca. Tempel teks secara manual di bawah.")
+            except Exception as e: st.error(f"Naskah gagal dibaca: {e}")
+        teks_perbaikan=st.text_area("Naskah / hasil ekstraksi",value=teks_perbaikan,height=260,key="teks_perbaikan_footnote")
+        mode_gaya=st.radio("Cara menentukan gaya sitasi/footnote",["🔍 Deteksi Otomatis & Pertahankan Gaya Bawaan","✍️ Pilih Gaya Manual"],key="mode_gaya_footnote")
+        gaya_target="Gaya bawaan/Custom"
+        if mode_gaya.startswith("🔍"):
+            if teks_perbaikan.strip():
+                hasil_deteksi=deteksi_gaya_sitasi_otomatis(teks_perbaikan); gaya_target=hasil_deteksi["gaya"]
+                st.info(f"Gaya terdeteksi: **{gaya_target}** | Keyakinan: **{hasil_deteksi['keyakinan']}** | {hasil_deteksi['alasan']}")
+                st.caption("Deteksi otomatis adalah bantuan awal. Jika pola naskah khusus kampus/jurnal, sistem mempertahankan pola tersebut dan menandai bagian yang perlu verifikasi.")
+            else: st.info("Unggah atau tempel naskah untuk mendeteksi gaya bawaan.")
+        else:
+            gaya_target=st.selectbox("Pilih gaya",["Chicago Notes & Bibliography","Turabian Notes-Bibliography","OSCOLA","APA 7","Harvard","MLA","IEEE","Vancouver","AMA","ACS","CSE","APSA","Pedoman Kampus/Jurnal","Custom"],key="gaya_manual_footnote")
+        refs=st.session_state.bank_referensi
+        st.write(f"**Library tersedia:** {len(refs)} referensi")
+        hanya_verified=st.checkbox("Utamakan hanya referensi terverifikasi",value=True,key="verified_footnote")
+        refs_pakai=[r for r in refs if str(r.get("Status","")).startswith("✅")] if hanya_verified else refs
+        if hanya_verified and refs and not refs_pakai: st.warning("Belum ada referensi berstatus terverifikasi. Sistem tidak akan menebak sumber pengganti.")
+        if st.button("🤖 Analisis & Perbaiki Footnote/Kutipan",type="primary",disabled=not bool(teks_perbaikan.strip()),key="btn_perbaiki_footnote"):
+            prompt=prompt_perbaiki_footnote_kutipan(teks_perbaikan,gaya_target,refs_pakai,"Pertahankan gaya bawaan" if mode_gaya.startswith("🔍") else "Gaya manual")
+            with st.spinner("Mengaudit sitasi, footnote, dan sumber tanpa mengubah substansi naskah..."): h=panggil_gemini(prompt)
+            if h["sukses"]:
+                st.session_state.hasil_perbaikan_footnote=h["hasil"]; st.success("Audit dan usulan perbaikan selesai. Periksa bagian PERLU VERIFIKASI sebelum digunakan.")
+            else: st.error(h["error"])
+        if st.session_state.get("hasil_perbaikan_footnote"):
+            hasil_edit=st.text_area("Hasil — dapat diedit dan diperiksa sebelum dipakai",st.session_state.hasil_perbaikan_footnote,height=650,key="hasil_perbaikan_footnote_edit")
+            st.download_button("📥 Unduh Hasil Audit/Perbaikan (.txt)",hasil_edit.encode("utf-8"),"hasil_perbaikan_footnote_kutipan.txt","text/plain",use_container_width=True)
+            st.warning("Untuk DOCX, hasil ini adalah audit dan usulan perbaikan berbasis teks. Tata letak asli Word tidak diklaim berubah otomatis pada tahap ini.")
 
     elif bagian_ref == "✅ Audit Sitasi":
         naskah=st.file_uploader("Unggah naskah PDF/DOCX/TXT",type=["pdf","docx","txt"],key="audit_ref_file")
