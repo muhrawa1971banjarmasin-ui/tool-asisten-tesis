@@ -3134,14 +3134,12 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
         )
 
         if st.button("🤖 Analisis Ide, Gap, Novelty & Judul", key="gen_ide_s2", type="primary"):
-            # Bersihkan hasil AI global lama agar pekerjaan lain tidak terbawa.
-            st.session_state["hasil_penulisan_ai"] = ""
-            st.session_state["hasil_ai_ide_judul_s2"] = ""
             bahan_ide_s2 = ""
             for _f in tesis_ide_s2 or []:
                 _t = ekstrak_teks(_f)
                 if not _t.startswith("ERROR:"):
                     bahan_ide_s2 += f"\\nTESIS SUMBER {_f.name}:\\n{_t}"
+
             instr_ide_s2 = f"""Anda adalah asisten akademik tesis S2.
 Mode: {mode_ide_s2}
 Masalah awal: {masalah_ide_s2}
@@ -3149,29 +3147,33 @@ Lokasi/objek baru: {lokasi_ide_s2}
 Arah pengguna: {arah_ide_s2}
 
 PAGAR KONTEKS WAJIB:
-- Seluruh jawaban harus membahas masalah/gagasan yang baru dimasukkan pengguna pada proses ini.
-- Jangan membawa topik, naskah, sitasi, referensi, atau hasil dari pekerjaan AI sebelumnya.
-- Jika masalah pengguna membahas kokurikuler madrasah, seluruh analisis harus tetap pada konteks kokurikuler madrasah kecuali pengguna sendiri meminta perluasan.
+- Seluruh jawaban harus membahas masalah/gagasan yang BARU dimasukkan pengguna.
+- Jangan membawa topik, naskah, sitasi, referensi, atau hasil pekerjaan AI sebelumnya.
+- Jika masalah membahas kokurikuler madrasah, seluruh analisis harus tetap pada konteks kokurikuler madrasah.
 
-Analisis secara akademik dan hasilkan:
+Analisis dan hasilkan:
 1. masalah utama dan akar masalah;
 2. analisis tesis sumber bila tersedia;
-3. bagian yang dapat dijadikan acuan dan bagian yang wajib direvisi;
+3. bagian yang dapat dijadikan acuan dan yang wajib direvisi;
 4. research gap awal;
 5. novelty yang dapat dipertanggungjawabkan;
 6. lima alternatif judul;
-7. penilaian kelayakan setiap judul;
-8. satu judul paling direkomendasikan beserta alasan;
-9. identifikasi dan batasan/fokus masalah;
+7. kelayakan setiap judul;
+8. satu judul paling direkomendasikan dan alasannya;
+9. identifikasi serta batasan/fokus masalah;
 10. rumusan masalah;
 11. tujuan dan manfaat penelitian;
 12. arah teori dan metode awal;
 13. informasi/data yang masih harus diverifikasi.
 
-Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi. Sesuaikan konteks,
-data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
-Tesis sumber tetap harus diakui sebagai penelitian terdahulu.
+Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi.
+Sesuaikan konteks, data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
+Tesis sumber tetap diakui sebagai penelitian terdahulu.
 Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi palsu."""
+
+            # Pola sederhana: fungsi AI menulis hasil ke hasil_penulisan_ai,
+            # lalu hasil tersebut langsung menjadi naskah_aktif.
+            st.session_state["hasil_penulisan_ai"] = ""
             panel_ai_penulisan(
                 bahan_ide_s2 or masalah_ide_s2,
                 "Ide & Pengajuan Judul Tesis S2",
@@ -3179,25 +3181,55 @@ Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi pal
                 st.session_state.bank_referensi,
                 "s2_ide",
             )
-            # panel_ai_penulisan menyimpan hasil pada session_state.
-            # Salin hasil yang BARU dibuat ke ruang khusus Ide/Judul.
-            _hasil_baru_ide = st.session_state.get("hasil_penulisan_ai", "")
-            if _hasil_baru_ide:
-                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru_ide
-                # PENTING: Streamlit mempertahankan nilai widget berdasarkan key.
-                # Paksa editor menerima hasil GENERATE TERBARU, bukan nilai kosong run sebelumnya.
-                st.session_state["editor_hasil_ai_ide_judul_s2"] = _hasil_baru_ide
+            _hasil_langsung = str(st.session_state.get("hasil_penulisan_ai", "") or "").strip()
+            if _hasil_langsung:
+                st.session_state["naskah_aktif"] = _hasil_langsung
+                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_langsung
+                # editor memakai key baru setiap generate agar tidak tertahan nilai lama
+                st.session_state["versi_naskah_ide_s2"] = st.session_state.get("versi_naskah_ide_s2", 0) + 1
+            else:
+                st.error("AI belum mengembalikan teks. Periksa koneksi/API lalu coba Generate lagi.")
 
-        if st.session_state.get("hasil_ai_ide_judul_s2"):
-            st.markdown("#### ✍️ Hasil Analisis Ide & Judul — Bisa Diedit")
-            if "editor_hasil_ai_ide_judul_s2" not in st.session_state:
-                st.session_state["editor_hasil_ai_ide_judul_s2"] = st.session_state["hasil_ai_ide_judul_s2"]
+        _naskah_ide = str(st.session_state.get("naskah_aktif", "") or "").strip()
+        if _naskah_ide:
+            st.divider()
+            st.subheader("✍️ Editor Hasil Ide & Judul")
+            _v_ide = st.session_state.get("versi_naskah_ide_s2", 0)
             _edit_ide = st.text_area(
-                "Edit hasil analisis sebelum memilih judul",
-                height=620,
-                key="editor_hasil_ai_ide_judul_s2",
+                "Hasil AI dapat diedit langsung di sini",
+                value=_naskah_ide,
+                height=650,
+                key=f"editor_naskah_ide_s2_{_v_ide}",
             )
+            st.session_state["naskah_aktif"] = _edit_ide
             st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
+
+            if st.button("🔍 Koreksi Ulang Hasil Edit", key="koreksi_ide_s2"):
+                _prompt_koreksi_ide = f"""Anda adalah dosen pembimbing tesis S2.
+Periksa naskah Ide & Pengajuan Judul berikut berdasarkan masalah pengguna.
+Jangan mengganti topik penelitian.
+Periksa: kesesuaian masalah, research gap, novelty, kelayakan judul, fokus/variabel,
+objek penelitian, metode, konsistensi logika, dan kelayakan tingkat S2.
+Jangan membuat referensi, DOI, data, kutipan, halaman, atau hasil penelitian.
+Berikan koreksi konkret dan versi perbaikan yang dapat diedit pengguna.
+
+NASKAH TERBARU:
+{_edit_ide}
+"""
+                _k = panggil_gemini(_prompt_koreksi_ide)
+                if _k.get("sukses"):
+                    st.session_state["hasil_koreksi_ide_s2"] = _k.get("hasil", "")
+                else:
+                    st.error(_k.get("error", "Koreksi AI gagal."))
+
+            if st.session_state.get("hasil_koreksi_ide_s2"):
+                st.markdown("#### 🔍 Hasil Koreksi AI")
+                st.text_area(
+                    "Saran dan versi perbaikan",
+                    value=st.session_state["hasil_koreksi_ide_s2"],
+                    height=450,
+                    key="hasil_koreksi_ide_s2_area",
+                )
 
 
         # ------------------------------------------------------------
