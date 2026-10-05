@@ -3348,61 +3348,44 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             key="hapus_total_no1_s2",
             use_container_width=True,
         ):
-            # Hapus SEMUA state khusus No.1, termasuk widget uploader dan input Bank Bahan.
-            _prefix_hapus_no1 = (
-                "judul_alt_s2_",
-                "editor_naskah_ide_s2_",
-                "upload_bahan_ide_s2",
-                "unggah_bahan_ide_s2",
-                "file_bahan_ide_s2",
-                "bahan_ide_s2",
-                "teks_bahan_ide_s2",
-                "ket_bahan_ide_s2",
-                "jenis_bahan_ide",
-                "bank_bahan_ide_s2",
-                "hapus_bahan_ide_s2",
-            )
-            _kunci_hapus_no1 = {
-                "masalah_ide_s2",
-                "lokasi_ide_s2",
-                "tesis_ide_s2",
-                "arah_ide_s2",
-                "hasil_ai_ide_judul_s2",
-                "hasil_koreksi_ide_s2",
-                "judul_alternatif_s2",
-                "judul_tesis_s2_terpilih",
-                "dasar_proposal_tesis_s2",
-                "bank_bahan_ide_s2",
-                "masalah_terakhir_ide_s2",
-                "versi_naskah_ide_s2",
-                "muat_judul_ai_s2",
-                "judul_utama_pilihan_s2",
-                "referensi_penguat_ide_s2",
-                "kata_kunci_ref_ide_s2",
-                "pilih_ref_penguat_ide_s2",
-                "kelayakan_ref_5_judul_s2",
-                "judul_uji_kelayakan_s2",
-                "hasil_uji_judul_s2",
-                "data_uji_judul_s2",
-                "hasil_penulisan_ai",
-                "naskah_aktif",
-                "file_bahan_ide_1",
-                "file_bahan_ide_2",
-                "file_bahan_ide_3",
-                "file_bahan_ide_4",
-                "upload_ide_s2_1",
-                "upload_ide_s2_2",
-                "upload_ide_s2_3",
-                "upload_ide_s2_4",
+            # Simpan hanya state yang memang harus tetap hidup di luar No.1.
+            # Library utama sengaja TIDAK dihapus.
+            _hapus_pasti = {
+                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2",
+                "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
+                "judul_alternatif_s2", "judul_tesis_s2_terpilih",
+                "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
+                "masalah_terakhir_ide_s2", "versi_naskah_ide_s2",
+                "muat_judul_ai_s2", "judul_utama_pilihan_s2",
+                "referensi_penguat_ide_s2", "kata_kunci_ref_ide_s2",
+                "pilih_ref_penguat_ide_s2", "kelayakan_ref_5_judul_s2",
+                "judul_uji_kelayakan_s2", "hasil_uji_judul_s2",
+                "data_uji_judul_s2", "hasil_penulisan_ai", "naskah_aktif",
+                "hasil_s2", "edit_s2", "hasil_koreksi_s2",
             }
+            _potongan_kunci_no1 = (
+                "ide_s2", "judul_s2", "judul_alt_s2", "bahan_ide",
+                "ref_penguat", "kelayakan_ref", "uji_judul",
+                "editor_naskah_ide", "upload_ide", "unggah_ide",
+            )
 
             for _key in list(st.session_state.keys()):
-                _ks = str(_key)
-                if _key in _kunci_hapus_no1 or any(_ks.startswith(_p) for _p in _prefix_hapus_no1):
-                    del st.session_state[_key]
+                _ks = str(_key).lower()
+                if _key in _hapus_pasti or any(_frag in _ks for _frag in _potongan_kunci_no1):
+                    # Jangan sentuh bank referensi / Library utama.
+                    if _ks not in ("bank_referensi", "library_referensi"):
+                        del st.session_state[_key]
 
-            # Jangan langsung membuat kembali isi bank sebelum rerun.
-            # Pada rerun, blok Bank Bahan akan menginisialisasi bank sebagai [].
+            # Paksa widget 5 judul kosong pada render berikutnya.
+            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+            for _i in range(5):
+                st.session_state[f"judul_alt_s2_{_i}"] = ""
+
+            st.session_state["bank_bahan_ide_s2"] = []
+            st.session_state["hasil_ai_ide_judul_s2"] = ""
+            st.session_state["hasil_koreksi_ide_s2"] = ""
+            st.session_state["masalah_terakhir_ide_s2"] = ""
+            st.session_state["versi_naskah_ide_s2"] = 0
             st.session_state["pesan_hapus_total_no1_s2"] = True
             st.rerun()
 
@@ -3860,10 +3843,12 @@ NASKAH TERBARU:
         # Pengguna bebas mengedit 5 judul sebelum memilih satu.
         judul_edit_s2 = []
         for _i in range(5):
+            _key_judul = f"judul_alt_s2_{_i}"
+            if _key_judul not in st.session_state:
+                st.session_state[_key_judul] = st.session_state["judul_alternatif_s2"][_i]
             _j = st.text_input(
                 f"Alternatif Judul {_i+1}",
-                value=st.session_state["judul_alternatif_s2"][_i],
-                key=f"judul_alt_s2_{_i}",
+                key=_key_judul,
                 placeholder=f"Tulis/edit alternatif judul {_i+1}",
             )
             judul_edit_s2.append(_j)
