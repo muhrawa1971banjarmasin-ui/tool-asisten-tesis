@@ -3420,20 +3420,32 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         # ============================================================
         st.markdown("### 🆕 Mulai / Ganti Masalah Penelitian")
         st.caption("Gunakan tombol ini jika ingin memulai topik baru agar hasil lama tidak terbawa.")
+        if st.session_state.pop("pesan_reset_topik_ide_s2", False):
+            st.success("Topik lama, gagasan/masalah, Bank Bahan, hasil AI, dan alternatif judul sudah dibersihkan. Silakan mulai topik baru.")
         if st.button("🧹 Bersihkan Hasil Ide Lama & Mulai Topik Baru", key="reset_topik_ide_s2"):
-            for _k in [
+            # Reset TOPIK harus membersihkan input gagasan juga, bukan hanya hasil AI.
+            # Library utama tetap dipertahankan.
+            _hapus_reset_topik = {
+                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2",
                 "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
                 "judul_alternatif_s2", "judul_tesis_s2_terpilih",
                 "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
+                "masalah_terakhir_ide_s2", "versi_naskah_ide_s2",
+                "muat_judul_ai_s2", "judul_utama_pilihan_s2",
                 "referensi_penguat_ide_s2", "kata_kunci_ref_ide_s2",
-                "kelayakan_ref_5_judul_s2", "hasil_uji_judul_s2",
-                "data_uji_judul_s2", "naskah_aktif", "hasil_penulisan_ai"
-            ]:
-                if _k in st.session_state:
-                    del st.session_state[_k]
-            st.session_state["bank_bahan_ide_s2"] = []
-            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
-            st.success("Hasil/topik lama sudah dibersihkan. Silakan masukkan masalah penelitian baru.")
+                "pilih_ref_penguat_ide_s2", "kelayakan_ref_5_judul_s2",
+                "hasil_penulisan_ai", "naskah_aktif", "hasil_s2",
+            }
+            _frag_reset_topik = (
+                "judul_alt_s2_", "editor_naskah_ide_s2_", "bahan_ide",
+                "upload_ide", "unggah_ide", "file_bahan_ide",
+            )
+            for _key in list(st.session_state.keys()):
+                _ks = str(_key)
+                if _key in _hapus_reset_topik or any(_frag in _ks for _frag in _frag_reset_topik):
+                    if _ks not in ("bank_referensi", "library_referensi"):
+                        del st.session_state[_key]
+            st.session_state["pesan_reset_topik_ide_s2"] = True
             st.rerun()
 
         st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
