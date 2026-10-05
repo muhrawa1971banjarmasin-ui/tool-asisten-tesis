@@ -3134,6 +3134,9 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
         )
 
         if st.button("🤖 Analisis Ide, Gap, Novelty & Judul", key="gen_ide_s2", type="primary"):
+            # Bersihkan hasil AI global lama agar pekerjaan lain tidak terbawa.
+            st.session_state["hasil_penulisan_ai"] = ""
+            st.session_state["hasil_ai_ide_judul_s2"] = ""
             bahan_ide_s2 = ""
             for _f in tesis_ide_s2 or []:
                 _t = ekstrak_teks(_f)
@@ -3144,6 +3147,11 @@ Mode: {mode_ide_s2}
 Masalah awal: {masalah_ide_s2}
 Lokasi/objek baru: {lokasi_ide_s2}
 Arah pengguna: {arah_ide_s2}
+
+PAGAR KONTEKS WAJIB:
+- Seluruh jawaban harus membahas masalah/gagasan yang baru dimasukkan pengguna pada proses ini.
+- Jangan membawa topik, naskah, sitasi, referensi, atau hasil dari pekerjaan AI sebelumnya.
+- Jika masalah pengguna membahas kokurikuler madrasah, seluruh analisis harus tetap pada konteks kokurikuler madrasah kecuali pengguna sendiri meminta perluasan.
 
 Analisis secara akademik dan hasilkan:
 1. masalah utama dan akar masalah;
@@ -3164,13 +3172,27 @@ Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi. Sesuaikan kont
 data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
 Tesis sumber tetap harus diakui sebagai penelitian terdahulu.
 Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi palsu."""
-            panel_ai_penulisan(
+            _hasil_ide_call = panel_ai_penulisan(
                 bahan_ide_s2 or masalah_ide_s2,
                 "Ide & Pengajuan Judul Tesis S2",
                 instr_ide_s2,
                 st.session_state.bank_referensi,
                 "s2_ide",
             )
+            if _hasil_ide_call.get("sukses"):
+                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_ide_call.get("hasil", "")
+            else:
+                st.session_state["hasil_ai_ide_judul_s2"] = ""
+
+            if st.session_state.get("hasil_ai_ide_judul_s2"):
+                st.markdown("#### ✍️ Hasil Analisis Ide & Judul — Bisa Diedit")
+                _edit_ide = st.text_area(
+                    "Edit hasil analisis sebelum memilih judul",
+                    value=st.session_state["hasil_ai_ide_judul_s2"],
+                    height=620,
+                    key="editor_hasil_ai_ide_judul_s2",
+                )
+                st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
 
 
         # ------------------------------------------------------------
@@ -3719,10 +3741,15 @@ Tahap: {tahap}
 Arahan: {arah}
 Tunjukkan kedalaman analisis tingkat magister. Untuk gap/novelty, dasarkan pada bahan dan referensi yang tersedia. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
         panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s2")
-    if st.session_state.get("hasil_penulisan_ai"):
+    _hasil_aktif_s2 = (
+        st.session_state.get("hasil_ai_ide_judul_s2", "")
+        if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟"
+        else st.session_state.get("hasil_penulisan_ai", "")
+    )
+    if _hasil_aktif_s2:
         edit = st.text_area(
             "✍️ Hasil AI — dapat diedit",
-            st.session_state.hasil_penulisan_ai,
+            _hasil_aktif_s2,
             height=650,
             key="hasil_s2"
         )
