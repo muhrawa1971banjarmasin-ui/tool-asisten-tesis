@@ -993,6 +993,51 @@ def sumber_online_default():
     ]
 
 
+
+def cari_referensi_penguat_ide_s2(masalah, arah="", jumlah_per_query=8):
+    dasar = " ".join([str(masalah or "").strip(), str(arah or "").strip()]).strip()
+    if not dasar:
+        return [], []
+    p = f"""Buat kata kunci pencarian akademik untuk masalah tesis S2 berikut.
+Kembalikan HANYA 8 baris kata kunci, tanpa nomor dan tanpa penjelasan.
+Campurkan Bahasa Indonesia dan Bahasa Inggris. Perluas konsep bila istilah utama masih baru.
+Jangan membuat judul artikel, nama penulis, DOI, atau referensi.
+MASALAH:
+{dasar[:6000]}"""
+    h = panggil_gemini(p, 0.15)
+    queries = []
+    if h.get("sukses"):
+        for baris in str(h.get("hasil", "")).splitlines():
+            q = re.sub(r"^\s*[-*•\d\.\)\:]+\s*", "", baris).strip().strip('"“”')
+            if len(q) >= 4 and q not in queries:
+                queries.append(q)
+    if not queries:
+        queries = [dasar[:220]]
+    hasil, seen = [], set()
+    for q in queries[:8]:
+        for r in cari_multi_sumber(q, jumlah_per_query):
+            k = kunci_ref(r)
+            if k and k not in seen:
+                seen.add(k)
+                rr = dict(r); rr["Kata Kunci"] = q; hasil.append(rr)
+    return queries[:8], hasil
+
+def analisis_ketersediaan_referensi_judul_s2(judul, jumlah=10):
+    refs = cari_multi_sumber(judul, jumlah)
+    tahun_sekarang = datetime.now().year
+    terbaru = 0
+    for r in refs:
+        try:
+            if int(str(r.get("Tahun", ""))[:4]) >= tahun_sekarang - 5:
+                terbaru += 1
+        except Exception:
+            pass
+    n = len(refs)
+    status = "🟢 Kuat / relatif mudah" if n >= 15 else "🟡 Cukup / perlu perluasan kata kunci" if n >= 6 else "🔴 Terbatas / perlu pencarian lebih luas"
+    return {"Judul":judul, "Kandidat":n, "Literatur 5 Tahun":terbaru,
+            "Sumber Internasional":n, "Status":status, "Referensi":refs}
+
+
 def panel_ai_penulisan(konteks, jenis_output, instruksi, referensi=None, key="ai"):
     refs=referensi or []
     gaya=st.session_state.get("gaya_sitasi","Chicago Notes & Bibliography")
@@ -3260,6 +3305,32 @@ elif menu == "🎓 Tesis S2":
             ],
             key="mode_ide_s2",
         )
+        st.markdown("### 🔍 Analisis Kelayakan Judul yang Sudah Ada")
+        with st.expander("Uji judul milik sendiri/orang lain", expanded=False):
+            _judul_uji = st.text_input("Masukkan judul tesis yang ingin diuji", key="judul_uji_kelayakan_s2")
+            if st.button("🔎 Analisis Kelayakan Judul", key="analisis_judul_orang_s2"):
+                if not _judul_uji.strip():
+                    st.warning("Masukkan judul terlebih dahulu.")
+                else:
+                    with st.spinner("Mencari referensi nyata dan menilai kelayakan judul..."):
+                        _data_uji = analisis_ketersediaan_referensi_judul_s2(_judul_uji, 12)
+                        _hu = panggil_gemini(f"""Nilai kelayakan judul tesis S2 berikut.
+JUDUL: {_judul_uji}
+PENCARIAN NYATA: kandidat={_data_uji['Kandidat']}; literatur 5 tahun={_data_uji['Literatur 5 Tahun']}; status={_data_uji['Status']}.
+Nilai fokus, masalah ilmiah, researchability, potensi gap, novelty, level S2, metode, data, keluasan judul, dan risiko.
+Keputusan: 🟢 LAYAK / 🟡 LAYAK DENGAN REVISI / 🔴 BELUM LAYAK.
+Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.""", 0.2)
+                    if _hu.get("sukses"):
+                        st.session_state["hasil_uji_judul_s2"] = _hu.get("hasil","")
+                        st.session_state["data_uji_judul_s2"] = _data_uji
+                    else:
+                        st.error(_hu.get("error","Analisis gagal."))
+            if st.session_state.get("data_uji_judul_s2"):
+                _du=st.session_state["data_uji_judul_s2"]
+                st.info(f"Kandidat referensi: {_du['Kandidat']} | 5 tahun terakhir: {_du['Literatur 5 Tahun']} | {_du['Status']}")
+            if st.session_state.get("hasil_uji_judul_s2"):
+                st.text_area("Hasil Analisis Kelayakan Judul", st.session_state["hasil_uji_judul_s2"], height=420, key="hasil_uji_judul_s2_area")
+
         masalah_ide_s2 = st.text_area(
             "Permasalahan/gagasan awal",
             placeholder="Tuliskan masalah nyata yang ingin diteliti...",
@@ -3295,7 +3366,9 @@ elif menu == "🎓 Tesis S2":
                 "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
                 "judul_alternatif_s2", "judul_tesis_s2_terpilih",
                 "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
-                "naskah_aktif", "hasil_penulisan_ai"
+                "referensi_penguat_ide_s2", "kata_kunci_ref_ide_s2",
+                "kelayakan_ref_5_judul_s2", "hasil_uji_judul_s2",
+                "data_uji_judul_s2", "naskah_aktif", "hasil_penulisan_ai"
             ]:
                 if _k in st.session_state:
                     del st.session_state[_k]
@@ -3446,6 +3519,34 @@ elif menu == "🎓 Tesis S2":
             st.session_state["hasil_ai_ide_judul_s2"] = ""
         if "versi_naskah_ide_s2" not in st.session_state:
             st.session_state["versi_naskah_ide_s2"] = 0
+
+        st.markdown("### 🔎 Referensi Penguat Otomatis")
+        st.caption("AI membuat kata kunci Indonesia/Inggris. Referensi kemudian dicari dari sumber akademik nyata yang sudah terhubung, bukan dibuat oleh AI.")
+        if st.button("🔎 Cari Referensi Penguat Otomatis", key="cari_ref_penguat_ide_s2", use_container_width=True):
+            if not masalah_ide_s2.strip():
+                st.warning("Isi permasalahan/gagasan awal terlebih dahulu.")
+            else:
+                with st.spinner("Menyusun kata kunci dan mencari referensi akademik..."):
+                    _kw, _refs = cari_referensi_penguat_ide_s2(masalah_ide_s2, arah_ide_s2)
+                st.session_state["kata_kunci_ref_ide_s2"] = _kw
+                st.session_state["referensi_penguat_ide_s2"] = _refs
+        if st.session_state.get("kata_kunci_ref_ide_s2"):
+            with st.expander("🔑 Kata kunci pencarian yang digunakan", expanded=False):
+                for _q in st.session_state["kata_kunci_ref_ide_s2"]:
+                    st.write("• "+_q)
+        _refs_penguat = st.session_state.get("referensi_penguat_ide_s2", [])
+        if _refs_penguat:
+            st.success(f"{len(_refs_penguat)} kandidat referensi ditemukan dari pencarian nyata.")
+            _ops_ref = list(range(len(_refs_penguat)))
+            _pilih_ref = st.multiselect(
+                "Pilih referensi yang akan dimasukkan ke Library", _ops_ref,
+                format_func=lambda i: f"{_refs_penguat[i].get('Tahun','')} | {_refs_penguat[i].get('Judul','')} | {_refs_penguat[i].get('Sumber','')}",
+                key="pilih_ref_penguat_ide_s2")
+            if st.button("➕ Masukkan Referensi Terpilih ke Library", key="masuk_library_ref_ide_s2"):
+                _baru=0
+                for _i in _pilih_ref:
+                    if tambah_bank_referensi(_refs_penguat[_i]): _baru+=1
+                st.success(f"{_baru} referensi baru masuk ke Library. Duplikat dilewati.")
 
         if st.button("🤖 Analisis Ide, Gap, Novelty & 5 Judul", key="gen_ide_s2", type="primary"):
             if not masalah_ide_s2.strip():
@@ -3693,6 +3794,26 @@ NASKAH TERBARU:
         st.session_state["judul_alternatif_s2"] = judul_edit_s2
 
         judul_tersedia_s2 = [j.strip() for j in judul_edit_s2 if j.strip()]
+        if any(j.strip() for j in judul_edit_s2):
+            if st.button("📚 Cek Ketersediaan Referensi untuk 5 Judul", key="cek_ref_5_judul_s2", use_container_width=True):
+                _kel=[]
+                with st.spinner("Mengecek ketersediaan referensi nyata untuk setiap judul..."):
+                    for _j in judul_edit_s2:
+                        if _j.strip():
+                            _kel.append(analisis_ketersediaan_referensi_judul_s2(_j.strip(),10))
+                st.session_state["kelayakan_ref_5_judul_s2"]=_kel
+        if st.session_state.get("kelayakan_ref_5_judul_s2"):
+            st.markdown("#### 📚 Analisis Kelayakan Referensi")
+            st.caption("Jumlah berasal dari hasil pencarian metadata nyata, bukan perkiraan AI.")
+            for _no,_d in enumerate(st.session_state["kelayakan_ref_5_judul_s2"],1):
+                with st.expander(f"Alternatif {_no} — {_d['Status']}", expanded=False):
+                    st.write(f"**Judul:** {_d['Judul']}")
+                    st.write(f"**Kandidat referensi:** {_d['Kandidat']}")
+                    st.write(f"**Literatur 5 tahun terakhir:** {_d['Literatur 5 Tahun']}")
+                    st.write(f"**Status:** {_d['Status']}")
+                    for _r in _d.get("Referensi",[])[:5]:
+                        st.write(f"• {_r.get('Tahun','')} — {_r.get('Judul','')} [{_r.get('Sumber','')}]")
+
         if judul_tersedia_s2:
             judul_pilihan_s2 = st.selectbox(
                 "⭐ Anda Pilih Judul yang Akan Ditetapkan",
