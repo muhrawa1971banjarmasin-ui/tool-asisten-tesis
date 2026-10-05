@@ -3151,20 +3151,29 @@ PAGAR KONTEKS WAJIB:
 - Jangan membawa topik, naskah, sitasi, referensi, atau hasil pekerjaan AI sebelumnya.
 - Jika masalah membahas kokurikuler madrasah, seluruh analisis harus tetap pada konteks kokurikuler madrasah.
 
+TAHAP INI HANYA PENCARIAN IDE DAN PENGAJUAN JUDUL.
+JANGAN membuat Proposal Tesis, BAB I, BAB II, BAB III, atau menetapkan satu judul sebagai judul final.
+Pengguna sendiri yang akan memilih dan menetapkan judul.
+
 Analisis dan hasilkan:
-1. masalah utama dan akar masalah;
-2. analisis tesis sumber bila tersedia;
-3. bagian yang dapat dijadikan acuan dan yang wajib direvisi;
-4. research gap awal;
-5. novelty yang dapat dipertanggungjawabkan;
-6. lima alternatif judul;
-7. kelayakan setiap judul;
-8. satu judul paling direkomendasikan dan alasannya;
-9. identifikasi serta batasan/fokus masalah;
-10. rumusan masalah;
-11. tujuan dan manfaat penelitian;
-12. arah teori dan metode awal;
-13. informasi/data yang masih harus diverifikasi.
+1. ANALISIS MASALAH DAN AKAR MASALAH;
+2. ANALISIS TESIS SUMBER bila tersedia;
+3. RESEARCH GAP awal;
+4. NOVELTY yang dapat dipertanggungjawabkan;
+5. LIMA ALTERNATIF JUDUL TESIS yang benar-benar berbeda arah/fokus bila memungkinkan;
+6. CATATAN KELAYAKAN singkat untuk membantu pengguna memilih;
+7. ARAH METODOLOGI yang mungkin, tanpa memaksakan satu metode.
+
+FORMAT 5 JUDUL WAJIB PERSIS:
+[JUDUL 1] tuliskan judul pertama
+[JUDUL 2] tuliskan judul kedua
+[JUDUL 3] tuliskan judul ketiga
+[JUDUL 4] tuliskan judul keempat
+[JUDUL 5] tuliskan judul kelima
+
+AI boleh memberi rekomendasi, tetapi TIDAK BOLEH menetapkan judul final.
+Jangan melanjutkan ke penyusunan proposal. Proposal baru dibuat setelah pengguna menekan tombol
+"✅ Tetapkan Judul & Lanjutkan ke Proposal".
 
 Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi.
 Sesuaikan konteks, data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
@@ -3187,6 +3196,31 @@ Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi pal
                 st.session_state["hasil_ai_ide_judul_s2"] = _hasil_langsung
                 # editor memakai key baru setiap generate agar tidak tertahan nilai lama
                 st.session_state["versi_naskah_ide_s2"] = st.session_state.get("versi_naskah_ide_s2", 0) + 1
+
+                # Ambil otomatis 5 judul dari output AI.
+                # Tidak ada judul contoh/fallback agar tidak mencampur topik penelitian pengguna.
+                _judul_ai = re.findall(
+                    r"(?im)^\s*\[JUDUL\s*[1-5]\]\s*[:\-]?\s*(.+?)\s*$",
+                    _hasil_langsung,
+                )
+                _judul_ai = [re.sub(r"^[\"'“”]+|[\"'“”]+$", "", j.strip()) for j in _judul_ai]
+                _judul_ai = [j for j in _judul_ai if j]
+
+                if _judul_ai:
+                    _judul_ai = (_judul_ai + ["", "", "", "", ""])[:5]
+                    st.session_state["judul_alternatif_s2"] = _judul_ai
+                    # Sinkronkan widget Bank 5 Judul sebelum widget dibuat pada rerun berikutnya.
+                    for _i, _j in enumerate(_judul_ai):
+                        st.session_state[f"judul_alt_s2_{_i}"] = _j
+                    st.success(
+                        f"✅ {sum(bool(j) for j in _judul_ai)} alternatif judul berhasil dimasukkan otomatis ke Bank Judul. "
+                        "Silakan Anda pilih sendiri judul yang paling sesuai."
+                    )
+                else:
+                    st.warning(
+                        "Analisis AI berhasil, tetapi format 5 judul belum terbaca otomatis. "
+                        "Hasil analisis tetap tersedia dan judul dapat diedit pada Bank Alternatif Judul."
+                    )
             else:
                 st.error("AI belum mengembalikan teks. Periksa koneksi/API lalu coba Generate lagi.")
 
@@ -3259,7 +3293,7 @@ NASKAH TERBARU:
         judul_tersedia_s2 = [j.strip() for j in judul_edit_s2 if j.strip()]
         if judul_tersedia_s2:
             judul_pilihan_s2 = st.selectbox(
-                "⭐ Pilih Judul Utama",
+                "⭐ Anda Pilih Judul yang Akan Ditetapkan",
                 judul_tersedia_s2,
                 key="judul_utama_pilihan_s2",
             )
