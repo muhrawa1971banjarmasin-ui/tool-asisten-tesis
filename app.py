@@ -3337,6 +3337,8 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         # Tidak menghapus Library utama atau fitur/menu lain.
         # ------------------------------------------------------------
         st.markdown("### 🗑️ Pembersihan No. 1")
+        if st.session_state.pop("pesan_hapus_total_no1_s2", False):
+            st.success("Semua hasil No. 1 dan Bank Bahan sudah dibersihkan. Library utama tetap aman.")
         st.caption(
             "Gunakan tombol ini untuk menghapus seluruh hasil kerja pada Pencarian Ide & Pengajuan Judul "
             "dan memulai dari kondisi bersih. Library utama aplikasi tidak ikut dihapus."
@@ -3346,9 +3348,19 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             key="hapus_total_no1_s2",
             use_container_width=True,
         ):
+            # Hapus SEMUA state khusus No.1, termasuk widget uploader dan input Bank Bahan.
             _prefix_hapus_no1 = (
                 "judul_alt_s2_",
                 "editor_naskah_ide_s2_",
+                "upload_bahan_ide_s2",
+                "unggah_bahan_ide_s2",
+                "file_bahan_ide_s2",
+                "bahan_ide_s2",
+                "teks_bahan_ide_s2",
+                "ket_bahan_ide_s2",
+                "jenis_bahan_ide",
+                "bank_bahan_ide_s2",
+                "hapus_bahan_ide_s2",
             )
             _kunci_hapus_no1 = {
                 "masalah_ide_s2",
@@ -3374,19 +3386,26 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                 "data_uji_judul_s2",
                 "hasil_penulisan_ai",
                 "naskah_aktif",
+                "file_bahan_ide_1",
+                "file_bahan_ide_2",
+                "file_bahan_ide_3",
+                "file_bahan_ide_4",
+                "upload_ide_s2_1",
+                "upload_ide_s2_2",
+                "upload_ide_s2_3",
+                "upload_ide_s2_4",
             }
+
             for _key in list(st.session_state.keys()):
-                if _key in _kunci_hapus_no1 or any(
-                    str(_key).startswith(_p) for _p in _prefix_hapus_no1
-                ):
+                _ks = str(_key)
+                if _key in _kunci_hapus_no1 or any(_ks.startswith(_p) for _p in _prefix_hapus_no1):
                     del st.session_state[_key]
 
-            # Bank dan judul dimulai benar-benar kosong.
-            st.session_state["bank_bahan_ide_s2"] = []
-            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
-            st.session_state["versi_naskah_ide_s2"] = 0
-            st.success("Semua hasil No. 1 sudah dibersihkan. Library utama tetap aman.")
+            # Jangan langsung membuat kembali isi bank sebelum rerun.
+            # Pada rerun, blok Bank Bahan akan menginisialisasi bank sebagai [].
+            st.session_state["pesan_hapus_total_no1_s2"] = True
             st.rerun()
+
 
         masalah_ide_s2 = st.text_area(
             "Permasalahan/gagasan awal",
