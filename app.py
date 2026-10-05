@@ -3184,12 +3184,16 @@ Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi pal
             _hasil_baru_ide = st.session_state.get("hasil_penulisan_ai", "")
             if _hasil_baru_ide:
                 st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru_ide
+                # PENTING: Streamlit mempertahankan nilai widget berdasarkan key.
+                # Paksa editor menerima hasil GENERATE TERBARU, bukan nilai kosong run sebelumnya.
+                st.session_state["editor_hasil_ai_ide_judul_s2"] = _hasil_baru_ide
 
         if st.session_state.get("hasil_ai_ide_judul_s2"):
             st.markdown("#### ✍️ Hasil Analisis Ide & Judul — Bisa Diedit")
+            if "editor_hasil_ai_ide_judul_s2" not in st.session_state:
+                st.session_state["editor_hasil_ai_ide_judul_s2"] = st.session_state["hasil_ai_ide_judul_s2"]
             _edit_ide = st.text_area(
                 "Edit hasil analisis sebelum memilih judul",
-                value=st.session_state["hasil_ai_ide_judul_s2"],
                 height=620,
                 key="editor_hasil_ai_ide_judul_s2",
             )
