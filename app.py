@@ -12,6 +12,8 @@ import base64
 import html
 import difflib
 import csv
+import time
+import random
 try:
     import docx
 except ImportError:
@@ -2104,13 +2106,27 @@ elif menu == "🔬 Analisis Karya Akademik":
         if file is not None:
             nama_sumber=file.name; media_bytes=file.getvalue(); media_mime=getattr(file,"type",None) or "video/mp4"
             st.video(media_bytes)
-            st.caption(f"Ukuran video: {format_ukuran(file.size)}. Untuk unggahan langsung ke AI, gunakan file yang tidak terlalu besar.")
+            st.caption(f"Ukuran video: {format_ukuran(file.size)}. File besar akan diproses otomatis melalui Gemini Files API.")
     else:
         file = st.file_uploader("Unggah audio", type=["mp3", "wav", "m4a", "aac", "ogg", "flac"], key="upload_audio_analisis")
         if file is not None:
             nama_sumber=file.name; media_bytes=file.getvalue(); media_mime=getattr(file,"type",None) or "audio/mpeg"
             st.audio(media_bytes)
-            st.caption(f"Ukuran audio: {format_ukuran(file.size)}. AI akan menganalisis isi yang dapat dikenali dari tayangan/audio.")
+            st.caption(f"Ukuran audio: {format_ukuran(file.size)}. File besar akan diproses otomatis melalui Gemini Files API.")
+
+    # Bersihkan hasil lama otomatis bila sumber dihapus, diganti, atau isi teks berubah.
+    if bahan_teks.strip():
+        _sig_isi = str(hash(bahan_teks))
+    elif media_bytes is not None:
+        _sig_isi = f"{nama_sumber}|{len(media_bytes)}"
+    else:
+        _sig_isi = "KOSONG"
+    _sig_sumber = f"{sumber}|{_sig_isi}"
+    if "signature_sumber_analisis" not in st.session_state:
+        st.session_state.signature_sumber_analisis = _sig_sumber
+    elif st.session_state.signature_sumber_analisis != _sig_sumber:
+        st.session_state.hasil_ai_gemini = ""
+        st.session_state.signature_sumber_analisis = _sig_sumber
 
     st.divider()
     st.subheader("📋 Indikator Analisis")
@@ -2132,7 +2148,7 @@ elif menu == "🔬 Analisis Karya Akademik":
             "Pengelolaan Kelas", "Umpan Balik", "Kegiatan Penutup", "Tindak Lanjut Supervisi"
         ]
 
-    pilih_bawaan = st.multiselect("Indikator bawaan (opsional)", indikator_bawaan, default=[], key="indikator_bawaan_analisis")
+    pilih_bawaan = st.multiselect("Indikator bawaan (opsional)", indikator_bawaan, default=[], key="indikator_bawaan_analisis_v2")
 
     st.markdown("#### ✍️ Indikator Manual")
     cman1,cman2=st.columns([4,1])
@@ -2159,6 +2175,58 @@ elif menu == "🔬 Analisis Karya Akademik":
     indikator_aktif = pilih_bawaan + [x for x in st.session_state.indikator_manual_analisis if x.strip()]
     st.caption(f"Indikator aktif: {len(indikator_aktif)}")
     mode_tambahan = st.checkbox("🤖 Jika tidak memilih indikator, izinkan AI membuat indikator yang paling relevan", value=True, key="ai_buat_indikator_otomatis")
+
+    def _upload_media_gemini_files(api_key, media_data, mime_type, display_name):
+        """Upload media besar ke Gemini Files API dan tunggu sampai siap dipakai."""
+        start_url = "https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + urllib.parse.quote(api_key)
+        metadata = json.dumps({"file": {"display_name": display_name}}).encode("utf-8")
+        req = urllib.request.Request(
+            start_url, data=metadata, method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Upload-Protocol": "resumable",
+                "X-Goog-Upload-Command": "start",
+                "X-Goog-Upload-Header-Content-Length": str(len(media_data)),
+                "X-Goog-Upload-Header-Content-Type": mime_type,
+            }
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            upload_url = resp.headers.get("X-Goog-Upload-URL") or resp.headers.get("x-goog-upload-url")
+        if not upload_url:
+            raise RuntimeError("Gemini Files API tidak memberikan URL upload.")
+
+        req2 = urllib.request.Request(
+            upload_url, data=media_data, method="POST",
+            headers={
+                "Content-Type": mime_type,
+                "Content-Length": str(len(media_data)),
+                "X-Goog-Upload-Offset": "0",
+                "X-Goog-Upload-Command": "upload, finalize",
+            }
+        )
+        with urllib.request.urlopen(req2, timeout=300) as resp:
+            info = json.loads(resp.read().decode("utf-8"))
+        f = info.get("file", {})
+        name = f.get("name", "")
+        uri = f.get("uri", "")
+        state = f.get("state", "")
+        if not name or not uri:
+            raise RuntimeError("Upload media selesai tetapi metadata file Gemini tidak lengkap.")
+
+        # Video biasanya perlu waktu pemrosesan. Poll sampai ACTIVE.
+        deadline = time.time() + 300
+        while state == "PROCESSING" and time.time() < deadline:
+            time.sleep(5)
+            get_url = "https://generativelanguage.googleapis.com/v1beta/" + name + "?key=" + urllib.parse.quote(api_key)
+            with urllib.request.urlopen(get_url, timeout=60) as resp:
+                f = json.loads(resp.read().decode("utf-8"))
+            uri = f.get("uri", uri)
+            state = f.get("state", state)
+        if state == "FAILED":
+            raise RuntimeError("Gemini gagal memproses file media.")
+        if state == "PROCESSING":
+            raise RuntimeError("Pemrosesan media belum selesai setelah 5 menit. Coba Generate Analisis AI kembali.")
+        return uri
 
     def _analisis_multimodal_akademik(teks_sumber, media_data, mime_type, nama, jenis_sumber, indikator):
         try:
@@ -2191,9 +2259,14 @@ ATURAN WAJIB UNTUK SETIAP INDIKATOR:
             prompt += "\nTEKS SUMBER:\n--------------------\n" + teks_sumber[:70000] + "\n--------------------\n"
         parts=[{"text":prompt}]
         if media_data is not None:
-            if len(media_data) > 18*1024*1024:
-                return {"sukses":False,"hasil":"","error":"File audio/video lebih dari 18 MB. Kompres/potong file atau gunakan transkrip teks agar analisis stabil.","model":""}
-            parts.append({"inline_data":{"mime_type":mime_type,"data":base64.b64encode(media_data).decode("ascii")}})
+            try:
+                if len(media_data) > 18*1024*1024:
+                    file_uri = _upload_media_gemini_files(api_key, media_data, mime_type, nama)
+                    parts.append({"file_data":{"mime_type":mime_type,"file_uri":file_uri}})
+                else:
+                    parts.append({"inline_data":{"mime_type":mime_type,"data":base64.b64encode(media_data).decode("ascii")}})
+            except Exception as e:
+                return {"sukses":False,"hasil":"","error":"Media belum berhasil diproses melalui Gemini Files API. "+str(e),"model":""}
         payload={"contents":[{"parts":parts}],"generationConfig":{"temperature":0.2,"maxOutputTokens":8192}}
         model_ids=["gemini-3.8-flash","gemini-3.5-flash-lite"]
         transient={408,429,500,502,503,504}; err=""
@@ -2238,7 +2311,13 @@ ATURAN WAJIB UNTUK SETIAP INDIKATOR:
     if st.session_state.hasil_ai_gemini:
         edit=st.text_area("Hasil analisis dapat diedit", value=st.session_state.hasil_ai_gemini, height=700, key="editor_hasil_ai_gemini_baru")
         st.session_state.hasil_ai_gemini=edit
-        st.download_button("📥 Unduh Hasil Analisis (.txt)", edit.encode("utf-8"), "hasil_analisis_akademik.txt", "text/plain", use_container_width=True, key="download_hasil_analisis_baru")
+        c_unduh, c_hapus = st.columns([3, 1])
+        with c_unduh:
+            st.download_button("📥 Unduh Hasil Analisis (.txt)", edit.encode("utf-8"), "hasil_analisis_akademik.txt", "text/plain", use_container_width=True, key="download_hasil_analisis_baru")
+        with c_hapus:
+            if st.button("🗑️ Hapus Hasil", use_container_width=True, key="hapus_hasil_analisis_karya"):
+                st.session_state.hasil_ai_gemini = ""
+                st.rerun()
     else:
         st.info("Unggah/masukkan sumber lalu jalankan Generate Analisis AI.")
 
