@@ -1029,49 +1029,223 @@ ATURAN WAJIB:
 # ============================================================
 def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
     """
-    Membuat salinan DOCX dari naskah asli lalu menambahkan hasil audit/revisi AI
-    sebagai lampiran review. Dokumen asli tidak ditimpa dan layout utama tetap
-    dipertahankan. Ini lebih aman daripada membangun ulang DOCX dari teks polos.
+    Membuat SALINAN DOCX asli dan hanya menanam penanda footnote Word asli
+    berdasarkan marker [^n] pada hasil AI. Isi/layout lain tidak dibangun ulang.
     """
     if file_asli is None or not str(getattr(file_asli, "name", "")).lower().endswith(".docx"):
-        return None, "Word sempurna memerlukan naskah sumber berformat DOCX."
+        return None, "Fitur ini memerlukan naskah sumber DOCX."
+
+    import io
+    import zipfile
+    from lxml import etree
+
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+    CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+    ns = {"w": W}
+
+    def q(nsuri, tag):
+        return f"{{{nsuri}}}{tag}"
 
     try:
-        from docx import Document
-        from docx.shared import Pt
-
         file_asli.seek(0)
-        data_asli = file_asli.read()
-        sumber = Path("/tmp/akademia_ai_naskah_asli.docx")
-        hasil = Path("/tmp/akademia_ai_hasil_word.docx")
-        sumber.write_bytes(data_asli)
-        shutil.copy2(sumber, hasil)
+        original = file_asli.read()
 
-        doc = Document(str(hasil))
+        # 1) Ambil isi catatan kaki dari hasil AI: [^1] isi...
+        footnotes = {}
+        for m in re.finditer(r'(?ms)^\[\^(\d+)\]\s*(.+?)(?=^\[\^\d+\]|\n\*\*\*|\n#{1,6}\s|\Z)', str(teks_hasil_ai)):
+            nomor = int(m.group(1))
+            isi = re.sub(r'\s+', ' ', m.group(2)).strip()
+            isi = re.sub(r'\[halaman perlu verifikasi\]\.?', '[halaman perlu verifikasi]', isi, flags=re.I)
+            footnotes[nomor] = isi
 
-        # Hasil AI ditempatkan sebagai lampiran review agar isi/layout naskah asli
-        # tidak berubah otomatis sebelum pengguna menyetujui koreksi.
-        doc.add_page_break()
-        p = doc.add_paragraph()
-        r = p.add_run("LAMPIRAN HASIL AUDIT & USULAN PERBAIKAN AKADEMIA AI")
-        r.bold = True
+        if not footnotes:
+            return None, "Tidak ditemukan marker footnote [^1], [^2], dan seterusnya pada hasil AI."
 
-        p = doc.add_paragraph(
-            "Naskah utama di atas dipertahankan. Bagian berikut adalah hasil audit/usulan "
-            "yang dapat diperiksa sebelum diterapkan ke naskah final."
+        # 2) Cari konteks teks tepat sebelum setiap marker.
+        #    Yang diambil hanya kalimat/frasa asli, bukan seluruh hasil AI.
+        contexts = {}
+        ai = str(teks_hasil_ai)
+        for nomor in footnotes:
+            marker = f"[^{nomor}]"
+            pos = ai.find(marker)
+            if pos < 0:
+                continue
+            before = ai[:pos]
+            # buang heading/markdown sederhana
+            before = re.sub(r'[*_`#>]', '', before)
+            # ambil kalimat terakhir; fallback 140 karakter terakhir
+            pieces = re.split(r'(?<=[.!?])\s+', before.strip())
+            ctx = pieces[-1].strip() if pieces else before[-140:].strip()
+            ctx = re.sub(r'\s+', ' ', ctx)
+            contexts[nomor] = ctx
+
+        zin = zipfile.ZipFile(io.BytesIO(original), "r")
+        files = {name: zin.read(name) for name in zin.namelist()}
+        zin.close()
+
+        if "word/document.xml" not in files:
+            return None, "Struktur DOCX tidak valid: word/document.xml tidak ditemukan."
+
+        parser = etree.XMLParser(remove_blank_text=False)
+        doc_root = etree.fromstring(files["word/document.xml"], parser)
+
+        # 3) Sisipkan w:footnoteReference ke paragraf asli tanpa membangun ulang dokumen.
+        inserted = []
+        not_found = []
+
+        for nomor, ctx in contexts.items():
+            best_p = None
+            best_score = 0
+            ctx_norm = re.sub(r'\s+', ' ', ctx).strip()
+
+            for p in doc_root.xpath(".//w:p", namespaces=ns):
+                ptxt = "".join(p.xpath(".//w:t/text()", namespaces=ns))
+                pnorm = re.sub(r'\s+', ' ', ptxt).strip()
+                if not pnorm:
+                    continue
+
+                # exact / suffix / phrase match
+                score = 0
+                if ctx_norm and ctx_norm in pnorm:
+                    score = 1000 + len(ctx_norm)
+                elif pnorm and pnorm in ctx_norm:
+                    score = 800 + len(pnorm)
+                else:
+                    # gunakan bagian akhir konteks untuk menghindari heading ikut terbaca
+                    tail = ctx_norm[-100:]
+                    if tail and tail in pnorm:
+                        score = 700 + len(tail)
+                    else:
+                        words = ctx_norm.split()
+                        phrase = " ".join(words[-10:]) if len(words) >= 10 else ctx_norm
+                        if phrase and phrase in pnorm:
+                            score = 600 + len(phrase)
+
+                if score > best_score:
+                    best_score = score
+                    best_p = p
+
+            if best_p is None:
+                not_found.append(nomor)
+                continue
+
+            # Tambahkan reference di akhir paragraf yang memuat kalimat terkait.
+            # Tidak mengubah teks/run yang sudah ada.
+            run = etree.Element(q(W, "r"))
+            rpr = etree.SubElement(run, q(W, "rPr"))
+            va = etree.SubElement(rpr, q(W, "vertAlign"))
+            va.set(q(W, "val"), "superscript")
+            ref = etree.SubElement(run, q(W, "footnoteReference"))
+            ref.set(q(W, "id"), str(nomor))
+            best_p.append(run)
+            inserted.append(nomor)
+
+        if not inserted:
+            return None, "Kalimat pada hasil AI tidak ditemukan di naskah asli, sehingga Word tidak diubah demi melindungi isi naskah."
+
+        files["word/document.xml"] = etree.tostring(
+            doc_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
         )
 
-        for blok in str(teks_hasil_ai or "").splitlines():
-            p = doc.add_paragraph()
-            run = p.add_run(blok)
-            run.font.name = "Times New Roman"
-            run.font.size = Pt(10)
+        # 4) Buat/ubah footnotes.xml dengan true Word footnotes.
+        if "word/footnotes.xml" in files:
+            fn_root = etree.fromstring(files["word/footnotes.xml"], parser)
+        else:
+            fn_root = etree.Element(q(W, "footnotes"), nsmap={"w": W, "r": R})
 
-        doc.save(str(hasil))
-        return hasil.read_bytes(), ""
+            # Separator bawaan Word
+            fn_sep = etree.SubElement(fn_root, q(W, "footnote"))
+            fn_sep.set(q(W, "id"), "-1")
+            p = etree.SubElement(fn_sep, q(W, "p"))
+            r = etree.SubElement(p, q(W, "r"))
+            etree.SubElement(r, q(W, "separator"))
+
+            fn_cont = etree.SubElement(fn_root, q(W, "footnote"))
+            fn_cont.set(q(W, "id"), "0")
+            p = etree.SubElement(fn_cont, q(W, "p"))
+            r = etree.SubElement(p, q(W, "r"))
+            etree.SubElement(r, q(W, "continuationSeparator"))
+
+        # hapus hanya ID yang akan kita tulis ulang
+        for nomor in inserted:
+            for old in fn_root.xpath(f'./w:footnote[@w:id="{nomor}"]', namespaces=ns):
+                fn_root.remove(old)
+
+            fn = etree.SubElement(fn_root, q(W, "footnote"))
+            fn.set(q(W, "id"), str(nomor))
+            p = etree.SubElement(fn, q(W, "p"))
+
+            # Nomor footnote asli Word
+            rnum = etree.SubElement(p, q(W, "r"))
+            rpr = etree.SubElement(rnum, q(W, "rPr"))
+            va = etree.SubElement(rpr, q(W, "vertAlign"))
+            va.set(q(W, "val"), "superscript")
+            etree.SubElement(rnum, q(W, "footnoteRef"))
+
+            # spasi + isi catatan kaki
+            rtxt = etree.SubElement(p, q(W, "r"))
+            rpr2 = etree.SubElement(rtxt, q(W, "rPr"))
+            rfonts = etree.SubElement(rpr2, q(W, "rFonts"))
+            rfonts.set(q(W, "ascii"), "Times New Roman")
+            rfonts.set(q(W, "hAnsi"), "Times New Roman")
+            sz = etree.SubElement(rpr2, q(W, "sz"))
+            sz.set(q(W, "val"), "20")  # 10 pt
+            t = etree.SubElement(rtxt, q(W, "t"))
+            t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            t.text = " " + footnotes[nomor]
+
+        files["word/footnotes.xml"] = etree.tostring(
+            fn_root, xml_declaration=True, encoding="UTF-8", standalone="yes"
+        )
+
+        # 5) Relationship document -> footnotes.xml
+        rel_path = "word/_rels/document.xml.rels"
+        if rel_path in files:
+            rel_root = etree.fromstring(files[rel_path], parser)
+        else:
+            rel_root = etree.Element(q(REL, "Relationships"))
+
+        foot_rel_type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+        if not any(x.get("Type") == foot_rel_type for x in rel_root):
+            ids = []
+            for x in rel_root:
+                rid = x.get("Id", "")
+                m = re.match(r"rId(\d+)$", rid)
+                if m:
+                    ids.append(int(m.group(1)))
+            rid = f"rId{max(ids, default=0)+1}"
+            rel = etree.SubElement(rel_root, q(REL, "Relationship"))
+            rel.set("Id", rid)
+            rel.set("Type", foot_rel_type)
+            rel.set("Target", "footnotes.xml")
+            files[rel_path] = etree.tostring(rel_root, xml_declaration=True, encoding="UTF-8", standalone="yes")
+
+        # 6) Content type untuk footnotes.xml
+        ct_path = "[Content_Types].xml"
+        ct_root = etree.fromstring(files[ct_path], parser)
+        foot_ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+        if not any(x.get("PartName") == "/word/footnotes.xml" for x in ct_root):
+            ov = etree.SubElement(ct_root, q(CT, "Override"))
+            ov.set("PartName", "/word/footnotes.xml")
+            ov.set("ContentType", foot_ct)
+            files[ct_path] = etree.tostring(ct_root, xml_declaration=True, encoding="UTF-8", standalone="yes")
+
+        # 7) Simpan paket DOCX baru. Semua part selain document.xml/footnotes/rel/content-type
+        #    disalin byte-for-byte dari file asli.
+        out_io = io.BytesIO()
+        with zipfile.ZipFile(out_io, "w", zipfile.ZIP_DEFLATED) as zout:
+            for name, data in files.items():
+                zout.writestr(name, data)
+
+        info = f"Berhasil menanam {len(inserted)} true Word footnote."
+        if not_found:
+            info += " Marker yang tidak ditemukan pada naskah asli: " + ", ".join(map(str, not_found)) + "."
+        return out_io.getvalue(), info
+
     except Exception as e:
-        return None, f"Gagal membuat Word hasil revisi: {e}"
-
+        return None, f"Gagal membuat Word dengan footnote asli: {e}"
 
 # ============================================================
 # HEADER
@@ -2729,7 +2903,7 @@ REFERENSI:
                     if word_bytes:
                         nama_word = Path(file_perbaikan.name).stem + "_HASIL_AKADEMIA_AI.docx"
                         st.download_button(
-                            "📥 Unduh Word (.docx)",
+                            "📥 Unduh Word dengan Footnote Asli (.docx)",
                             word_bytes,
                             nama_word,
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2741,8 +2915,8 @@ REFERENSI:
                 else:
                     st.caption("Unggah naskah DOCX untuk menghasilkan Word dengan format asli dipertahankan.")
             st.warning(
-                "Naskah asli tidak ditimpa otomatis. Word hasil tetap mempertahankan naskah asli "
-                "dan menempatkan hasil AI sebagai lampiran review agar perubahan belum diterapkan tanpa persetujuan."
+                "File Word dibuat dari salinan naskah asli. Hanya penanda kutipan/footnote yang ditanam sebagai true Word footnote; "
+                "bagian lain tetap berasal dari DOCX asli."
             )
 
     elif bagian_ref == "✅ Audit Sitasi":
