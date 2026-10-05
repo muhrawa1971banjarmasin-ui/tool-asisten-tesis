@@ -3172,27 +3172,28 @@ Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi. Sesuaikan kont
 data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
 Tesis sumber tetap harus diakui sebagai penelitian terdahulu.
 Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi palsu."""
-            _hasil_ide_call = panel_ai_penulisan(
+            panel_ai_penulisan(
                 bahan_ide_s2 or masalah_ide_s2,
                 "Ide & Pengajuan Judul Tesis S2",
                 instr_ide_s2,
                 st.session_state.bank_referensi,
                 "s2_ide",
             )
-            if _hasil_ide_call.get("sukses"):
-                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_ide_call.get("hasil", "")
-            else:
-                st.session_state["hasil_ai_ide_judul_s2"] = ""
+            # panel_ai_penulisan menyimpan hasil pada session_state.
+            # Salin hasil yang BARU dibuat ke ruang khusus Ide/Judul.
+            _hasil_baru_ide = st.session_state.get("hasil_penulisan_ai", "")
+            if _hasil_baru_ide:
+                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru_ide
 
-            if st.session_state.get("hasil_ai_ide_judul_s2"):
-                st.markdown("#### ✍️ Hasil Analisis Ide & Judul — Bisa Diedit")
-                _edit_ide = st.text_area(
-                    "Edit hasil analisis sebelum memilih judul",
-                    value=st.session_state["hasil_ai_ide_judul_s2"],
-                    height=620,
-                    key="editor_hasil_ai_ide_judul_s2",
-                )
-                st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
+        if st.session_state.get("hasil_ai_ide_judul_s2"):
+            st.markdown("#### ✍️ Hasil Analisis Ide & Judul — Bisa Diedit")
+            _edit_ide = st.text_area(
+                "Edit hasil analisis sebelum memilih judul",
+                value=st.session_state["hasil_ai_ide_judul_s2"],
+                height=620,
+                key="editor_hasil_ai_ide_judul_s2",
+            )
+            st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
 
 
         # ------------------------------------------------------------
