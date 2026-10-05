@@ -3183,12 +3183,79 @@ TEKS:
 # ============================================================
 elif menu == "🎓 Tesis S2":
     st.header("🎓 Asisten Tesis S2")
-    tahap=st.selectbox("Tahap Tesis",[
-        "Ide & Topik","Identifikasi Masalah","Research Gap","State of the Art","Novelty","Alternatif Judul",
-        "Rumusan Masalah","Tujuan Penelitian","BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian",
-        "BAB III","Instrumen","Pengumpulan Data","BAB IV","BAB V","Tesis Lengkap","Bimbingan & Revisi",
-        "Presentasi","Persiapan Sidang"
-    ],key="tahap_s2")
+    # MENU VERTIKAL TESIS S2
+    # Hanya menambah/menata navigasi. Mesin AI dan fitur lama tetap dipertahankan.
+    submenu_s2 = st.radio(
+        "Menu Tesis S2",
+        [
+            "💡 Pencarian Ide & Pengajuan Judul 🌟",
+            "📑 Proposal Tesis",
+            "🔎 Literatur & Penelitian Terdahulu",
+            "🎯 Metodologi Penelitian",
+            "📋 Instrumen Penelitian",
+            "📊 Statistik & SPSS",
+            "🧩 Analisis Data Kualitatif",
+            "✍️ Penulisan Tesis",
+            "🤖 Review & Bimbingan AI",
+            "📈 Progres & Timeline Penelitian",
+            "🖥️ Presentasi",
+            "🎓 Simulasi Sidang",
+        ],
+        key="submenu_s2_vertikal",
+    )
+
+    # Tahap lama tidak dihapus. Semuanya tetap tersedia di bawah submenu yang sesuai.
+    tahap_per_submenu_s2 = {
+        "💡 Pencarian Ide & Pengajuan Judul 🌟": [
+            "Ide & Topik","Identifikasi Masalah","Research Gap","State of the Art",
+            "Novelty","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian"
+        ],
+        "📑 Proposal Tesis": [
+            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian","BAB III"
+        ],
+        "🔎 Literatur & Penelitian Terdahulu": [
+            "Research Gap","State of the Art","Novelty","BAB II"
+        ],
+        "🎯 Metodologi Penelitian": [
+            "BAB III","Pengumpulan Data"
+        ],
+        "📋 Instrumen Penelitian": [
+            "Instrumen"
+        ],
+        "📊 Statistik & SPSS": [
+            "BAB IV"
+        ],
+        "🧩 Analisis Data Kualitatif": [
+            "BAB IV"
+        ],
+        "✍️ Penulisan Tesis": [
+            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian",
+            "BAB III","BAB IV","BAB V","Tesis Lengkap"
+        ],
+        "🤖 Review & Bimbingan AI": [
+            "Bimbingan & Revisi","Tesis Lengkap"
+        ],
+        "📈 Progres & Timeline Penelitian": [
+            "Tesis Lengkap","Bimbingan & Revisi"
+        ],
+        "🖥️ Presentasi": [
+            "Presentasi"
+        ],
+        "🎓 Simulasi Sidang": [
+            "Persiapan Sidang"
+        ],
+    }
+
+    pilihan_tahap_s2 = tahap_per_submenu_s2[submenu_s2]
+    if len(pilihan_tahap_s2) == 1:
+        tahap = pilihan_tahap_s2[0]
+        st.caption(f"Tahap aktif: {tahap}")
+    else:
+        tahap = st.selectbox(
+            "Pilih bagian yang dikerjakan",
+            pilihan_tahap_s2,
+            key=f"tahap_s2_{submenu_s2}",
+        )
     metode=st.selectbox("Jenis Penelitian",["Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods","R&D / Pengembangan","PTK","Studi Literatur / Library Research","SLR","Evaluatif","Analisis Isi"],key="metode_s2")
     pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s2")
     sumber=st.file_uploader("📚 Unggah tesis terdahulu, jurnal, bahan, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="tesis")
