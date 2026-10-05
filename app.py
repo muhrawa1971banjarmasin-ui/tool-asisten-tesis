@@ -3133,101 +3133,299 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
             key="arah_ide_s2",
         )
 
-        if st.button("🤖 Analisis Ide, Gap, Novelty & Judul", key="gen_ide_s2", type="primary"):
-            bahan_ide_s2 = ""
-            for _f in tesis_ide_s2 or []:
-                _t = ekstrak_teks(_f)
-                if not _t.startswith("ERROR:"):
-                    bahan_ide_s2 += f"\\nTESIS SUMBER {_f.name}:\\n{_t}"
 
-            instr_ide_s2 = f"""Anda adalah asisten akademik tesis S2.
-Mode: {mode_ide_s2}
-Masalah awal: {masalah_ide_s2}
-Lokasi/objek baru: {lokasi_ide_s2}
-Arah pengguna: {arah_ide_s2}
+        # ============================================================
+        # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
+        # ============================================================
+        st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
+        st.caption(
+            "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
+            "dan digunakan AI untuk menguatkan masalah, gap, novelty, serta alternatif judul."
+        )
 
-PAGAR KONTEKS WAJIB:
-- Seluruh jawaban harus membahas masalah/gagasan yang BARU dimasukkan pengguna.
-- Jangan membawa topik, naskah, sitasi, referensi, atau hasil pekerjaan AI sebelumnya.
-- Jika masalah membahas kokurikuler madrasah, seluruh analisis harus tetap pada konteks kokurikuler madrasah.
+        if "bank_bahan_ide_s2" not in st.session_state:
+            st.session_state["bank_bahan_ide_s2"] = []
 
-TAHAP INI HANYA PENCARIAN IDE DAN PENGAJUAN JUDUL.
-JANGAN membuat Proposal Tesis, BAB I, BAB II, BAB III, atau menetapkan satu judul sebagai judul final.
-Pengguna sendiri yang akan memilih dan menetapkan judul.
+        jenis_bahan_ide = st.selectbox(
+            "Jenis bahan yang akan ditambahkan",
+            [
+                "📚 Teori & Literatur",
+                "🔎 Penelitian Terdahulu / Tesis / Disertasi",
+                "📊 Data, Persentase & Fakta Lapangan",
+                "📑 Regulasi & Dokumen Resmi",
+                "🖥️ Presentasi / Materi Seminar / Bimtek",
+                "📝 Observasi / Wawancara / Catatan Pengawas",
+                "🎥 Transkrip Video / Audio",
+                "📎 Dokumen Pendukung Lainnya",
+            ],
+            key="jenis_bahan_ide_s2",
+        )
+        ket_bahan_ide = st.text_input(
+            "Keterangan bahan (opsional)",
+            placeholder="Contoh: hasil supervisi MTs 2026, teori kokurikuler, transkrip bimtek, data persentase...",
+            key="ket_bahan_ide_s2",
+        )
+        unggah_bahan_ide = st.file_uploader(
+            "Unggah satu atau beberapa bahan",
+            type=["pdf", "docx", "txt", "xlsx", "xls", "csv", "pptx"],
+            accept_multiple_files=True,
+            key="unggah_bahan_ide_s2",
+            help="Boleh menambah unggahan beberapa kali. Untuk video/audio, unggah transkripnya di sini; "
+                 "mesin transkripsi video/audio yang sudah ada di Analisis Karya Akademik tetap dipertahankan.",
+        )
 
-Analisis dan hasilkan:
-1. ANALISIS MASALAH DAN AKAR MASALAH;
-2. ANALISIS TESIS SUMBER bila tersedia;
-3. RESEARCH GAP awal;
-4. NOVELTY yang dapat dipertanggungjawabkan;
-5. LIMA ALTERNATIF JUDUL TESIS yang benar-benar berbeda arah/fokus bila memungkinkan;
-6. CATATAN KELAYAKAN singkat untuk membantu pengguna memilih;
-7. ARAH METODOLOGI yang mungkin, tanpa memaksakan satu metode.
-
-FORMAT 5 JUDUL WAJIB PERSIS:
-[JUDUL 1] tuliskan judul pertama
-[JUDUL 2] tuliskan judul kedua
-[JUDUL 3] tuliskan judul ketiga
-[JUDUL 4] tuliskan judul keempat
-[JUDUL 5] tuliskan judul kelima
-
-AI boleh memberi rekomendasi, tetapi TIDAK BOLEH menetapkan judul final.
-Jangan melanjutkan ke penyusunan proposal. Proposal baru dibuat setelah pengguna menekan tombol
-"✅ Tetapkan Judul & Lanjutkan ke Proposal".
-
-Jika adaptasi ke lokasi baru, jangan hanya mengganti nama lokasi.
-Sesuaikan konteks, data empiris, populasi/sampel/informan, instrumen, dan alasan metodologis.
-Tesis sumber tetap diakui sebagai penelitian terdahulu.
-Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi palsu."""
-
-            # Pola sederhana: fungsi AI menulis hasil ke hasil_penulisan_ai,
-            # lalu hasil tersebut langsung menjadi naskah_aktif.
-            st.session_state["hasil_penulisan_ai"] = ""
-            panel_ai_penulisan(
-                bahan_ide_s2 or masalah_ide_s2,
-                "Ide & Pengajuan Judul Tesis S2",
-                instr_ide_s2,
-                st.session_state.bank_referensi,
-                "s2_ide",
-            )
-            _hasil_langsung = str(st.session_state.get("hasil_penulisan_ai", "") or "").strip()
-            if _hasil_langsung:
-                st.session_state["naskah_aktif"] = _hasil_langsung
-                st.session_state["hasil_ai_ide_judul_s2"] = _hasil_langsung
-                # editor memakai key baru setiap generate agar tidak tertahan nilai lama
-                st.session_state["versi_naskah_ide_s2"] = st.session_state.get("versi_naskah_ide_s2", 0) + 1
-
-                # Ambil otomatis 5 judul dari output AI.
-                # Tidak ada judul contoh/fallback agar tidak mencampur topik penelitian pengguna.
-                _judul_ai = re.findall(
-                    r"(?im)^\s*\[JUDUL\s*[1-5]\]\s*[:\-]?\s*(.+?)\s*$",
-                    _hasil_langsung,
-                )
-                _judul_ai = [re.sub(r"^[\"'“”]+|[\"'“”]+$", "", j.strip()) for j in _judul_ai]
-                _judul_ai = [j for j in _judul_ai if j]
-
-                if _judul_ai:
-                    _judul_ai = (_judul_ai + ["", "", "", "", ""])[:5]
-                    st.session_state["judul_alternatif_s2"] = _judul_ai
-                    # Sinkronkan widget Bank 5 Judul sebelum widget dibuat pada rerun berikutnya.
-                    for _i, _j in enumerate(_judul_ai):
-                        st.session_state[f"judul_alt_s2_{_i}"] = _j
-                    st.success(
-                        f"✅ {sum(bool(j) for j in _judul_ai)} alternatif judul berhasil dimasukkan otomatis ke Bank Judul. "
-                        "Silakan Anda pilih sendiri judul yang paling sesuai."
-                    )
-                else:
-                    st.warning(
-                        "Analisis AI berhasil, tetapi format 5 judul belum terbaca otomatis. "
-                        "Hasil analisis tetap tersedia dan judul dapat diedit pada Bank Alternatif Judul."
-                    )
+        if st.button("➕ Tambahkan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2"):
+            if not unggah_bahan_ide:
+                st.warning("Pilih minimal satu file yang akan dimasukkan ke Bank Bahan Ide.")
             else:
-                st.error("AI belum mengembalikan teks. Periksa koneksi/API lalu coba Generate lagi.")
+                _tambah = 0
+                for _fb in unggah_bahan_ide:
+                    _nama = getattr(_fb, "name", "Bahan")
+                    _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
+                    if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
+                        continue
 
-        _naskah_ide = str(st.session_state.get("naskah_aktif", "") or "").strip()
+                    _teks_bahan = ""
+                    try:
+                        # Gunakan mesin ekstraksi Akademia AI yang sudah ada.
+                        _teks_bahan = ekstrak_teks(_fb)
+                    except Exception as _e:
+                        _teks_bahan = f"ERROR: {_e}"
+
+                    if not str(_teks_bahan).startswith("ERROR:") and str(_teks_bahan).strip():
+                        st.session_state["bank_bahan_ide_s2"].append({
+                            "id": _identitas,
+                            "nama": _nama,
+                            "jenis": jenis_bahan_ide,
+                            "keterangan": ket_bahan_ide.strip(),
+                            "teks": str(_teks_bahan),
+                            "status": "✅ Siap dianalisis AI",
+                        })
+                        _tambah += 1
+                    else:
+                        st.warning(
+                            f"{_nama}: teks belum dapat diekstrak otomatis. "
+                            "Jika ini bahan video/audio, gunakan transkrip dari modul Analisis Karya Akademik lalu unggah transkripnya."
+                        )
+                if _tambah:
+                    st.success(f"✅ {_tambah} bahan ditambahkan ke Bank Bahan Ide.")
+
+        # Bahan teks/manual sangat penting untuk data persentase, hasil observasi, atau transkrip pendek.
+        with st.expander("✍️ Tambahkan bahan dalam bentuk teks / transkrip manual"):
+            jenis_teks_ide = st.selectbox(
+                "Jenis bahan teks",
+                [
+                    "📊 Data, Persentase & Fakta Lapangan",
+                    "📝 Observasi / Wawancara / Catatan Pengawas",
+                    "🎥 Transkrip Video / Audio",
+                    "📚 Teori & Literatur",
+                    "📑 Regulasi & Dokumen Resmi",
+                    "📎 Catatan Lainnya",
+                ],
+                key="jenis_teks_ide_s2",
+            )
+            judul_teks_ide = st.text_input(
+                "Nama/Judul bahan",
+                placeholder="Contoh: Transkrip presentasi kokurikuler 2026",
+                key="judul_teks_ide_s2",
+            )
+            isi_teks_ide = st.text_area(
+                "Tempel isi bahan / transkrip / data",
+                height=180,
+                key="isi_teks_ide_s2",
+            )
+            if st.button("➕ Simpan Teks ke Bank Bahan", key="simpan_teks_bank_ide_s2"):
+                if not isi_teks_ide.strip():
+                    st.warning("Isi bahan teks masih kosong.")
+                else:
+                    _nama_manual = judul_teks_ide.strip() or "Bahan teks manual"
+                    _id_manual = f"manual|{jenis_teks_ide}|{_nama_manual}|{len(isi_teks_ide)}"
+                    st.session_state["bank_bahan_ide_s2"].append({
+                        "id": _id_manual,
+                        "nama": _nama_manual,
+                        "jenis": jenis_teks_ide,
+                        "keterangan": "Input teks/transkrip manual",
+                        "teks": isi_teks_ide.strip(),
+                        "status": "✅ Siap dianalisis AI",
+                    })
+                    st.success("✅ Bahan teks/transkrip ditambahkan.")
+
+        if st.session_state["bank_bahan_ide_s2"]:
+            st.markdown("#### 📚 Bahan yang Sudah Terkumpul")
+            for _idx, _b in enumerate(st.session_state["bank_bahan_ide_s2"]):
+                _c1, _c2 = st.columns([8, 1])
+                with _c1:
+                    st.markdown(
+                        f"**{_idx + 1}. {_b['nama']}**  \n"
+                        f"{_b['jenis']} · {_b.get('status', '✅ Siap')}  \n"
+                        f"{_b.get('keterangan', '')}"
+                    )
+                with _c2:
+                    if st.button("🗑️", key=f"hapus_bahan_ide_s2_{_idx}", help="Hapus bahan ini"):
+                        st.session_state["bank_bahan_ide_s2"].pop(_idx)
+                        st.rerun()
+
+            if st.button("🗑️ Kosongkan Bank Bahan Ide", key="kosongkan_bank_bahan_ide_s2"):
+                st.session_state["bank_bahan_ide_s2"] = []
+                st.rerun()
+
+        # No.1 memakai state KHUSUS. Tidak memakai naskah_aktif/hasil_penulisan_ai
+        # agar hasil Proposal atau modul lain tidak dapat muncul di ruang Ide/Judul.
+        if "hasil_ai_ide_judul_s2" not in st.session_state:
+            st.session_state["hasil_ai_ide_judul_s2"] = ""
+        if "versi_naskah_ide_s2" not in st.session_state:
+            st.session_state["versi_naskah_ide_s2"] = 0
+
+        if st.button("🤖 Analisis Ide, Gap, Novelty & 5 Judul", key="gen_ide_s2", type="primary"):
+            if not masalah_ide_s2.strip():
+                st.warning("Tuliskan permasalahan/gagasan penelitian terlebih dahulu.")
+            else:
+                bahan_ide_s2 = ""
+                for _f in tesis_ide_s2 or []:
+                    _t = ekstrak_teks(_f)
+                    if not _t.startswith("ERROR:"):
+                        bahan_ide_s2 += f"\n\nTESIS SUMBER {_f.name}:\n{_t[:30000]}"
+
+                # Gabungkan seluruh bahan penguat yang telah dikumpulkan.
+                _bank_bahan_prompt = ""
+                for _no_b, _b in enumerate(st.session_state.get("bank_bahan_ide_s2", []), 1):
+                    _bank_bahan_prompt += (
+                        f"\n\n--- BAHAN PENGUAT {_no_b} ---\n"
+                        f"Jenis: {_b.get('jenis', '')}\n"
+                        f"Nama: {_b.get('nama', '')}\n"
+                        f"Keterangan: {_b.get('keterangan', '')}\n"
+                        f"Isi:\n{_b.get('teks', '')[:30000]}"
+                    )
+
+                _prompt_ide_s2 = f"""Anda adalah dosen pembimbing akademik tesis Magister (S2).
+
+INI HANYA TAHAP NOMOR 1: PENCARIAN IDE DAN PENGAJUAN JUDUL.
+DILARANG MENULIS PROPOSAL TESIS.
+DILARANG MENULIS BAB I, BAB II, BAB III.
+DILARANG membuat bagian Latar Belakang, Rumusan Masalah, Tujuan Penelitian,
+Kerangka Teoretis, Metodologi lengkap, Catatan Kaki, atau Daftar Pustaka.
+DILARANG menetapkan satu judul sebagai judul final.
+PENGGUNA SENDIRI yang memilih dan menetapkan judul.
+
+MODE:
+{mode_ide_s2}
+
+MASALAH/GAGASAN BARU PENGGUNA:
+{masalah_ide_s2}
+
+LOKASI/OBJEK BARU:
+{lokasi_ide_s2}
+
+ARAH PENELITIAN YANG DIINGINKAN:
+{arah_ide_s2}
+
+BAHAN TESIS SUMBER (jika ada):
+{bahan_ide_s2 if bahan_ide_s2 else "Tidak ada tesis sumber yang diunggah."}
+
+BANK BAHAN PENGUAT PERMASALAHAN:
+{_bank_bahan_prompt if _bank_bahan_prompt else "Belum ada bahan penguat tambahan."}
+
+ATURAN MEMBACA BAHAN:
+- Bedakan fakta lapangan, data/persentase, teori, regulasi, penelitian terdahulu, presentasi, dan transkrip.
+- Gunakan bahan untuk MENGUATKAN atau MENGUJI masalah pengguna, bukan sekadar merangkum file.
+- Jangan menyatakan research gap sudah terbukti jika penelitian terdahulu yang tersedia belum cukup.
+- Jika bukti belum cukup, tulis jelas: "Research gap masih perlu diperkuat dengan literatur."
+- Jangan mengubah data/persentase dari bahan.
+- Jangan menganggap isi presentasi/transkrip sebagai teori ilmiah kecuali sumber ilmiahnya memang tersedia.
+
+PAGAR KONTEKS:
+- Gunakan HANYA masalah/gagasan baru di atas dan bahan yang diunggah pada proses ini.
+- Abaikan seluruh hasil pekerjaan AI sebelumnya.
+- Jangan membawa topik dari sesi/modul lain.
+- Jangan mengarang data, temuan, DOI, kutipan, nomor halaman, atau referensi.
+- Research gap dan novelty pada tahap ini adalah HIPOTESIS AWAL yang masih perlu dibuktikan melalui literatur.
+- Jangan memaksakan pendekatan kuantitatif, kualitatif, R&D, PTK/action research, atau metode lain.
+  Tawarkan arah yang masuk akal dan biarkan pengguna memilih.
+
+OUTPUT WAJIB HANYA:
+A. ANALISIS MASALAH
+Ringkas masalah inti dan akar masalah.
+
+B. RESEARCH GAP AWAL
+Jelaskan celah yang perlu dibuktikan dengan penelusuran literatur.
+
+C. POTENSI NOVELTY
+Berikan beberapa kemungkinan kebaruan, jangan menyatakan sudah terbukti.
+
+D. 5 ALTERNATIF JUDUL TESIS
+Tulis tepat dengan format:
+[JUDUL 1] ...
+[JUDUL 2] ...
+[JUDUL 3] ...
+[JUDUL 4] ...
+[JUDUL 5] ...
+
+E. CATATAN PEMILIHAN
+Jelaskan secara singkat kelebihan/risiko masing-masing judul dan kemungkinan arah metode.
+AI boleh memberi rekomendasi, tetapi keputusan tetap milik pengguna.
+
+BERHENTI setelah bagian E. JANGAN LANJUT KE PROPOSAL."""
+
+                with st.spinner("AI menganalisis masalah dan menyiapkan 5 alternatif judul..."):
+                    _h_ide = panggil_gemini(_prompt_ide_s2)
+
+                if _h_ide.get("sukses") and str(_h_ide.get("hasil", "")).strip():
+                    _hasil_baru = str(_h_ide["hasil"]).strip()
+
+                    # Pagar kedua: jika model tetap menghasilkan proposal, jangan tampilkan hasil itu.
+                    _indikator_proposal = [
+                        "PROPOSAL AWAL TESIS",
+                        "BAB I",
+                        "BAB II",
+                        "BAB III",
+                        "DAFTAR PUSTAKA",
+                        "CATATAN KAKI",
+                    ]
+                    _terdeteksi_proposal = sum(
+                        1 for _x in _indikator_proposal if _x in _hasil_baru.upper()
+                    ) >= 2
+
+                    if _terdeteksi_proposal:
+                        st.session_state["hasil_ai_ide_judul_s2"] = ""
+                        st.error(
+                            "Hasil AI terdeteksi masuk ke penyusunan Proposal, sehingga tidak ditampilkan. "
+                            "Silakan klik Generate sekali lagi. Tahap No.1 hanya boleh menghasilkan analisis dan 5 alternatif judul."
+                        )
+                    else:
+                        st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru
+                        st.session_state["versi_naskah_ide_s2"] += 1
+
+                        _judul_ai = re.findall(
+                            r"(?im)^\s*\[JUDUL\s*[1-5]\]\s*[:\-]?\s*(.+?)\s*$",
+                            _hasil_baru,
+                        )
+                        _judul_ai = [
+                            re.sub(r'^[\"\'“”]+|[\"\'“”]+$', "", j.strip())
+                            for j in _judul_ai
+                            if j.strip()
+                        ]
+
+                        if _judul_ai:
+                            _judul_ai = (_judul_ai + ["", "", "", "", ""])[:5]
+                            st.session_state["judul_alternatif_s2"] = _judul_ai
+                            # Bank judul membaca state ini sebagai nilai awal pada rerun.
+                            st.session_state["muat_judul_ai_s2"] = True
+                            st.success(
+                                f"✅ Analisis selesai. {sum(bool(j) for j in _judul_ai)} alternatif judul ditemukan. "
+                                "Anda yang memilih judul."
+                            )
+                        else:
+                            st.warning(
+                                "Analisis selesai, tetapi 5 judul belum terbaca otomatis. "
+                                "Hasil tetap ditampilkan untuk Anda edit."
+                            )
+                else:
+                    st.error(_h_ide.get("error", "AI belum mengembalikan hasil."))
+
+        _naskah_ide = str(st.session_state.get("hasil_ai_ide_judul_s2", "") or "").strip()
         if _naskah_ide:
             st.divider()
-            st.subheader("✍️ Editor Hasil Ide & Judul")
+            st.subheader("📊 Hasil Analisis Ide, Gap, Novelty & 5 Alternatif Judul")
             _v_ide = st.session_state.get("versi_naskah_ide_s2", 0)
             _edit_ide = st.text_area(
                 "Hasil AI dapat diedit langsung di sini",
@@ -3235,24 +3433,23 @@ Jangan membuat data, DOI, kutipan, halaman, hasil penelitian, atau referensi pal
                 height=650,
                 key=f"editor_naskah_ide_s2_{_v_ide}",
             )
-            st.session_state["naskah_aktif"] = _edit_ide
             st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
 
             if st.button("🔍 Koreksi Ulang Hasil Edit", key="koreksi_ide_s2"):
                 _prompt_koreksi_ide = f"""Anda adalah dosen pembimbing tesis S2.
-Periksa naskah Ide & Pengajuan Judul berikut berdasarkan masalah pengguna.
-Jangan mengganti topik penelitian.
-Periksa: kesesuaian masalah, research gap, novelty, kelayakan judul, fokus/variabel,
-objek penelitian, metode, konsistensi logika, dan kelayakan tingkat S2.
-Jangan membuat referensi, DOI, data, kutipan, halaman, atau hasil penelitian.
-Berikan koreksi konkret dan versi perbaikan yang dapat diedit pengguna.
+Koreksi HANYA tahap Ide & Pengajuan Judul berikut.
+Jangan membuat proposal, BAB I-III, daftar pustaka, atau catatan kaki.
+Pertahankan topik pengguna.
+Periksa masalah, gap awal, potensi novelty, 5 alternatif judul, dan kelayakan arah metode.
+Pengguna sendiri yang memilih judul final.
+Jangan membuat data atau referensi palsu.
 
 NASKAH TERBARU:
 {_edit_ide}
 """
                 _k = panggil_gemini(_prompt_koreksi_ide)
-                if _k.get("sukses"):
-                    st.session_state["hasil_koreksi_ide_s2"] = _k.get("hasil", "")
+                if _k.get("sukses") and str(_k.get("hasil", "")).strip():
+                    st.session_state["hasil_koreksi_ide_s2"] = _k["hasil"]
                 else:
                     st.error(_k.get("error", "Koreksi AI gagal."))
 
@@ -3278,7 +3475,12 @@ NASKAH TERBARU:
         if "judul_alternatif_s2" not in st.session_state:
             st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
 
-        # Pengguna dapat menyalin 5 judul hasil AI ke kotak ini atau menulis versinya sendiri.
+        # Muat 5 judul hasil Generate ke widget hanya setelah Generate baru berhasil.
+        if st.session_state.pop("muat_judul_ai_s2", False):
+            for _i, _j in enumerate(st.session_state["judul_alternatif_s2"][:5]):
+                st.session_state[f"judul_alt_s2_{_i}"] = _j
+
+        # Pengguna bebas mengedit 5 judul sebelum memilih satu.
         judul_edit_s2 = []
         for _i in range(5):
             _j = st.text_input(
