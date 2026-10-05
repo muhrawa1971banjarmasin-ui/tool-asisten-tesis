@@ -3095,6 +3095,157 @@ REFERENSI:
 # ============================================================
 elif menu == "🎓 Penelitian S1 • S2 • S3":
     st.header("🎓 Asisten Skripsi S1")
+    metode=st.selectbox("Jenis Penelitian",[
+        "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
+        "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
+        "Systematic Literature Review (SLR)","Penelitian Evaluatif","Analisis Dokumen / Analisis Isi"
+    ], key="metode_s1")
+    tahap=st.selectbox("Tahap Skripsi",[
+        "Ide & Topik","Identifikasi Masalah","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian",
+        "Research Gap","BAB I — Pendahuluan","BAB II — Kajian Teori","Kerangka Berpikir",
+        "Hipotesis / Fokus Penelitian","BAB III — Metode","Instrumen Penelitian",
+        "Pengumpulan Data","BAB IV — Hasil & Pembahasan","BAB V — Penutup",
+        "Skripsi Lengkap","Bimbingan & Revisi","Presentasi","Persiapan Sidang"
+    ], key="tahap_s1")
+    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s1")
+    sumber=st.file_uploader("📚 Unggah bahan/referensi/data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="sumber_s1")
+    arah=st.text_area("Ide, masalah, arahan dosen, atau pekerjaan yang ingin dibuat",key="arah_s1")
+    konteks=""
+    if pedoman:
+        t=ekstrak_teks(pedoman)
+        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
+    for f in sumber or []:
+        if f.name.lower().endswith((".pdf",".docx",".txt")):
+            t=ekstrak_teks(f)
+            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
+    st.info("BAB IV hanya dibuat dari data nyata. AI tidak boleh menciptakan data penelitian.")
+    if st.button("🤖 Generate AI Skripsi S1",type="primary",key="generate_s1"):
+        instr=f"""Jenjang: S1 — Skripsi
+Metode: {metode}
+Tahap: {tahap}
+Arahan: {arah}
+Gunakan pedoman kampus bila tersedia. Gunakan hanya referensi yang tersedia/terverifikasi. Jangan membuat data, DOI, kutipan, atau nomor halaman palsu."""
+        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s1")
+    if st.session_state.get("hasil_penulisan_ai"):
+        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s1")
+        st.session_state.naskah_aktif=edit
+
+
+# ============================================================
+# PENULIS BUKU AI
+# ============================================================
+elif menu == "📘 Penulis Buku AI":
+    st.header("📘 Penulis Buku AI")
+    jenis_buku=st.selectbox("Jenis Buku",["Buku Ajar","Buku Referensi","Monograf","Modul","Buku Akademik"])
+    tahap_buku=st.selectbox("Tahap",["Konsep & Pembaca","Outline Buku","Susun BAB","Kembangkan Subbab","Sitasi & Daftar Pustaka","Penyuntingan Buku","Sinopsis & Kata Pengantar","Naskah Buku Lengkap"])
+    tema=st.text_area("Tema, tujuan, pembaca sasaran, dan arahan")
+    bahan=st.file_uploader("Unggah bahan buku",type=["pdf","docx","txt"],accept_multiple_files=True,key="bahan_buku")
+    konteks=""
+    for f in bahan or []:
+        t=ekstrak_teks(f)
+        if not t.startswith("ERROR:"): konteks+=f"\nBAHAN {f.name}:\n"+t
+    if st.button("📘 Susun Buku dengan AI",type="primary"):
+        panel_ai_penulisan(konteks,f"{jenis_buku} — {tahap_buku}",tema,st.session_state.bank_referensi,"buku")
+    if st.session_state.get("hasil_penulisan_ai"):
+        st.text_area("Naskah buku — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="edit_buku")
+
+
+# ============================================================
+# PENYUNTING AKADEMIK AI
+# ============================================================
+elif menu == "✨ Penyunting Akademik AI":
+    st.header("✨ Penyunting Akademik AI")
+    mode_edit=st.selectbox("Mode",[
+        "Koreksi Ejaan & Typo","Rapikan Kalimat","Bahasa Akademik",
+        "Perkuat Paragraf","Koherensi Antarparagraf",
+        "Parafrasa Akademik Bertanggung Jawab","Sunting Naskah Lengkap"
+    ])
+    file_edit=st.file_uploader("Unggah naskah",type=["pdf","docx","txt"],key="file_editor")
+    teks_edit=st.text_area("Atau tempel teks",height=250,key="teks_editor")
+    if file_edit:
+        t=ekstrak_teks(file_edit)
+        if not t.startswith("ERROR:"): teks_edit=t
+    if st.button("✨ Sunting dengan AI",type="primary",disabled=not bool(teks_edit.strip())):
+        h=panggil_gemini(f"""Sunting teks berikut dengan mode: {mode_edit}.
+Pertahankan makna, data, sitasi, nama, dan substansi. Jangan menghapus sitasi untuk menurunkan kemiripan.
+Jangan membuat referensi baru. Untuk parafrasa, ubah secara akademik dan wajar, bukan untuk mengelabui pemeriksa plagiarisme.
+Tampilkan naskah hasil suntingan dan ringkas perubahan penting.
+TEKS:
+{teks_edit[:70000]}""")
+        if h["sukses"]: st.session_state.hasil_editor=h["hasil"]
+        else: st.error(h["error"])
+    if st.session_state.get("hasil_editor"):
+        st.text_area("Hasil suntingan",st.session_state.hasil_editor,height=650,key="hasil_editor_area")
+
+
+# ============================================================
+# TESIS S2
+# ============================================================
+elif menu == "🎓 Tesis S2":
+    st.header("🎓 Asisten Tesis S2")
+    # MENU VERTIKAL TESIS S2
+    # Hanya menambah/menata navigasi. Mesin AI dan fitur lama tetap dipertahankan.
+    submenu_s2 = st.radio(
+        "Menu Tesis S2",
+        [
+            "💡 Pencarian Ide & Pengajuan Judul 🌟",
+            "📑 Proposal Tesis",
+            "🔎 Literatur & Penelitian Terdahulu",
+            "🎯 Metodologi Penelitian",
+            "📋 Instrumen Penelitian",
+            "📊 Statistik & SPSS",
+            "🧩 Analisis Data Kualitatif",
+            "✍️ Penulisan Tesis",
+            "🤖 Review & Bimbingan AI",
+            "📈 Progres & Timeline Penelitian",
+            "🖥️ Presentasi",
+            "🎓 Simulasi Sidang",
+        ],
+        key="submenu_s2_vertikal",
+    )
+
+    # Tahap lama tidak dihapus. Semuanya tetap tersedia di bawah submenu yang sesuai.
+    tahap_per_submenu_s2 = {
+        "💡 Pencarian Ide & Pengajuan Judul 🌟": [
+            "Ide & Topik","Identifikasi Masalah","Research Gap","State of the Art",
+            "Novelty","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian"
+        ],
+        "📑 Proposal Tesis": [
+            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian","BAB III"
+        ],
+        "🔎 Literatur & Penelitian Terdahulu": [
+            "Research Gap","State of the Art","Novelty","BAB II"
+        ],
+        "🎯 Metodologi Penelitian": [
+            "BAB III","Pengumpulan Data"
+        ],
+        "📋 Instrumen Penelitian": [
+            "Instrumen"
+        ],
+        "📊 Statistik & SPSS": [
+            "BAB IV"
+        ],
+        "🧩 Analisis Data Kualitatif": [
+            "BAB IV"
+        ],
+        "✍️ Penulisan Tesis": [
+            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian",
+            "BAB III","BAB IV","BAB V","Tesis Lengkap"
+        ],
+        "🤖 Review & Bimbingan AI": [
+            "Bimbingan & Revisi","Tesis Lengkap"
+        ],
+        "📈 Progres & Timeline Penelitian": [
+            "Tesis Lengkap","Bimbingan & Revisi"
+        ],
+        "🖥️ Presentasi": [
+            "Presentasi"
+        ],
+        "🎓 Simulasi Sidang": [
+            "Persiapan Sidang"
+        ],
+    }
+
     # SUBMENU 1 — Pencarian Ide & Pengajuan Judul
     if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟":
         st.markdown("### 🌟 Ruang Kerja Ide, Permasalahan & Judul")
@@ -3450,6 +3601,21 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                             )
                 else:
                     st.error(_h_ide.get("error", "AI belum mengembalikan hasil."))
+
+        # Tombol hapus hasil AI No.1, tidak menghapus Bank Bahan.
+        if st.session_state.get("hasil_ai_ide_judul_s2"):
+            if st.button("🗑️ Hapus Hasil Analisis AI", key="hapus_hasil_ai_ide_s2"):
+                for _k in [
+                    "hasil_ai_ide_judul_s2",
+                    "hasil_koreksi_ide_s2",
+                    "judul_alternatif_s2",
+                    "masalah_terakhir_ide_s2",
+                ]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
+                st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+                st.success("Hasil analisis AI dihapus. Bank Bahan tetap tersimpan.")
+                st.rerun()
 
         _naskah_ide = str(st.session_state.get("hasil_ai_ide_judul_s2", "") or "").strip()
         _masalah_hasil = str(st.session_state.get("masalah_terakhir_ide_s2", "") or "").strip()
@@ -3867,296 +4033,152 @@ NASKAH TERBARU:
         st.caption(f"{selesai_prop} dari {len(semua_bagian_prop)} bagian proposal telah difinalisasi.")
 
 
-    metode=st.selectbox("Jenis Penelitian",[
-        "Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods",
-        "R&D / Pengembangan","PTK","Studi Literatur / Library Research",
-        "Systematic Literature Review (SLR)","Penelitian Evaluatif","Analisis Dokumen / Analisis Isi"
-    ], key="metode_s1")
-    tahap=st.selectbox("Tahap Skripsi",[
-        "Ide & Topik","Identifikasi Masalah","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian",
-        "Research Gap","BAB I — Pendahuluan","BAB II — Kajian Teori","Kerangka Berpikir",
-        "Hipotesis / Fokus Penelitian","BAB III — Metode","Instrumen Penelitian",
-        "Pengumpulan Data","BAB IV — Hasil & Pembahasan","BAB V — Penutup",
-        "Skripsi Lengkap","Bimbingan & Revisi","Presentasi","Persiapan Sidang"
-    ], key="tahap_s1")
-    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s1")
-    sumber=st.file_uploader("📚 Unggah bahan/referensi/data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="sumber_s1")
-    arah=st.text_area("Ide, masalah, arahan dosen, atau pekerjaan yang ingin dibuat",key="arah_s1")
-    konteks=""
-    if pedoman:
-        t=ekstrak_teks(pedoman)
-        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
-    for f in sumber or []:
-        if f.name.lower().endswith((".pdf",".docx",".txt")):
-            t=ekstrak_teks(f)
-            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
-    st.info("BAB IV hanya dibuat dari data nyata. AI tidak boleh menciptakan data penelitian.")
-    if st.button("🤖 Generate AI Skripsi S1",type="primary",key="generate_s1"):
-        instr=f"""Jenjang: S1 — Skripsi
-Metode: {metode}
-Tahap: {tahap}
-Arahan: {arah}
-Gunakan pedoman kampus bila tersedia. Gunakan hanya referensi yang tersedia/terverifikasi. Jangan membuat data, DOI, kutipan, atau nomor halaman palsu."""
-        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s1")
-    if st.session_state.get("hasil_penulisan_ai"):
-        edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s1")
-        st.session_state.naskah_aktif=edit
 
-
-# ============================================================
-# PENULIS BUKU AI
-# ============================================================
-elif menu == "📘 Penulis Buku AI":
-    st.header("📘 Penulis Buku AI")
-    jenis_buku=st.selectbox("Jenis Buku",["Buku Ajar","Buku Referensi","Monograf","Modul","Buku Akademik"])
-    tahap_buku=st.selectbox("Tahap",["Konsep & Pembaca","Outline Buku","Susun BAB","Kembangkan Subbab","Sitasi & Daftar Pustaka","Penyuntingan Buku","Sinopsis & Kata Pengantar","Naskah Buku Lengkap"])
-    tema=st.text_area("Tema, tujuan, pembaca sasaran, dan arahan")
-    bahan=st.file_uploader("Unggah bahan buku",type=["pdf","docx","txt"],accept_multiple_files=True,key="bahan_buku")
-    konteks=""
-    for f in bahan or []:
-        t=ekstrak_teks(f)
-        if not t.startswith("ERROR:"): konteks+=f"\nBAHAN {f.name}:\n"+t
-    if st.button("📘 Susun Buku dengan AI",type="primary"):
-        panel_ai_penulisan(konteks,f"{jenis_buku} — {tahap_buku}",tema,st.session_state.bank_referensi,"buku")
-    if st.session_state.get("hasil_penulisan_ai"):
-        st.text_area("Naskah buku — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="edit_buku")
-
-
-# ============================================================
-# PENYUNTING AKADEMIK AI
-# ============================================================
-elif menu == "✨ Penyunting Akademik AI":
-    st.header("✨ Penyunting Akademik AI")
-    mode_edit=st.selectbox("Mode",[
-        "Koreksi Ejaan & Typo","Rapikan Kalimat","Bahasa Akademik",
-        "Perkuat Paragraf","Koherensi Antarparagraf",
-        "Parafrasa Akademik Bertanggung Jawab","Sunting Naskah Lengkap"
-    ])
-    file_edit=st.file_uploader("Unggah naskah",type=["pdf","docx","txt"],key="file_editor")
-    teks_edit=st.text_area("Atau tempel teks",height=250,key="teks_editor")
-    if file_edit:
-        t=ekstrak_teks(file_edit)
-        if not t.startswith("ERROR:"): teks_edit=t
-    if st.button("✨ Sunting dengan AI",type="primary",disabled=not bool(teks_edit.strip())):
-        h=panggil_gemini(f"""Sunting teks berikut dengan mode: {mode_edit}.
-Pertahankan makna, data, sitasi, nama, dan substansi. Jangan menghapus sitasi untuk menurunkan kemiripan.
-Jangan membuat referensi baru. Untuk parafrasa, ubah secara akademik dan wajar, bukan untuk mengelabui pemeriksa plagiarisme.
-Tampilkan naskah hasil suntingan dan ringkas perubahan penting.
-TEKS:
-{teks_edit[:70000]}""")
-        if h["sukses"]: st.session_state.hasil_editor=h["hasil"]
-        else: st.error(h["error"])
-    if st.session_state.get("hasil_editor"):
-        st.text_area("Hasil suntingan",st.session_state.hasil_editor,height=650,key="hasil_editor_area")
-
-
-# ============================================================
-# TESIS S2
-# ============================================================
-elif menu == "🎓 Tesis S2":
-    st.header("🎓 Asisten Tesis S2")
-    # MENU VERTIKAL TESIS S2
-    # Hanya menambah/menata navigasi. Mesin AI dan fitur lama tetap dipertahankan.
-    submenu_s2 = st.radio(
-        "Menu Tesis S2",
-        [
-            "💡 Pencarian Ide & Pengajuan Judul 🌟",
-            "📑 Proposal Tesis",
-            "🔎 Literatur & Penelitian Terdahulu",
-            "🎯 Metodologi Penelitian",
-            "📋 Instrumen Penelitian",
-            "📊 Statistik & SPSS",
-            "🧩 Analisis Data Kualitatif",
-            "✍️ Penulisan Tesis",
-            "🤖 Review & Bimbingan AI",
-            "📈 Progres & Timeline Penelitian",
-            "🖥️ Presentasi",
-            "🎓 Simulasi Sidang",
-        ],
-        key="submenu_s2_vertikal",
-    )
-
-    # Tahap lama tidak dihapus. Semuanya tetap tersedia di bawah submenu yang sesuai.
-    tahap_per_submenu_s2 = {
-        "💡 Pencarian Ide & Pengajuan Judul 🌟": [
-            "Ide & Topik","Identifikasi Masalah","Research Gap","State of the Art",
-            "Novelty","Alternatif Judul","Rumusan Masalah","Tujuan Penelitian"
-        ],
-        "📑 Proposal Tesis": [
-            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian","BAB III"
-        ],
-        "🔎 Literatur & Penelitian Terdahulu": [
-            "Research Gap","State of the Art","Novelty","BAB II"
-        ],
-        "🎯 Metodologi Penelitian": [
-            "BAB III","Pengumpulan Data"
-        ],
-        "📋 Instrumen Penelitian": [
-            "Instrumen"
-        ],
-        "📊 Statistik & SPSS": [
-            "BAB IV"
-        ],
-        "🧩 Analisis Data Kualitatif": [
-            "BAB IV"
-        ],
-        "✍️ Penulisan Tesis": [
-            "BAB I","BAB II","Kerangka Berpikir","Hipotesis / Fokus Penelitian",
-            "BAB III","BAB IV","BAB V","Tesis Lengkap"
-        ],
-        "🤖 Review & Bimbingan AI": [
-            "Bimbingan & Revisi","Tesis Lengkap"
-        ],
-        "📈 Progres & Timeline Penelitian": [
-            "Tesis Lengkap","Bimbingan & Revisi"
-        ],
-        "🖥️ Presentasi": [
-            "Presentasi"
-        ],
-        "🎓 Simulasi Sidang": [
-            "Persiapan Sidang"
-        ],
-    }
-
-    pilihan_tahap_s2 = tahap_per_submenu_s2[submenu_s2]
-    if len(pilihan_tahap_s2) == 1:
-        tahap = pilihan_tahap_s2[0]
-        st.caption(f"Tahap aktif: {tahap}")
-    else:
-        tahap = st.selectbox(
-            "Pilih bagian yang dikerjakan",
-            pilihan_tahap_s2,
-            key=f"tahap_s2_{submenu_s2}",
-        )
-    metode=st.selectbox("Jenis Penelitian",["Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods","R&D / Pengembangan","PTK","Studi Literatur / Library Research","SLR","Evaluatif","Analisis Isi"],key="metode_s2")
-    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s2")
-    sumber=st.file_uploader("📚 Unggah tesis terdahulu, jurnal, bahan, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="tesis")
-    arah=st.text_area("Ide, masalah, arahan pembimbing, atau pekerjaan yang ingin dibuat",key="arah_s2")
-    konteks=""
-    if pedoman:
-        t=ekstrak_teks(pedoman)
-        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
-    for f in sumber or []:
-        if f.name.lower().endswith((".pdf",".docx",".txt")):
-            t=ekstrak_teks(f)
-            if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
-    st.info("AI menggunakan alur sumber → analisis → draf → sitasi → verifikasi → revisi. BAB IV hanya dari data nyata.")
-    if st.button("🤖 Generate AI Tesis S2",type="primary",key="generate_s2"):
-        instr=f"""Jenjang: S2 — Tesis
-Metode: {metode}
-Tahap: {tahap}
-Arahan: {arah}
-Tunjukkan kedalaman analisis tingkat magister. Untuk gap/novelty, dasarkan pada bahan dan referensi yang tersedia. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
-        panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s2")
-    _hasil_aktif_s2 = (
-        st.session_state.get("hasil_ai_ide_judul_s2", "")
-        if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟"
-        else st.session_state.get("hasil_penulisan_ai", "")
-    )
-    if _hasil_aktif_s2:
-        edit = st.text_area(
-            "✍️ Hasil AI — dapat diedit",
-            _hasil_aktif_s2,
-            height=650,
-            key="hasil_s2"
-        )
-        st.session_state.naskah_aktif = edit
-
-        st.caption(
-            "Edit hasil AI langsung di atas. Setelah selesai, gunakan Koreksi Ulang AI. "
-            "AI menilai versi terbaru dan tidak mengganti tulisan Anda secara otomatis."
-        )
-
-        col_koreksi, col_final = st.columns(2)
-
-        with col_koreksi:
-            if st.button(
-                "🔍 Koreksi Ulang Hasil Edit",
-                key="koreksi_ulang_s2",
-                use_container_width=True
-            ):
-                if not edit.strip():
-                    st.warning("Belum ada teks yang dapat dikoreksi.")
-                else:
-                    instr_koreksi = f"""Jenjang: S2 — Tesis
-Submenu: {submenu_s2}
-Tahap: {tahap}
-Jenis penelitian: {metode}
-
-Tugas Anda adalah menjadi reviewer akademik tesis tingkat magister.
-Periksa NASKAH VERSI TERBARU yang sudah diedit pengguna.
-
-Periksa secara menyeluruh:
-1. kesesuaian isi dengan fokus/judul dan tahap tesis;
-2. struktur akademik dan kelogisan argumentasi;
-3. koherensi antarparagraf dan konsistensi istilah;
-4. bahasa akademik, tata bahasa, dan kejelasan kalimat;
-5. kesesuaian metodologi bila bagian berkaitan dengan metode;
-6. konsistensi rumusan masalah, tujuan, teori, metode, hasil, dan kesimpulan bila tersedia;
-7. klaim yang membutuhkan referensi;
-8. relevansi referensi/sitasi terhadap klaim;
-9. konsistensi sitasi, footnote, dan daftar pustaka bila tersedia;
-10. kelemahan substantif yang masih perlu diperbaiki.
-
-ATURAN:
-- Jangan membuat data, DOI, halaman, kutipan, atau referensi palsu.
-- Jangan mengubah fakta penelitian pengguna.
-- Pertahankan maksud asli naskah.
-- Berikan saran terlebih dahulu. Jangan mengganti naskah pengguna secara diam-diam.
-
-Susun hasil:
-A. Ringkasan penilaian
-B. Bagian yang perlu diperbaiki
-C. Usulan perbaikan
-D. Versi revisi yang disarankan
-E. Catatan referensi/sitasi yang perlu diverifikasi
-
-NASKAH VERSI TERBARU:
-{edit}
-"""
-                    # Tetap memakai mesin AI lama yang sudah berfungsi.
-                    panel_ai_penulisan(
-                        edit,
-                        f"Koreksi Ulang — {tahap}",
-                        instr_koreksi,
-                        st.session_state.bank_referensi,
-                        "s2_koreksi"
-                    )
-                    st.session_state["hasil_koreksi_s2"] = st.session_state.get(
-                        "hasil_penulisan_ai", ""
-                    )
-
-        with col_final:
-            if st.button(
-                "✅ Tetapkan Versi Edit sebagai Final",
-                key="final_s2",
-                use_container_width=True
-            ):
-                if edit.strip():
-                    st.session_state["final_tesis_s2"] = edit
-                    st.success("Versi edit terbaru ditetapkan sebagai versi final.")
-                else:
-                    st.warning("Belum ada teks untuk difinalisasi.")
-
-        if st.session_state.get("hasil_koreksi_s2"):
-            st.markdown("### 🤖 Hasil Koreksi Ulang AI")
-            hasil_koreksi_edit = st.text_area(
-                "Hasil koreksi juga dapat diedit",
-                st.session_state["hasil_koreksi_s2"],
-                height=500,
-                key="hasil_koreksi_s2_edit"
+    # No.1 dan Proposal memakai workspace khusus di atas.
+    # Generator generik hanya tampil pada submenu 3-12.
+    if submenu_s2 not in [
+        "💡 Pencarian Ide & Pengajuan Judul 🌟",
+        "📑 Proposal Tesis",
+    ]:
+        pilihan_tahap_s2 = tahap_per_submenu_s2[submenu_s2]
+        if len(pilihan_tahap_s2) == 1:
+            tahap = pilihan_tahap_s2[0]
+            st.caption(f"Tahap aktif: {tahap}")
+        else:
+            tahap = st.selectbox(
+                "Pilih bagian yang dikerjakan",
+                pilihan_tahap_s2,
+                key=f"tahap_s2_{submenu_s2}",
             )
-            st.session_state["hasil_koreksi_s2"] = hasil_koreksi_edit
-
-        if st.session_state.get("final_tesis_s2"):
-            st.markdown("### ✅ Versi Final")
-            final_edit = st.text_area(
-                "Versi final tetap dapat diedit bila masih diperlukan",
-                st.session_state["final_tesis_s2"],
-                height=500,
-                key="final_tesis_s2_edit"
+        metode=st.selectbox("Jenis Penelitian",["Belum menentukan metode","Kuantitatif","Kualitatif","Mixed Methods","R&D / Pengembangan","PTK","Studi Literatur / Library Research","SLR","Evaluatif","Analisis Isi"],key="metode_s2")
+        pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s2")
+        sumber=st.file_uploader("📚 Unggah tesis terdahulu, jurnal, bahan, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="tesis")
+        arah=st.text_area("Ide, masalah, arahan pembimbing, atau pekerjaan yang ingin dibuat",key="arah_s2")
+        konteks=""
+        if pedoman:
+            t=ekstrak_teks(pedoman)
+            if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
+        for f in sumber or []:
+            if f.name.lower().endswith((".pdf",".docx",".txt")):
+                t=ekstrak_teks(f)
+                if not t.startswith("ERROR:"): konteks+=f"\nSUMBER {f.name}:\n{t}"
+        st.info("AI menggunakan alur sumber → analisis → draf → sitasi → verifikasi → revisi. BAB IV hanya dari data nyata.")
+        if st.button("🤖 Generate AI Tesis S2",type="primary",key="generate_s2"):
+            instr=f"""Jenjang: S2 — Tesis
+    Metode: {metode}
+    Tahap: {tahap}
+    Arahan: {arah}
+    Tunjukkan kedalaman analisis tingkat magister. Untuk gap/novelty, dasarkan pada bahan dan referensi yang tersedia. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
+            panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s2")
+        _hasil_aktif_s2 = (
+            st.session_state.get("hasil_ai_ide_judul_s2", "")
+            if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟"
+            else st.session_state.get("hasil_penulisan_ai", "")
+        )
+        if _hasil_aktif_s2:
+            edit = st.text_area(
+                "✍️ Hasil AI — dapat diedit",
+                _hasil_aktif_s2,
+                height=650,
+                key="hasil_s2"
             )
-            st.session_state["final_tesis_s2"] = final_edit
+            st.session_state.naskah_aktif = edit
+
+            st.caption(
+                "Edit hasil AI langsung di atas. Setelah selesai, gunakan Koreksi Ulang AI. "
+                "AI menilai versi terbaru dan tidak mengganti tulisan Anda secara otomatis."
+            )
+
+            col_koreksi, col_final = st.columns(2)
+
+            with col_koreksi:
+                if st.button(
+                    "🔍 Koreksi Ulang Hasil Edit",
+                    key="koreksi_ulang_s2",
+                    use_container_width=True
+                ):
+                    if not edit.strip():
+                        st.warning("Belum ada teks yang dapat dikoreksi.")
+                    else:
+                        instr_koreksi = f"""Jenjang: S2 — Tesis
+    Submenu: {submenu_s2}
+    Tahap: {tahap}
+    Jenis penelitian: {metode}
+
+    Tugas Anda adalah menjadi reviewer akademik tesis tingkat magister.
+    Periksa NASKAH VERSI TERBARU yang sudah diedit pengguna.
+
+    Periksa secara menyeluruh:
+    1. kesesuaian isi dengan fokus/judul dan tahap tesis;
+    2. struktur akademik dan kelogisan argumentasi;
+    3. koherensi antarparagraf dan konsistensi istilah;
+    4. bahasa akademik, tata bahasa, dan kejelasan kalimat;
+    5. kesesuaian metodologi bila bagian berkaitan dengan metode;
+    6. konsistensi rumusan masalah, tujuan, teori, metode, hasil, dan kesimpulan bila tersedia;
+    7. klaim yang membutuhkan referensi;
+    8. relevansi referensi/sitasi terhadap klaim;
+    9. konsistensi sitasi, footnote, dan daftar pustaka bila tersedia;
+    10. kelemahan substantif yang masih perlu diperbaiki.
+
+    ATURAN:
+    - Jangan membuat data, DOI, halaman, kutipan, atau referensi palsu.
+    - Jangan mengubah fakta penelitian pengguna.
+    - Pertahankan maksud asli naskah.
+    - Berikan saran terlebih dahulu. Jangan mengganti naskah pengguna secara diam-diam.
+
+    Susun hasil:
+    A. Ringkasan penilaian
+    B. Bagian yang perlu diperbaiki
+    C. Usulan perbaikan
+    D. Versi revisi yang disarankan
+    E. Catatan referensi/sitasi yang perlu diverifikasi
+
+    NASKAH VERSI TERBARU:
+    {edit}
+    """
+                        # Tetap memakai mesin AI lama yang sudah berfungsi.
+                        panel_ai_penulisan(
+                            edit,
+                            f"Koreksi Ulang — {tahap}",
+                            instr_koreksi,
+                            st.session_state.bank_referensi,
+                            "s2_koreksi"
+                        )
+                        st.session_state["hasil_koreksi_s2"] = st.session_state.get(
+                            "hasil_penulisan_ai", ""
+                        )
+
+            with col_final:
+                if st.button(
+                    "✅ Tetapkan Versi Edit sebagai Final",
+                    key="final_s2",
+                    use_container_width=True
+                ):
+                    if edit.strip():
+                        st.session_state["final_tesis_s2"] = edit
+                        st.success("Versi edit terbaru ditetapkan sebagai versi final.")
+                    else:
+                        st.warning("Belum ada teks untuk difinalisasi.")
+
+            if st.session_state.get("hasil_koreksi_s2"):
+                st.markdown("### 🤖 Hasil Koreksi Ulang AI")
+                hasil_koreksi_edit = st.text_area(
+                    "Hasil koreksi juga dapat diedit",
+                    st.session_state["hasil_koreksi_s2"],
+                    height=500,
+                    key="hasil_koreksi_s2_edit"
+                )
+                st.session_state["hasil_koreksi_s2"] = hasil_koreksi_edit
+
+            if st.session_state.get("final_tesis_s2"):
+                st.markdown("### ✅ Versi Final")
+                final_edit = st.text_area(
+                    "Versi final tetap dapat diedit bila masih diperlukan",
+                    st.session_state["final_tesis_s2"],
+                    height=500,
+                    key="final_tesis_s2_edit"
+                )
+                st.session_state["final_tesis_s2"] = final_edit
 
 
 # ============================================================
