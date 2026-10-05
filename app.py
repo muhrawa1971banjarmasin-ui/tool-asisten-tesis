@@ -213,9 +213,10 @@ def simpan_karya(nama, jenis, ukuran):
 # KONEKSI AI GEMINI LANGSUNG
 # ============================================================
 
-def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
-    """Analisis dokumen menggunakan Gemini API langsung."""
+def _panggil_gemini_rest_aman(prompt, temperature=0.25, max_output_tokens=8192):
+    """Panggilan Gemini REST dengan retry eksponensial dan fallback model stabil."""
     import time
+    import random
 
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
@@ -223,10 +224,119 @@ def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
         return {
             "sukses": False,
             "hasil": "",
-            "error": "GEMINI_API_KEY belum ditemukan di Streamlit Secrets."
+            "error": "GEMINI_API_KEY belum ditemukan di Streamlit Secrets.",
+            "model": ""
         }
 
-    model_id = "gemini-3.8-flash"
+    # Model utama tetap model yang sudah digunakan aplikasi.
+    # Fallback hanya dipakai setelah gangguan sementara pada model utama.
+    model_ids = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+    transient_codes = {408, 429, 500, 502, 503, 504}
+    payload = {
+        "contents": [{"parts": [{"text": prompt[:90000]}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens
+        }
+    }
+    error_terakhir = ""
+
+    for indeks_model, model_id in enumerate(model_ids):
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + model_id + ":generateContent?key=" + api_key
+        )
+
+        # 4 percobaan per model: 1 panggilan awal + 3 retry.
+        for percobaan in range(4):
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=180) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+
+                candidates = data.get("candidates") or []
+                parts = (
+                    candidates[0].get("content", {}).get("parts", [])
+                    if candidates else []
+                )
+                isi = "\n".join(
+                    part.get("text", "")
+                    for part in parts
+                    if isinstance(part, dict) and part.get("text")
+                ).strip()
+
+                if isi:
+                    return {
+                        "sukses": True,
+                        "hasil": isi,
+                        "error": "",
+                        "model": model_id,
+                        "fallback": indeks_model > 0
+                    }
+
+                error_terakhir = f"{model_id} merespons tetapi hasil kosong."
+                break
+
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = e.read().decode("utf-8")
+                except Exception:
+                    detail = ""
+                error_terakhir = f"Gemini HTTP {e.code}. {detail}".strip()
+
+                # Jangan retry/fallback untuk kesalahan permanen seperti API key/bad request.
+                if e.code not in transient_codes:
+                    return {
+                        "sukses": False,
+                        "hasil": "",
+                        "error": error_terakhir,
+                        "model": model_id
+                    }
+
+                if percobaan < 3:
+                    # Exponential backoff 2, 4, 8 detik + jitter kecil.
+                    delay = (2 ** (percobaan + 1)) + random.uniform(0.2, 1.0)
+                    time.sleep(delay)
+                    continue
+                break
+
+            except (urllib.error.URLError, TimeoutError) as e:
+                error_terakhir = f"Gangguan koneksi ke Gemini: {e}"
+                if percobaan < 3:
+                    delay = (2 ** (percobaan + 1)) + random.uniform(0.2, 1.0)
+                    time.sleep(delay)
+                    continue
+                break
+
+            except Exception as e:
+                error_terakhir = f"Terjadi kesalahan saat menjalankan Gemini: {e}"
+                if percobaan < 3:
+                    delay = (2 ** (percobaan + 1)) + random.uniform(0.2, 1.0)
+                    time.sleep(delay)
+                    continue
+                break
+
+        # Setelah model utama gagal karena gangguan sementara, lanjut model fallback.
+
+    return {
+        "sukses": False,
+        "hasil": "",
+        "error": (
+            "Layanan Gemini sedang sibuk atau belum dapat dijangkau setelah retry otomatis "
+            "dan fallback aman. Silakan coba lagi beberapa saat. Detail terakhir: "
+            + error_terakhir
+        ),
+        "model": ""
+    }
+
+
+def analisis_dengan_gemini(teks, jenis_karya, fokus_analisis):
+    """Analisis dokumen menggunakan Gemini API dengan retry dan fallback aman."""
     teks_dokumen = teks[:60000]
     fokus = ", ".join(fokus_analisis) if fokus_analisis else "Analisis akademik menyeluruh"
 
@@ -272,100 +382,12 @@ DOKUMEN:
 --------------------
 """
 
-    payload = {
-        "contents": [
-            {"parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 8192
-        }
-    }
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model_id
-        + ":generateContent?key="
-        + api_key
+    return _panggil_gemini_rest_aman(
+        prompt,
+        temperature=0.2,
+        max_output_tokens=8192
     )
-
-    transient_codes = {429, 500, 502, 503, 504}
-
-    for percobaan in range(3):
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-
-        try:
-            with urllib.request.urlopen(request, timeout=180) as response:
-                data = json.loads(response.read().decode("utf-8"))
-
-            candidates = data.get("candidates", [])
-            parts = (
-                candidates[0].get("content", {}).get("parts", [])
-                if candidates else []
-            )
-            isi = "\n".join(
-                part.get("text", "")
-                for part in parts
-                if isinstance(part, dict) and part.get("text")
-            ).strip()
-
-            if isi:
-                return {
-                    "sukses": True,
-                    "hasil": isi,
-                    "error": "",
-                    "model": model_id
-                }
-
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": "Gemini merespons, tetapi hasil analisis kosong."
-            }
-
-        except urllib.error.HTTPError as e:
-            try:
-                detail = e.read().decode("utf-8")
-            except Exception:
-                detail = ""
-
-            if e.code in transient_codes and percobaan < 2:
-                time.sleep(3 * (percobaan + 1))
-                continue
-
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Gemini belum berhasil memproses permintaan. HTTP {e.code}. {detail}"
-            }
-
-        except urllib.error.URLError as e:
-            if percobaan < 2:
-                time.sleep(3 * (percobaan + 1))
-                continue
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Tidak dapat terhubung ke Gemini: {e.reason}"
-            }
-
-        except Exception as e:
-            return {
-                "sukses": False,
-                "hasil": "",
-                "error": f"Terjadi kesalahan saat menjalankan Gemini: {str(e)}"
-            }
-
-    return {
-        "sukses": False,
-        "hasil": "",
-        "error": "Gemini belum berhasil setelah beberapa percobaan."
-    }
 
 
 # ============================================================
@@ -416,46 +438,11 @@ def jalankan_analisis_ai(
 # ============================================================
 def panggil_gemini(prompt, temperature=0.25):
     """Panggilan Gemini umum. API key tetap hanya di Streamlit Secrets."""
-    import time
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        return {"sukses": False, "hasil": "", "error": "GEMINI_API_KEY belum ditemukan di Streamlit Secrets."}
-
-    model_id = "gemini-3.8-flash"
-    payload = {
-        "contents": [{"parts": [{"text": prompt[:90000]}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": 8192}
-    }
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model_id + ":generateContent?key=" + api_key
+    return _panggil_gemini_rest_aman(
+        prompt,
+        temperature=temperature,
+        max_output_tokens=8192
     )
-    for percobaan in range(3):
-        req = urllib.request.Request(
-            url, data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}, method="POST"
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-            isi = "\n".join(x.get("text","") for x in parts if isinstance(x,dict)).strip()
-            if isi:
-                return {"sukses": True, "hasil": isi, "error": "", "model": model_id}
-            return {"sukses": False, "hasil": "", "error": "Gemini merespons tetapi hasil kosong."}
-        except urllib.error.HTTPError as e:
-            detail = ""
-            try: detail = e.read().decode("utf-8")
-            except Exception: pass
-            if e.code in {429,500,502,503,504} and percobaan < 2:
-                time.sleep(3*(percobaan+1)); continue
-            return {"sukses":False,"hasil":"","error":f"Gemini HTTP {e.code}. {detail}"}
-        except Exception as e:
-            if percobaan < 2:
-                time.sleep(2*(percobaan+1)); continue
-            return {"sukses":False,"hasil":"","error":str(e)}
-    return {"sukses":False,"hasil":"","error":"Gemini belum berhasil setelah beberapa percobaan."}
 
 
 def _http_json(url, timeout=30):
