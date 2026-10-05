@@ -2825,10 +2825,53 @@ REFERENSI:
                 dipilih,
                 "pasang_ref"
             )
-        if st.session_state.get("hasil_penulisan_ai"):
+        hasil_pakai_naskah = str(st.session_state.get("hasil_penulisan_ai") or "").strip()
+        if hasil_pakai_naskah:
             st.markdown("#### ✨ Hasil AI — periksa sebelum digunakan")
-            h=st.text_area("Hasil — dapat diedit",st.session_state.hasil_penulisan_ai,height=600,key="hasil_ref_naskah")
-            st.session_state.naskah_aktif=h
+
+            # Sinkronkan hasil terbaru ke widget khusus menu ini.
+            # Ini mencegah nilai lama/kosong pada key Streamlit menutupi hasil AI baru.
+            hasil_signature = str(hash(hasil_pakai_naskah))
+            if st.session_state.get("_sig_hasil_ref_naskah") != hasil_signature:
+                st.session_state["hasil_ref_naskah_editor"] = hasil_pakai_naskah
+                st.session_state["_sig_hasil_ref_naskah"] = hasil_signature
+
+            h = st.text_area(
+                "Hasil — dapat diedit",
+                key="hasil_ref_naskah_editor",
+                height=600
+            )
+            st.session_state.naskah_aktif = h
+
+            if not str(h).strip():
+                st.warning("Hasil AI diterima tetapi editor kosong. Klik Generate AI kembali.")
+            else:
+                st.success("Hasil AI tampil dan siap diperiksa.")
+
+                # Buat SALINAN Word dari DOCX asli. Mesin tidak membangun ulang naskah.
+                # Yang ditanam hanya marker kutipan/footnote dari hasil AI.
+                if file_naskah_ref is not None and str(file_naskah_ref.name).lower().endswith(".docx"):
+                    word_bytes_ref, word_error_ref = buat_word_hasil_revisi(file_naskah_ref, h)
+                    if word_bytes_ref:
+                        nama_word_ref = Path(file_naskah_ref.name).stem + "_SALINAN_HASIL_REFERENSI.docx"
+                        st.download_button(
+                            "📥 Unduh Salinan Word Hasil Referensi (.docx)",
+                            word_bytes_ref,
+                            nama_word_ref,
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True,
+                            key="unduh_salinan_word_pakai_referensi"
+                        )
+                        st.caption(
+                            "Salinan dibuat dari Word asli. Bagian lain tetap berasal dari dokumen asli; "
+                            "yang ditambahkan hanya kutipan/footnote yang berhasil dicocokkan."
+                        )
+                    elif word_error_ref:
+                        st.warning(word_error_ref)
+                else:
+                    st.info("Untuk membuat salinan Word dengan format asli, unggah naskah dalam format DOCX.")
+        elif st.session_state.get("hasil_penulisan_ai") is not None:
+            st.warning("AI belum mengembalikan isi naskah. Silakan klik Generate AI kembali.")
 
     elif bagian_ref == "🔧 Perbaiki Footnote & Kutipan":
         st.subheader("🔧 Perbaiki Footnote & Kutipan")
