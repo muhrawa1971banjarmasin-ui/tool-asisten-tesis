@@ -3973,27 +3973,15 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
             _naskah_ide = ""
         if _naskah_ide:
             st.divider()
-            st.subheader("📊 Hasil Analisis Ide, Gap & Novelty")
+            st.subheader("📊 Hasil Analisis Ide, Gap, Novelty & 5 Alternatif Judul")
             _v_ide = st.session_state.get("versi_naskah_ide_s2", 0)
-            # Bagian E (5 alternatif judul) dan F (catatan pemilihan)
-            # tetap tersimpan secara internal untuk mesin pemilihan judul,
-            # tetapi tidak lagi ditampilkan di kotak hasil analisis.
-            _naskah_tampil_ide = _naskah_ide
-            _upper_tampil = _naskah_tampil_ide.upper()
-            _pos_e = _upper_tampil.find("### E. 5 ALTERNATIF JUDUL TESIS")
-            if _pos_e < 0:
-                _pos_e = _upper_tampil.find("E. 5 ALTERNATIF JUDUL TESIS")
-            if _pos_e >= 0:
-                _naskah_tampil_ide = _naskah_tampil_ide[:_pos_e].rstrip()
-
             _edit_ide = st.text_area(
                 "Hasil AI dapat diedit langsung di sini",
-                value=_naskah_tampil_ide,
-                height=500,
+                value=_naskah_ide,
+                height=650,
                 key=f"editor_naskah_ide_s2_{_v_ide}",
             )
-            # Jangan menimpa naskah internal asli yang masih diperlukan
-            # untuk ekstraksi 5 alternatif judul.
+            st.session_state["hasil_ai_ide_judul_s2"] = _edit_ide
 
             if st.button("🔍 Koreksi Ulang Hasil Edit", key="koreksi_ide_s2"):
                 _prompt_koreksi_ide = f"""Anda adalah dosen pembimbing tesis S2.
