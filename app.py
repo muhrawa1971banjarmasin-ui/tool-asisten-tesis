@@ -4607,6 +4607,14 @@ F. Jangan menambahkan komentar AI setelah naskah proposal.
 
             if st.session_state.get("proposal_s2_draf_otomatis"):
                 st.success("✅ Draf proposal selesai.")
+                # Terapkan hasil koreksi AI SEBELUM widget editor dibuat.
+                # Streamlit melarang key widget diubah setelah widget terinstansiasi.
+                _pending_editor = st.session_state.pop("proposal_s2_editor_pending", None)
+                if _pending_editor is not None:
+                    st.session_state["proposal_s2_editor_otomatis"] = _pending_editor
+                elif "proposal_s2_editor_otomatis" not in st.session_state:
+                    st.session_state["proposal_s2_editor_otomatis"] = st.session_state.get("proposal_s2_draf_otomatis", "")
+
                 _edit=st.text_area(
                     "✍️ Draf Proposal — dapat diedit",
                     key="proposal_s2_editor_otomatis",
@@ -4637,7 +4645,9 @@ DRAF:
                             _k=hasil_ai_teks(_k_raw)
                             if _k:
                                 st.session_state["proposal_s2_draf_otomatis"]=_k
-                                st.session_state["proposal_s2_editor_otomatis"]=_k
+                                # Jangan menulis langsung ke key widget yang sudah dibuat pada run ini.
+                                # Simpan sementara, lalu terapkan pada awal rerun sebelum text_area dibuat.
+                                st.session_state["proposal_s2_editor_pending"]=_k
                                 st.rerun()
                         except Exception as _e:
                             st.error(f"Koreksi belum dapat dilakukan: {_e}")
