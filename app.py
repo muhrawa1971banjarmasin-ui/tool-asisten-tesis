@@ -4429,6 +4429,13 @@ DRAF:
         _c4.metric("Pedoman IAID", "Memenuhi" if (_total_ref >= 50 and _asing_ref >= 15) else "Belum")
 
         st.markdown("#### 🤖 Pencarian Referensi Otomatis")
+        _tahun_min_lit = st.selectbox(
+            "Tahun referensi minimal",
+            [2020, 2021, 2022, 2023, 2024, 2025, 2026, "Tanpa batas tahun"],
+            index=0, key="tahun_min_referensi_s2",
+            help="Default 2020. Sumber klasik, sumber primer, teori seminal, regulasi, atau sumber yang belum memiliki revisi/edisi lebih baru tetap dapat digunakan dengan keterangan khusus."
+        )
+        st.caption("Sumber sebelum tahun minimal tidak otomatis ditolak. Sistem memberi pengecualian untuk kitab klasik, sumber primer, teori asli/seminal, regulasi, atau karya yang belum ditemukan revisi lebih baru.")
         _kata_default = _judul_lit
         _kata_lit = st.text_input("Kata kunci pencarian", value=_kata_default, key="kata_kunci_literatur_s2")
         _col_cari1,_col_cari2 = st.columns(2)
@@ -4475,6 +4482,59 @@ DRAF:
                 st.success(f"{_baru} referensi baru masuk ke Bank Referensi. Duplikat dilewati.")
                 st.rerun()
 
+        st.markdown("#### 🌐 Verifikasi Kelayakan Referensi")
+        st.caption("Verifikasi dilakukan berlapis dari metadata yang tersedia pada Crossref, OpenAlex, Semantic Scholar, Library of Congress, DOI, dan dokumen asli unggahan. Tidak ada satu layanan yang mencakup seluruh perpustakaan dunia, sehingga status hanya diberikan berdasarkan bukti yang benar-benar ditemukan.")
+
+        def _tahun_int_s2(_r):
+            try:
+                return int(str(_r.get("Tahun", "")).strip()[:4])
+            except Exception:
+                return None
+
+        def _jenis_lama_dikecualikan_s2(_r):
+            _j = str(_r.get("Jenis", "")).lower()
+            _src = str(_r.get("Sumber", "")).lower()
+            _ttl = str(_r.get("Judul", "")).lower()
+            _gab = " ".join([_j,_src,_ttl])
+            return any(x in _gab for x in ["kitab", "tafsir", "hadis", "hadith", "sumber primer", "klasik", "qur", "regulasi", "undang-undang", "peraturan"])
+
+        def _nilai_kelayakan_s2(_r):
+            _tahun=_tahun_int_s2(_r)
+            _judul=bool(str(_r.get("Judul","")).strip())
+            _penulis=bool(str(_r.get("Penulis","")).strip())
+            _status=str(_r.get("Status", ""))
+            _id_ok=bool(str(_r.get("DOI","")).strip() or str(_r.get("ISBN","")).strip() or str(_r.get("URL","")).strip() or "terverifikasi" in _status.lower() or "🏛️" in _status or "🔵" in _status)
+            _fresh=True
+            _ket=[]
+            if _tahun_min_lit != "Tanpa batas tahun" and _tahun is not None and _tahun < int(_tahun_min_lit):
+                _fresh=False
+                if _jenis_lama_dikecualikan_s2(_r):
+                    _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}, tetapi termasuk sumber primer/klasik/regulasi sehingga tidak otomatis gugur.")
+                else:
+                    _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}. Periksa apakah ada revisi/edisi/penelitian yang lebih baru.")
+            if _judul and _penulis and _id_ok and (_fresh or _jenis_lama_dikecualikan_s2(_r)):
+                return "🟢 Layak", " ".join(_ket) or "Identitas dasar dan jejak sumber tersedia."
+            if _judul and (_penulis or _id_ok):
+                return "🟡 Layak dengan verifikasi", " ".join(_ket) or "Sumber teridentifikasi, tetapi metadata/edisi/jejak bibliografis belum cukup lengkap."
+            return "🔴 Tidak layak sementara", "Metadata belum cukup untuk digunakan sebagai referensi final."
+
+        _bank_ver=st.session_state.get("bank_referensi", [])
+        if _bank_ver:
+            _layak=_perlu=_tidak=0
+            for _rv in _bank_ver:
+                _sv,_kv=_nilai_kelayakan_s2(_rv)
+                _rv["Kelayakan"]=_sv; _rv["Keterangan_Kelayakan"]=_kv
+                if _sv.startswith("🟢"): _layak+=1
+                elif _sv.startswith("🟡"): _perlu+=1
+                else: _tidak+=1
+            _v1,_v2,_v3=st.columns(3)
+            _v1.metric("🟢 Layak",_layak); _v2.metric("🟡 Perlu verifikasi",_perlu); _v3.metric("🔴 Belum layak",_tidak)
+            with st.expander("Lihat hasil verifikasi seluruh referensi"):
+                for _iv,_rv in enumerate(_bank_ver,1):
+                    st.markdown(f"**{_iv}. {_rv.get('Judul','Tanpa judul')}**  \n{_rv.get('Kelayakan','')} • {_rv.get('Keterangan_Kelayakan','')}")
+        else:
+            st.caption("Belum ada referensi untuk diverifikasi.")
+
         st.markdown("#### 📜 Kitab, Tafsir, Hadis & Sumber Primer")
         st.caption("Cari sumber asli terlebih dahulu. Jika edisi, jilid, penerbit, tahun, atau halaman tidak dapat dipastikan, unggah PDF/DOCX/TXT sumber yang benar-benar digunakan. Sistem tidak boleh mengarang metadata atau halaman.")
         _kitab_query=st.text_input("Cari kitab/tafsir/sumber primer", key="cari_kitab_s2", placeholder="Contoh: Tafsir Al-Misbah Quraish Shihab")
@@ -4498,6 +4558,7 @@ DRAF:
                 st.rerun()
 
         st.markdown("##### 📤 Unggah Kitab sebagai Referensi")
+        st.info("🕌 Format Arab mengikuti pedoman aktif. Untuk Pedoman IAID 2026: Traditional Arabic 16 untuk teks Arab dan 18 bold untuk judul Arab; teks Latin Times New Roman 12. Teks Arab sumber asli tidak boleh diubah isinya oleh AI.")
         st.caption(
             "Unggah kitab klasik/modern, tafsir, syarah hadis, atau buku sumber yang benar-benar Anda gunakan. "
             "Dokumen dianalisis satu kali lalu dicatat di Perpustakaan Kitab agar dapat dipakai kembali untuk pencarian teks, halaman, kutipan, dan footnote."
@@ -4590,11 +4651,56 @@ DRAF:
                     if _rk.get("DOI"): st.write(f"DOI: {_rk.get('DOI')}")
                     st.info("Sumber siap dipakai untuk pencarian kutipan. Nomor halaman hanya boleh digunakan jika dapat dibuktikan dari dokumen/edisi ini.")
 
+        st.markdown("#### 📘 Unggah Ebook / Buku Umum")
+        st.caption("Untuk buku pendidikan, metodologi, teknologi, manajemen, psikologi, dan buku umum lainnya. File yang diunggah menjadi referensi lokal yang dapat dicari dan diverifikasi seperti kitab.")
+        if "perpustakaan_ebook_s2" not in st.session_state:
+            st.session_state["perpustakaan_ebook_s2"]=[]
+        _ebook_files=st.file_uploader("📤 Pilih ebook/buku umum",type=["pdf","docx","txt"],accept_multiple_files=True,key="unggah_ebook_umum_s2")
+        if _ebook_files and st.button("📥 Analisis & Simpan Ebook ke Referensi",key="simpan_ebook_umum_s2",use_container_width=True):
+            _kole=st.session_state.get("perpustakaan_ebook_s2",[])
+            _known={str(x.get("File_Asli","")).lower() for x in _kole if isinstance(x,dict)}
+            _n=0; _fail=[]
+            with st.spinner("Membaca ebook dan memeriksa metadata..."):
+                for _f in _ebook_files:
+                    try:
+                        _nama=getattr(_f,"name","Ebook")
+                        _teks=ekstrak_teks(_f)
+                        if not _teks or str(_teks).startswith("ERROR:"):
+                            _fail.append(_nama); continue
+                        _meta=ekstrak_metadata_gemini(_teks[:30000],_nama) or {}
+                        if not isinstance(_meta,dict): _meta={}
+                        _meta["Judul"]=_meta.get("Judul") or _nama
+                        _meta["Jenis"]="Ebook/Buku Umum"
+                        _meta["Sumber"]="Dokumen asli unggahan pengguna"
+                        _meta["File_Asli"]=_nama
+                        _meta["Teks_Sumber"]=_teks
+                        _meta["Status"]="🔵 Terverifikasi dari Dokumen Unggahan"
+                        _meta["Catatan_Verifikasi"]="Keberadaan dokumen terverifikasi dari file pengguna; metadata bibliografis yang tidak terbaca tetap harus diverifikasi dan tidak boleh ditebak."
+                        _doi=ekstrak_doi(_teks[:50000])
+                        if _doi:
+                            _meta["DOI"]=_doi
+                            _vr=cari_crossref_doi(_doi)
+                            if _vr:
+                                for _k,_v in _vr.items():
+                                    if _v and not _meta.get(_k): _meta[_k]=_v
+                                _meta["Status"]="✅ Metadata terverifikasi + dokumen asli pengguna"
+                        if _nama.lower() not in _known:
+                            _kole.append(dict(_meta)); _known.add(_nama.lower())
+                        if tambah_bank_referensi(dict(_meta)): _n+=1
+                    except Exception:
+                        _fail.append(getattr(_f,"name","Ebook"))
+            st.session_state["perpustakaan_ebook_s2"]=_kole
+            st.success(f"{_n} ebook/buku baru masuk ke Bank Referensi.")
+            if _fail: st.warning("Belum dapat dibaca: "+", ".join(_fail))
+            st.rerun()
+        if st.session_state.get("perpustakaan_ebook_s2"):
+            st.caption(f"📚 Ebook tersimpan: {len(st.session_state['perpustakaan_ebook_s2'])}")
+
         st.markdown("#### 📚 Bank Referensi Submenu 3")
         _bank_lit = st.session_state.get("bank_referensi", [])
         if _bank_lit:
             for _i,_r in enumerate(_bank_lit,1):
-                st.markdown(f"**{_i}. {_r.get('Judul','Tanpa judul')}**  \n{_r.get('Penulis','')} ({_r.get('Tahun','')}) • {_r.get('Sumber','')} • {_r.get('Status','⚠️ Perlu verifikasi')}")
+                st.markdown(f"**{_i}. {_r.get('Judul','Tanpa judul')}**  \n{_r.get('Penulis','')} ({_r.get('Tahun','')}) • {_r.get('Sumber','')} • {_r.get('Status','⚠️ Perlu verifikasi')} • {_r.get('Kelayakan','Belum dinilai')}")
         else:
             st.caption("Bank Referensi masih kosong.")
 
@@ -4625,6 +4731,23 @@ ATURAN KETAT:
                     st.error("AI belum berhasil menyusun matriks.")
         if st.session_state.get("matriks_penelitian_terdahulu_s2"):
             st.text_area("Matriks & Analisis Literatur", key="matriks_penelitian_terdahulu_s2", height=520)
+
+        st.markdown("#### 📊 Saran Otomatis Kecukupan Referensi Proposal")
+        _prop_for_audit=str(st.session_state.get("proposal_s2_dengan_referensi") or _proposal_lit or "")
+        _fn_count=len(re.findall(r"\[\^\d+\]",_prop_for_audit))
+        _refs_now=st.session_state.get("bank_referensi",[])
+        _layak_now=sum(1 for _r in _refs_now if str(_r.get("Kelayakan","")).startswith("🟢") or any(x in str(_r.get("Status","")) for x in ["✅","🔵","🏛️"]))
+        _asing_now=sum(1 for _r in _refs_now if _ref_asing_s2(_r))
+        _a1,_a2,_a3=st.columns(3)
+        _a1.metric("Kutipan/marker footnote",_fn_count); _a2.metric("Referensi layak/terverifikasi",_layak_now); _a3.metric("Sumber asing",_asing_now)
+        if _proposal_lit:
+            if _fn_count == 0:
+                st.warning("Saran: proposal belum memiliki marker footnote. Terapkan referensi hanya pada klaim teori, data, definisi, penelitian terdahulu, dan pendapat ilmiah yang memang memerlukan sumber.")
+            elif _fn_count < 10:
+                st.info("Saran: jumlah kutipan masih terbatas. Periksa terutama latar belakang, landasan konsep, penelitian terdahulu, gap, dan metodologi. Ini rekomendasi Akademia AI, bukan angka wajib pedoman.")
+            else:
+                st.success("Sebaran kutipan mulai memadai secara kuantitatif. Tetap utamakan relevansi dan kualitas sumber, bukan sekadar jumlah.")
+        st.caption("Pedoman IAID menetapkan jumlah daftar pustaka tesis minimal 50 buku/jurnal dan 15 sumber asing. Pedoman tidak menetapkan satu angka wajib jumlah kutipan proposal, sehingga saran kutipan di atas bersifat diagnostik, bukan syarat resmi.")
 
         st.markdown("#### 📝 Terapkan Referensi & Footnote ke Proposal")
         st.caption("Proposal asli tetap disimpan. Hasil berfootnote dibuat sebagai versi baru agar Proposal final yang sudah dikunci tidak rusak.")
@@ -4718,6 +4841,22 @@ BANK DAFTAR PUSTAKA:\n{_dp}
                 key="hasil_s2"
             )
             st.session_state.naskah_aktif = edit
+
+            if submenu_s2 == "✍️ Penulisan Tesis":
+                st.markdown("#### 📊 Saran Otomatis Pedoman Tesis")
+                _bank_audit=st.session_state.get("bank_referensi",[])
+                _tot_audit=len(_bank_audit)
+                _asing_audit=sum(1 for _r in _bank_audit if _ref_asing_s2(_r)) if "_ref_asing_s2" in locals() else 0
+                _foot_audit=len(re.findall(r"\[\^\d+\]",str(edit)))
+                _x1,_x2,_x3=st.columns(3)
+                _x1.metric("Daftar referensi",_tot_audit,"IAID ≥ 50")
+                _x2.metric("Sumber asing",_asing_audit,"IAID ≥ 15")
+                _x3.metric("Marker footnote",_foot_audit)
+                if _tot_audit >= 50 and _asing_audit >= 15:
+                    st.success("Jumlah referensi memenuhi batas minimum Pedoman IAID. Tetap audit relevansi, kemutakhiran, dan konsistensi sitasi.")
+                else:
+                    st.warning(f"Belum memenuhi minimum pedoman: perlu tambahan {max(0,50-_tot_audit)} referensi total dan {max(0,15-_asing_audit)} sumber asing.")
+                st.info("Format aktif IAID: teks Latin Times New Roman 12; teks Arab Traditional Arabic 16; judul Arab 18 bold. Kutipan langsung 5 baris atau lebih menggunakan spasi 1. Bila pedoman aktif diganti, gunakan ketentuan pedoman baru.")
 
             st.caption(
                 "Edit hasil AI langsung di atas. Setelah selesai, gunakan Koreksi Ulang AI. "
