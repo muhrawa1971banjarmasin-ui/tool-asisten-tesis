@@ -4115,6 +4115,9 @@ Jangan membuat data atau referensi palsu."""
                     use_container_width=True,
                 ):
                     st.session_state["judul_tesis_s2_terpilih"] = judul_pilihan_s2
+                    # Paksa Submenu 2 membaca judul terbaru yang baru ditetapkan.
+                    st.session_state.pop("_judul_proposal_s2_sumber", None)
+                    st.session_state.pop("_masalah_proposal_s2_sumber", None)
                     st.session_state["dasar_proposal_tesis_s2"] = {
                         "judul": judul_pilihan_s2,
                         "masalah": masalah_ide_s2,
@@ -4153,14 +4156,28 @@ Jangan membuat data atau referensi palsu."""
             _masalah_dasar = str(_dasar or "")
             _arah_dasar = ""
 
+        # Sinkronkan otomatis judul dan masalah yang SUDAH DITETAPKAN di Submenu 1.
+        # Streamlit mempertahankan nilai widget berdasarkan key, sehingga parameter value saja
+        # tidak cukup untuk memperbarui judul lama. Sinkronisasi dilakukan sebelum widget dibuat.
+        _judul_sinkron_s2 = str(_judul_dasar or "").strip()
+        _masalah_sinkron_s2 = str(_masalah_dasar or "").strip()
+
+        if _judul_sinkron_s2:
+            if st.session_state.get("_judul_proposal_s2_sumber") != _judul_sinkron_s2:
+                st.session_state["judul_proposal_s2"] = _judul_sinkron_s2
+                st.session_state["_judul_proposal_s2_sumber"] = _judul_sinkron_s2
+
+        if _masalah_sinkron_s2:
+            if st.session_state.get("_masalah_proposal_s2_sumber") != _masalah_sinkron_s2:
+                st.session_state["masalah_proposal_s2"] = _masalah_sinkron_s2
+                st.session_state["_masalah_proposal_s2_sumber"] = _masalah_sinkron_s2
+
         judul_prop_s2 = st.text_input(
             "Judul Tesis",
-            value=_judul_dasar,
             key="judul_proposal_s2",
         )
         masalah_prop_s2 = st.text_area(
             "Permasalahan / konteks awal",
-            value=_masalah_dasar,
             height=130,
             key="masalah_proposal_s2",
         )
