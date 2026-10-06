@@ -4115,15 +4115,29 @@ Jangan membuat data atau referensi palsu."""
                     use_container_width=True,
                 ):
                     st.session_state["judul_tesis_s2_terpilih"] = judul_pilihan_s2
-                    # Paksa Submenu 2 membaca judul terbaru yang baru ditetapkan.
-                    st.session_state.pop("_judul_proposal_s2_sumber", None)
-                    st.session_state.pop("_masalah_proposal_s2_sumber", None)
+
+                    # DATA PROYEK TESIS S2: sumber utama antar-submenu.
+                    st.session_state["proyek_tesis_s2"] = {
+                        "judul": judul_pilihan_s2,
+                        "masalah": masalah_ide_s2,
+                        "arah": arah_ide_s2,
+                        "mode": mode_ide_s2,
+                        "metode": metode_ide_s2,
+                    }
+
+                    # Tetap simpan format lama agar fitur yang sudah berjalan tidak berubah.
                     st.session_state["dasar_proposal_tesis_s2"] = {
                         "judul": judul_pilihan_s2,
                         "masalah": masalah_ide_s2,
                         "arah": arah_ide_s2,
                         "mode": mode_ide_s2,
                     }
+
+                    # Isi langsung state widget Proposal sehingga tidak bergantung pada value=.
+                    st.session_state["judul_proposal_s2"] = judul_pilihan_s2
+                    st.session_state["masalah_proposal_s2"] = masalah_ide_s2
+                    st.session_state["_judul_proposal_s2_sumber"] = judul_pilihan_s2
+                    st.session_state["_masalah_proposal_s2_sumber"] = masalah_ide_s2
                     st.success(
                         "Judul utama sudah ditetapkan sebagai dasar Proposal Tesis. "
                         "Permasalahan dan arah penelitian ikut disimpan."
@@ -4146,8 +4160,15 @@ Jangan membuat data atau referensi palsu."""
             "digunakan sebagai dasar bila sudah ditetapkan."
         )
 
+        # Ambil data final dari proyek Tesis S2. Jika belum ada, gunakan struktur lama.
+        _proyek = st.session_state.get("proyek_tesis_s2", {})
         _dasar = st.session_state.get("dasar_proposal_tesis_s2", {})
-        if isinstance(_dasar, dict):
+
+        if isinstance(_proyek, dict) and _proyek.get("judul"):
+            _judul_dasar = _proyek.get("judul", "")
+            _masalah_dasar = _proyek.get("masalah", "")
+            _arah_dasar = _proyek.get("arah", "")
+        elif isinstance(_dasar, dict):
             _judul_dasar = _dasar.get("judul", st.session_state.get("judul_tesis_s2_terpilih", ""))
             _masalah_dasar = _dasar.get("masalah", "")
             _arah_dasar = _dasar.get("arah", "")
@@ -4162,15 +4183,10 @@ Jangan membuat data atau referensi palsu."""
         _judul_sinkron_s2 = str(_judul_dasar or "").strip()
         _masalah_sinkron_s2 = str(_masalah_dasar or "").strip()
 
-        if _judul_sinkron_s2:
-            if st.session_state.get("_judul_proposal_s2_sumber") != _judul_sinkron_s2:
-                st.session_state["judul_proposal_s2"] = _judul_sinkron_s2
-                st.session_state["_judul_proposal_s2_sumber"] = _judul_sinkron_s2
-
-        if _masalah_sinkron_s2:
-            if st.session_state.get("_masalah_proposal_s2_sumber") != _masalah_sinkron_s2:
-                st.session_state["masalah_proposal_s2"] = _masalah_sinkron_s2
-                st.session_state["_masalah_proposal_s2_sumber"] = _masalah_sinkron_s2
+        if _judul_sinkron_s2 and not st.session_state.get("judul_proposal_s2"):
+            st.session_state["judul_proposal_s2"] = _judul_sinkron_s2
+        if _masalah_sinkron_s2 and not st.session_state.get("masalah_proposal_s2"):
+            st.session_state["masalah_proposal_s2"] = _masalah_sinkron_s2
 
         judul_prop_s2 = st.text_input(
             "Judul Tesis",
