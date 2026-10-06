@@ -1759,9 +1759,7 @@ menu_utama = st.sidebar.radio(
     [
         "🎓 Perkuliahan",
         "🔎 Analisis Karya Akademik",
-        "🎓 Skripsi S1",
-        "🎓 Tesis S2",
-        "🎓 Disertasi S3",
+        "🎓 Tugas Akhir Perkuliahan",
         "📚 Literatur & Referensi",
         "✨ Penyunting Akademik AI",
         "📝 Jurnal Akademik",
@@ -1770,8 +1768,27 @@ menu_utama = st.sidebar.radio(
     ]
 )
 
-# Pemetaan 10 menu utama ke modul yang sudah ada.
-# Fitur penelitian lama tetap dipakai, tetapi ditempatkan di dalam S1, S2, dan S3.
+# Tugas Akhir Perkuliahan menjadi satu pintu untuk S1, S2, dan S3.
+# Nama menu lama tetap dipakai secara internal agar seluruh fungsi yang sudah bagus
+# tetap berjalan tanpa perlu dibongkar.
+if menu_utama == "🎓 Tugas Akhir Perkuliahan":
+    jenjang_tugas_akhir = st.sidebar.radio(
+        "Jenjang Tugas Akhir",
+        [
+            "S1 • Skripsi",
+            "S2 • Tesis",
+            "S3 • Disertasi"
+        ],
+        key="jenjang_tugas_akhir"
+    )
+    menu_utama = {
+        "S1 • Skripsi": "🎓 Skripsi S1",
+        "S2 • Tesis": "🎓 Tesis S2",
+        "S3 • Disertasi": "🎓 Disertasi S3",
+    }[jenjang_tugas_akhir]
+
+# Pemetaan menu utama ke modul yang sudah ada.
+# Fitur penelitian lama tetap dipakai di belakang layar dan menyesuaikan jenjang.
 if menu_utama == "🎓 Perkuliahan":
     menu = "📚 Perkuliahan & OBE"
 elif menu_utama == "🔎 Analisis Karya Akademik":
