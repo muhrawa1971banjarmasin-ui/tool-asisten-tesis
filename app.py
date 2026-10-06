@@ -1754,7 +1754,7 @@ st.sidebar.text_input(
     key="proyek_aktif"
 )
 
-menu_utama = st.sidebar.radio(
+menu_pintu = st.sidebar.radio(
     "Menu Utama",
     [
         "🎓 Perkuliahan",
@@ -1768,27 +1768,26 @@ menu_utama = st.sidebar.radio(
     ]
 )
 
-# Tugas Akhir Perkuliahan menjadi satu pintu untuk S1, S2, dan S3.
-# Nama menu lama tetap dipakai secara internal agar seluruh fungsi yang sudah bagus
-# tetap berjalan tanpa perlu dibongkar.
-if menu_utama == "🎓 Tugas Akhir Perkuliahan":
+# Tugas Akhir Perkuliahan hanya menyatukan pintu masuk.
+# Seluruh mesin, submenu, dan fitur S1/S2/S3 lama tetap dipakai utuh.
+if menu_pintu == "🎓 Tugas Akhir Perkuliahan":
     jenjang_tugas_akhir = st.sidebar.radio(
         "Jenjang Tugas Akhir",
-        [
-            "S1 • Skripsi",
-            "S2 • Tesis",
-            "S3 • Disertasi"
-        ],
+        ["S1 • Skripsi", "S2 • Tesis", "S3 • Disertasi"],
+        index=1,
         key="jenjang_tugas_akhir"
     )
-    menu_utama = {
+    _peta_jenjang = {
         "S1 • Skripsi": "🎓 Skripsi S1",
         "S2 • Tesis": "🎓 Tesis S2",
         "S3 • Disertasi": "🎓 Disertasi S3",
-    }[jenjang_tugas_akhir]
+    }
+    menu_utama = _peta_jenjang[jenjang_tugas_akhir]
+else:
+    menu_utama = menu_pintu
 
-# Pemetaan menu utama ke modul yang sudah ada.
-# Fitur penelitian lama tetap dipakai di belakang layar dan menyesuaikan jenjang.
+# Pemetaan 10 menu utama ke modul yang sudah ada.
+# Fitur penelitian lama tetap dipakai, tetapi ditempatkan di dalam S1, S2, dan S3.
 if menu_utama == "🎓 Perkuliahan":
     menu = "📚 Perkuliahan & OBE"
 elif menu_utama == "🔎 Analisis Karya Akademik":
@@ -1869,16 +1868,8 @@ if menu in modul_ai_penelitian and menu_utama in ["🎓 Skripsi S1", "🎓 Tesis
             disabled=not bool(instruksi_ai_modul.strip() or teks_bahan_ai.strip()),
             key=f"generate_ai_modul_{menu_utama}_{menu}"
         ):
-            _pedoman_modul = ""
-            if menu_utama == "🎓 Skripsi S1":
-                _pedoman_modul = st.session_state.get("pedoman_s1_teks", "")
-            elif menu_utama == "🎓 Tesis S2":
-                _pedoman_modul = st.session_state.get("pedoman_tesis_s2_teks", "")
-            elif menu_utama == "🎓 Disertasi S3":
-                _pedoman_modul = st.session_state.get("pedoman_s3_teks", "")
-            konteks_ai = f"JENJANG: {menu_utama}\nBAGIAN: {menu}\nPEDOMAN JENJANG AKTIF (WAJIB MENJADI ACUAN):\n{_pedoman_modul[:50000] if _pedoman_modul else 'Belum ada pedoman jenjang yang diunggah.'}\nBAHAN:\n{teks_bahan_ai[:60000]}"
-            _instruksi_modul = (instruksi_ai_modul or "Kerjakan bagian ini berdasarkan bahan yang tersedia.") + "\nSesuaikan hasil dengan jenjang S1/S2/S3 dan pedoman aktif. Jangan memaksakan aturan S2 pada S1 atau S3; gunakan S2 hanya sebagai baseline alur. Jangan mengarang ketentuan kampus yang tidak ada pada pedoman."
-            panel_ai_penulisan(konteks_ai, f"{menu_utama} - {menu}", _instruksi_modul, st.session_state.bank_referensi, "modul_penelitian")
+            konteks_ai = f"JENJANG: {menu_utama}\nBAGIAN: {menu}\nBAHAN:\n{teks_bahan_ai[:60000]}"
+            panel_ai_penulisan(konteks_ai, f"{menu_utama} - {menu}", instruksi_ai_modul or "Kerjakan bagian ini berdasarkan bahan yang tersedia.", st.session_state.bank_referensi, "modul_penelitian")
         if st.session_state.get("hasil_penulisan_ai"):
             st.text_area("Hasil AI — dapat diedit", st.session_state.hasil_penulisan_ai, height=400, key=f"hasil_ai_modul_{menu_utama}_{menu}")
 
@@ -3500,22 +3491,13 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
         "Pengumpulan Data","BAB IV — Hasil & Pembahasan","BAB V — Penutup",
         "Skripsi Lengkap","Bimbingan & Revisi","Presentasi","Persiapan Sidang"
     ], key="tahap_s1")
-    st.markdown("### 📘 Pedoman Skripsi S1")
-    st.caption("Pedoman kampus menjadi rambu-rambu utama. Mesin S2 dipakai sebagai baseline, lalu struktur, kedalaman, sitasi, metodologi, dan format disesuaikan otomatis untuk S1.")
-    pedoman=st.file_uploader("📄 Unggah pedoman Skripsi S1 kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s1")
-    if pedoman:
-        t=ekstrak_teks(pedoman)
-        if not t.startswith("ERROR:") and t.strip():
-            st.session_state["pedoman_s1_teks"] = t
-            st.session_state["pedoman_s1_nama"] = getattr(pedoman,"name","Pedoman Skripsi S1")
-            st.success(f"🟢 Pedoman S1 aktif: {st.session_state['pedoman_s1_nama']}")
-    elif st.session_state.get("pedoman_s1_teks"):
-        st.success(f"🟢 Pedoman S1 aktif: {st.session_state.get('pedoman_s1_nama','Pedoman Skripsi S1')}")
+    pedoman=st.file_uploader("📄 Unggah pedoman kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s1")
     sumber=st.file_uploader("📚 Unggah bahan/referensi/data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="sumber_s1")
     arah=st.text_area("Ide, masalah, arahan dosen, atau pekerjaan yang ingin dibuat",key="arah_s1")
     konteks=""
-    if st.session_state.get("pedoman_s1_teks"):
-        konteks+="\nPEDOMAN SKRIPSI S1 AKTIF (WAJIB MENJADI ACUAN):\n"+st.session_state.get("pedoman_s1_teks","")
+    if pedoman:
+        t=ekstrak_teks(pedoman)
+        if not t.startswith("ERROR:"): konteks+="\nPEDOMAN KAMPUS:\n"+t
     for f in sumber or []:
         if f.name.lower().endswith((".pdf",".docx",".txt")):
             t=ekstrak_teks(f)
@@ -3526,7 +3508,7 @@ elif menu == "🎓 Penelitian S1 • S2 • S3":
 Metode: {metode}
 Tahap: {tahap}
 Arahan: {arah}
-PEDOMAN ADAPTIF S1: Gunakan pedoman Skripsi S1 yang aktif sebagai pengendali utama struktur, format, metodologi, sitasi, dan kedalaman akademik. Mesin S2 hanya menjadi baseline alur, bukan aturan yang dipaksakan ke S1. Jika pedoman tidak mengatur suatu hal, jangan mengarang aturan kampus. Gunakan hanya referensi yang tersedia/terverifikasi. Jangan membuat data, DOI, kutipan, atau nomor halaman palsu."""
+Gunakan pedoman kampus bila tersedia. Gunakan hanya referensi yang tersedia/terverifikasi. Jangan membuat data, DOI, kutipan, atau nomor halaman palsu."""
         panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s1")
     if st.session_state.get("hasil_penulisan_ai"):
         edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s1")
@@ -4849,127 +4831,73 @@ Berikan status akhir tepat salah satu: LULUS PEDOMAN atau BELUM LULUS PEDOMAN. J
                 if not _audit_ok:
                     st.caption("Finalisasi dikunci sampai audit menyatakan LULUS PEDOMAN.")
 
-                st.markdown("### ✨ Generik AI Kesempurnaan Proposal Sesuai Pedoman S2")
-                st.caption("AI mengembangkan proposal yang sudah ada. Pedoman aktif menjadi aturan utama. Isi yang sudah baik tidak dipersingkat atau dibuang.")
-
-                if st.button("✨ Generik AI Kesempurnaan Proposal Sesuai Pedoman S2", key="generik_kesempurnaan_proposal_s2", type="primary", use_container_width=True):
-                    _pedoman_gen = st.session_state.get("pedoman_tesis_s2_teks", "")
-                    _audit_gen = st.session_state.get("audit_pedoman_proposal_s2", "")
-                    _refs_gen = st.session_state.get("referensi_final_tesis_s2", []) or st.session_state.get("bank_referensi", [])
-                    _refs_gen_teks = "\n".join(
-                        format_referensi(x) if isinstance(x, dict) else str(x)
-                        for x in (_refs_gen[:80] if isinstance(_refs_gen, list) else [])
-                    ) if isinstance(_refs_gen, list) else str(_refs_gen)[:50000]
-
-                    _prompt_gen = f"""Anda adalah ASISTEN AKADEMIK S2 yang bertugas MENYEMPURNAKAN dan MENGEMBANGKAN proposal tesis, bukan meringkasnya.
-
-HIERARKI ACUAN WAJIB:
-1. PEDOMAN PENULISAN TESIS S2 AKTIF adalah aturan tertinggi untuk struktur, sistematika, kutipan, catatan kaki, daftar pustaka, transliterasi, Al-Qur'an, hadis, dan kaidah penulisan.
-2. NASKAH PROPOSAL SAAT INI adalah naskah induk. Pertahankan seluruh substansi, argumentasi, bagian, kutipan, dan referensi yang sudah baik.
-3. REFERENSI/LITERATUR TERSEDIA adalah bahan akademik untuk memperkuat dan mengembangkan naskah.
-4. HASIL AUDIT hanya menjadi petunjuk bagian yang perlu diperbaiki.
-
-TUGAS UTAMA:
-- Kembangkan proposal menjadi lebih lengkap, mendalam, koheren, dan layak untuk bimbingan proposal tesis S2.
-- JANGAN mempersingkat naskah. Jangan menghapus pembahasan yang sudah baik. Jika ada kekurangan, TAMBAHKAN penjelasan yang relevan.
-- Perkuat latar belakang, identifikasi/batasan/fokus atau rumusan masalah, tujuan, manfaat/signifikansi, kajian teori, penelitian terdahulu, research gap, novelty, kerangka berpikir, dan metode sesuai jenis penelitian, tetapi hanya sejauh struktur tersebut diwajibkan/diizinkan Pedoman aktif.
-- Jaga konsistensi antara judul, masalah, rumusan/fokus, tujuan, teori, penelitian terdahulu, gap, novelty, kerangka berpikir, metode, subjek/objek, instrumen, teknik pengumpulan data, dan analisis data.
-- Jangan mengubah judul atau metode utama tanpa kebutuhan yang jelas dari Pedoman.
-
-ATURAN REFERENSI DAN KUTIPAN:
-- Pertahankan SEMUA referensi valid yang sudah dikutip dalam proposal.
-- Gunakan referensi tersedia yang relevan untuk menambah kekuatan argumentasi. Jangan memasukkan referensi hanya untuk menambah jumlah.
-- Setiap sumber yang benar-benar dikutip harus muncul di Daftar Pustaka, dan entri Daftar Pustaka yang dipertahankan harus dapat ditelusuri kegunaannya dalam naskah.
-- Jangan membuat penulis, judul, tahun, DOI, URL, nomor halaman, kutipan langsung, kitab, tafsir, atau hadis palsu.
-- Jika bahan referensi belum cukup untuk suatu klaim, jangan mengarang. Beri penanda [REFERENSI TAMBAHAN PERLU DICARI/VERIFIKASI] pada titik yang memang memerlukan sumber tambahan agar mesin pencarian literatur aplikasi dapat melengkapinya.
-- Format catatan kaki dan daftar pustaka mengikuti Pedoman aktif. Bila halaman sumber belum diketahui, jangan menebaknya.
-
-LANDASAN ISLAM DAN CIRI KEILMUAN INSTITUSI:
-- Periksa Kajian Teori/landasan teori. Proposal WAJIB memuat landasan normatif Islam yang relevan berupa ayat Al-Qur'an dan/atau hadis sesuai tema penelitian.
-- Ayat Al-Qur'an harus relevan, bukan tempelan: cantumkan teks Arab bila Pedoman menghendaki, nama surah dan nomor ayat, terjemah, kemudian jelaskan hubungan ayat dengan konsep penelitian.
-- Sertakan penjelasan/tafsir yang relevan dari sumber tafsir yang tersedia dan dapat dipertanggungjawabkan. Hubungkan AYAT -> TAFSIR -> KONSEP/TEORI PENELITIAN.
-- Bila menggunakan hadis, pastikan relevan dan sumbernya dapat dipertanggungjawabkan; jelaskan HADIS -> MAKNA -> HUBUNGAN DENGAN PENELITIAN.
-- Integrasikan perspektif Ahlussunnah wal Jamaah secara akademik dan proporsional sesuai karakter Institut Agama Islam Darussalam Martapura, bukan sekadar menempelkan istilah Aswaja.
-- Jika sumber tafsir/hadis yang diperlukan belum tersedia/terverifikasi dalam bahan, jangan menciptakan bibliografi palsu. Tandai kebutuhan sumber tersebut secara jelas agar dapat dilengkapi melalui pencarian referensi aplikasi.
-
-LARANGAN:
-- Jangan mengarang data lapangan, hasil penelitian, responden, statistik, temuan, atau kesimpulan penelitian yang belum dilakukan.
-- Jangan mengubah proposal menjadi tesis hasil penelitian.
-- Jangan menampilkan laporan audit, komentar kepada penulis, JSON, metadata internal, atau penjelasan proses AI dalam keluaran.
-- Jangan memendekkan proposal hanya agar lebih ringkas.
-
-KELUARAN:
-- HANYA naskah Proposal Tesis Hasil Penyempurnaan AI.
-- Struktur dan urutan mengikuti Pedoman aktif.
-- Pertahankan footnote/kutipan yang valid dan sinkronkan seluruh sumber yang digunakan dengan Daftar Pustaka.
-- Naskah boleh dan seharusnya bertambah panjang bila pengembangan akademik memang diperlukan.
-
-JUDUL:
-{_judul_prop}
-
-METODE TERPILIH:
-{_metode_prop}
-
-PEDOMAN AKTIF:
-{_pedoman_gen[:50000] if _pedoman_gen else 'Pedoman aktif belum tersedia. Jangan mengklaim kesesuaian aturan yang tidak diberikan.'}
-
-HASIL AUDIT TERAKHIR:
-{_audit_gen[:20000]}
-
-REFERENSI/LITERATUR TERSEDIA:
-{_refs_gen_teks[:50000]}
-
-NASKAH PROPOSAL INDUK:
-{_edit[:90000]}
-"""
-                    try:
-                        with st.spinner("AI sedang mengembangkan proposal berdasarkan Pedoman S2, literatur, dan naskah induk..."):
-                            _gen_raw = panggil_gemini(_prompt_gen, 0.15)
-                            _gen_teks = hasil_ai_teks(_gen_raw)
-                        if not _gen_teks:
-                            st.error("AI belum menghasilkan naskah penyempurnaan.")
-                        elif len(_gen_teks.strip()) < int(len(_edit.strip()) * 0.90):
-                            st.error("Hasil AI terdeteksi terlalu pendek sehingga tidak diterapkan. Proposal induk tetap aman dan tidak berubah.")
-                        else:
-                            st.session_state["proposal_s2_hasil_penyempurnaan_ai"] = _gen_teks
-                            st.session_state["proposal_s2_draf_otomatis"] = _gen_teks
-                            st.session_state["proposal_s2_editor_pending"] = _gen_teks
-                            st.session_state.pop("audit_pedoman_proposal_s2", None)
-                            st.success("✅ Proposal berhasil dikembangkan. Isi lama dipertahankan dan bagian yang perlu diperkuat telah dikembangkan berdasarkan Pedoman S2.")
-                            st.rerun()
-                    except Exception as _e:
-                        st.error(f"Penyempurnaan AI belum dapat dilakukan: {_e}")
-
-                if st.session_state.get("proposal_s2_hasil_penyempurnaan_ai"):
-                    with st.expander("📖 Lihat Proposal Tesis Hasil Penyempurnaan AI", expanded=False):
-                        st.markdown(st.session_state["proposal_s2_hasil_penyempurnaan_ai"])
-
-                st.markdown("### 📄 Word Proposal untuk Bimbingan")
+                st.markdown("### 📄 Proposal Final Siap Cetak")
                 with st.expander("Identitas untuk sampul Word", expanded=False):
                     _nama_word = st.text_input("Nama mahasiswa", key="proposal_final_nama_s2")
                     _npm_word = st.text_input("NPM", key="proposal_final_npm_s2")
                     _prodi_word = st.text_input("Program Studi", value="Pendidikan Agama Islam", key="proposal_final_prodi_s2")
                     _tahun_word = st.number_input("Tahun", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="proposal_final_tahun_s2")
 
-                _naskah_word = st.session_state.get("proposal_s2_hasil_penyempurnaan_ai") or _edit
-                if st.button("📄 Siapkan Word Proposal untuk Bimbingan", key="siapkan_word_proposal_bimbingan_s2", use_container_width=True):
-                    try:
-                        _word = buat_docx_proposal_final(_naskah_word, _judul_prop, _nama_word, _npm_word, _prodi_word, int(_tahun_word))
-                        st.session_state["proposal_s2_word_bimbingan"] = _word
-                        st.success("✅ Word proposal untuk bimbingan berhasil disiapkan tanpa membuat ulang atau meringkas proposal.")
-                    except Exception as _e:
-                        st.error(f"Word belum dapat disiapkan: {_e}")
+                if st.button("📄 Siapkan Proposal Final & Word", key="siapkan_proposal_final_word_s2", type="primary", use_container_width=True):
+                    _audit_final = st.session_state.get("audit_pedoman_proposal_s2", "")
+                    _prompt_final = f"""Sempurnakan naskah berikut menjadi PROPOSAL TESIS FINAL yang siap diajukan kepada dosen.
+Gunakan PEDOMAN AKTIF sebagai aturan utama dan gunakan HASIL AUDIT hanya sebagai daftar masalah yang harus diperbaiki.
 
-                _word_bimbingan = st.session_state.get("proposal_s2_word_bimbingan")
-                if _word_bimbingan:
-                    st.download_button(
-                        "📥 Unduh Proposal Tesis untuk Bimbingan (.docx)",
-                        data=_word_bimbingan,
-                        file_name="Proposal_Tesis_Hasil_Penyempurnaan_AI_IAID.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key="unduh_proposal_bimbingan_s2",
-                        use_container_width=True,
-                    )
+ATURAN KERAS:
+1. Keluaran HANYA naskah proposal final, bukan laporan audit, bukan komentar, bukan daftar saran.
+2. Pertahankan judul dan jenis/metode penelitian yang sudah dipilih. Jangan mengubah penelitian kualitatif menjadi kuantitatif atau sebaliknya.
+3. Lengkapi dan rapikan struktur proposal sesuai Pedoman aktif.
+4. Jangan mengarang data lapangan, hasil penelitian, DOI, referensi, kutipan, atau nomor halaman.
+5. Jika naskah memuat [DATA LAPANGAN PERLU DILENGKAPI], jangan menciptakan data palsu. Ubah redaksi menjadi bahasa proposal yang tidak mengklaim hasil lapangan yang belum dilakukan bila secara akademik memungkinkan. Bila fakta khusus memang wajib, pertahankan penanda secara jelas agar penulis tahu harus mengisinya.
+6. Gunakan hanya referensi yang benar-benar tersedia dalam naskah/bank referensi. Jangan menciptakan sumber baru.
+7. Sesuaikan sitasi, footnote dan daftar pustaka dengan Pedoman aktif. Untuk footnote gunakan marker [^1], [^2], dst. di badan naskah dan tulis definisinya sebagai [^1]: ... pada bagian CATATAN KAKI. Jangan menebak halaman yang tidak diketahui.
+8. Jangan masukkan teks audit ke dalam proposal final.
+9. Akhiri dengan Daftar Pustaka Sementara sesuai Pedoman.
+
+JUDUL:
+{_judul_prop}
+
+METODE:
+{_metode_prop}
+
+PEDOMAN AKTIF:
+{st.session_state.get('pedoman_tesis_s2_teks','')[:50000]}
+
+HASIL AUDIT:
+{_audit_final[:25000]}
+
+NASKAH PROPOSAL SAAT INI:
+{_edit[:70000]}
+"""
+                    try:
+                        with st.spinner("Menyempurnakan proposal final sesuai Pedoman aktif..."):
+                            _final_raw = panggil_gemini(_prompt_final, 0.05)
+                            _final_teks = hasil_ai_teks(_final_raw)
+                        if _final_teks:
+                            st.session_state["proposal_s2_final"] = _final_teks
+                            _word = buat_docx_proposal_final(_final_teks, _judul_prop, _nama_word, _npm_word, _prodi_word, int(_tahun_word))
+                            st.session_state["proposal_s2_final_word"] = _word
+                            st.success("✅ Proposal final selesai disiapkan. Periksa naskah final, lalu unduh Word.")
+                        else:
+                            st.error("AI belum menghasilkan proposal final.")
+                    except Exception as _e:
+                        st.error(f"Proposal final belum dapat disiapkan: {_e}")
+
+                if st.session_state.get("proposal_s2_final"):
+                    with st.expander("📖 Lihat Proposal Final", expanded=True):
+                        st.markdown(st.session_state["proposal_s2_final"])
+                    _word_final = st.session_state.get("proposal_s2_final_word")
+                    if _word_final:
+                        st.download_button(
+                            "📥 Unduh Proposal Tesis Final (.docx)",
+                            data=_word_final,
+                            file_name="Proposal_Tesis_Final_IAID.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="unduh_proposal_final_word_s2",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.warning("Word belum tersedia. Klik 'Siapkan Proposal Final & Word'.")
 
     # ============================================================
     # SUBMENU 2 — LITERATUR & PENELITIAN TERDAHULU
@@ -5237,22 +5165,9 @@ elif menu == "🧑‍🎓 Disertasi S3":
         "Kontribusi Metodologis","Kontribusi Praktis","Proposal Disertasi","Metodologi Doktoral","Instrumen",
         "Pengumpulan Data","Analisis Data","Penulisan Disertasi","Publikasi","Bimbingan & Revisi","Presentasi","Persiapan Ujian Doktoral"
     ],key="tahap_s3")
-    st.markdown("### 📘 Pedoman Disertasi S3")
-    st.caption("Pedoman program doktor menjadi rambu-rambu utama. Mesin S2 dipakai sebagai baseline alur, lalu standar diperkuat untuk state of the art, novelty, original contribution, dan kedalaman doktoral sesuai pedoman S3.")
-    pedoman_s3=st.file_uploader("📄 Unggah pedoman Disertasi S3 kampus (opsional)",type=["pdf","docx","txt"],key="pedoman_s3")
-    if pedoman_s3:
-        _tp3=ekstrak_teks(pedoman_s3)
-        if not _tp3.startswith("ERROR:") and _tp3.strip():
-            st.session_state["pedoman_s3_teks"] = _tp3
-            st.session_state["pedoman_s3_nama"] = getattr(pedoman_s3,"name","Pedoman Disertasi S3")
-            st.success(f"🟢 Pedoman S3 aktif: {st.session_state['pedoman_s3_nama']}")
-    elif st.session_state.get("pedoman_s3_teks"):
-        st.success(f"🟢 Pedoman S3 aktif: {st.session_state.get('pedoman_s3_nama','Pedoman Disertasi S3')}")
-    sumber=st.file_uploader("📚 Unggah tesis S2, artikel, jurnal, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="disertasi")
+    sumber=st.file_uploader("📚 Unggah tesis S2, artikel, jurnal, pedoman, atau data",type=["pdf","docx","txt","csv","xlsx"],accept_multiple_files=True,key="disertasi")
     arah=st.text_area("Masalah doktoral, arahan promotor, atau pekerjaan yang ingin dibuat",key="arah_s3")
     konteks=""
-    if st.session_state.get("pedoman_s3_teks"):
-        konteks+="\nPEDOMAN DISERTASI S3 AKTIF (WAJIB MENJADI ACUAN):\n"+st.session_state.get("pedoman_s3_teks","")
     for f in sumber or []:
         if f.name.lower().endswith((".pdf",".docx",".txt")):
             t=ekstrak_teks(f)
@@ -5262,7 +5177,7 @@ elif menu == "🧑‍🎓 Disertasi S3":
         instr=f"""Jenjang: S3 — Disertasi
 Tahap: {tahap}
 Arahan: {arah}
-PEDOMAN ADAPTIF S3: Gunakan pedoman Disertasi S3 yang aktif sebagai pengendali utama struktur, format, metodologi, sitasi, dan standar doktoral. Mesin S2 hanya menjadi baseline alur. Tingkatkan kedalaman menjadi standar S3: state of the art, research gap, novelty/original contribution, serta kontribusi teoretis, metodologis, dan praktis harus dibedakan dengan jelas dan didukung sumber. Jika pedoman tidak mengatur suatu hal, jangan mengarang aturan kampus. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
+Gunakan analisis doktoral yang kritis. Bedakan state of the art, research gap, novelty, serta kontribusi teoretis/metodologis/praktis. Jangan membuat data, DOI, kutipan, atau halaman palsu."""
         panel_ai_penulisan(konteks,tahap,instr,st.session_state.bank_referensi,"s3")
     if st.session_state.get("hasil_penulisan_ai"):
         edit=st.text_area("Hasil AI — dapat diedit",st.session_state.hasil_penulisan_ai,height=650,key="hasil_s3")
