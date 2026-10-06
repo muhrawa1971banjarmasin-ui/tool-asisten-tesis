@@ -1591,6 +1591,146 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
     except Exception as e:
         return None, f"Gagal membuat salinan Word: {e}"
 
+
+def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Agama Islam", tahun=None):
+    """Membuat DOCX proposal final yang rapi untuk dicetak dari naskah final."""
+    if docx is None:
+        return None
+    import re
+    bio = BytesIO()
+    d = docx.Document()
+    sec = d.sections[0]
+    sec.top_margin = Cm(4)
+    sec.left_margin = Cm(4)
+    sec.bottom_margin = Cm(3)
+    sec.right_margin = Cm(3)
+
+    normal = d.styles['Normal']
+    normal.font.name = 'Times New Roman'
+    normal.font.size = Pt(12)
+    normal.paragraph_format.line_spacing = 2
+    normal.paragraph_format.first_line_indent = Cm(1.27)
+    normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+    # Sampul proposal.
+    p0 = d.add_paragraph()
+    p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p0.paragraph_format.first_line_indent = Cm(0)
+    r = p0.add_run('PROPOSAL TESIS')
+    r.bold = True; r.font.name = 'Times New Roman'; r.font.size = Pt(14)
+    for _ in range(2): d.add_paragraph('')
+    pj = d.add_paragraph(); pj.alignment = WD_ALIGN_PARAGRAPH.CENTER; pj.paragraph_format.first_line_indent = Cm(0)
+    rr = pj.add_run(str(judul or '').upper()); rr.bold=True; rr.font.name='Times New Roman'; rr.font.size=Pt(14)
+    for _ in range(5): d.add_paragraph('')
+    for line in [f'Oleh: {nama}' if nama else 'Oleh:', f'NPM: {npm}' if npm else 'NPM:', '', 'PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}', 'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA', 'MARTAPURA', str(tahun or datetime.now().year)]:
+        pp=d.add_paragraph(); pp.alignment=WD_ALIGN_PARAGRAPH.CENTER; pp.paragraph_format.first_line_indent=Cm(0)
+        run=pp.add_run(line); run.font.name='Times New Roman'; run.font.size=Pt(12); run.bold = line in ['PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}', 'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA']
+    d.add_page_break()
+
+    raw = str(teks or '').strip()
+    # Catatan kaki model markdown dipisahkan dari badan agar tidak tercetak dua kali.
+    note_pat = re.compile(r'(?m)^\[\^(\d+)\]\s*:?[ \t]*(.+)$')
+    notes = {int(m.group(1)): m.group(2).strip() for m in note_pat.finditer(raw)}
+    body = note_pat.sub('', raw)
+    body = re.sub(r'(?im)^\s*(CATATAN KAKI|FOOTNOTES?)\s*$','',body)
+
+    heading_re = re.compile(r'^(BAB\s+[IVXLCDM]+\b.*|[A-Z]\.\s+.+|\d+\.\s+.+)$', re.I)
+    for line in body.splitlines():
+        t=line.strip()
+        if not t: continue
+        # bersihkan markdown heading/bold tanpa mengubah substansi
+        t=re.sub(r'^#{1,6}\s*','',t)
+        t=t.replace('**','').replace('__','')
+        pp=d.add_paragraph()
+        pp.paragraph_format.line_spacing=2
+        if re.match(r'^BAB\s+[IVXLCDM]+\b', t, re.I):
+            pp.alignment=WD_ALIGN_PARAGRAPH.CENTER; pp.paragraph_format.first_line_indent=Cm(0)
+            run=pp.add_run(t); run.bold=True; run.font.name='Times New Roman'; run.font.size=Pt(12)
+        elif heading_re.match(t) and len(t) < 180:
+            pp.alignment=WD_ALIGN_PARAGRAPH.LEFT; pp.paragraph_format.first_line_indent=Cm(0)
+            run=pp.add_run(t); run.bold=True; run.font.name='Times New Roman'; run.font.size=Pt(12)
+        else:
+            pp.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY; pp.paragraph_format.first_line_indent=Cm(1.27)
+            run=pp.add_run(t); run.font.name='Times New Roman'; run.font.size=Pt(12)
+
+    d.save(bio)
+    data=bio.getvalue()
+    if not notes:
+        return data
+
+    # Ubah marker [^n] menjadi true Word footnote.
+    try:
+        import io, zipfile
+        from lxml import etree
+        W='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+        REL='http://schemas.openxmlformats.org/package/2006/relationships'
+        CT='http://schemas.openxmlformats.org/package/2006/content-types'
+        XML='http://www.w3.org/XML/1998/namespace'
+        q=lambda uri,tag:f'{{{uri}}}{tag}'
+        ns={'w':W}
+        with zipfile.ZipFile(io.BytesIO(data),'r') as zin:
+            infos=zin.infolist(); files={i.filename:zin.read(i.filename) for i in infos}
+        parser=etree.XMLParser(remove_blank_text=False)
+        root=etree.fromstring(files['word/document.xml'],parser)
+        used=set()
+        for tn in list(root.xpath('.//w:t',namespaces=ns)):
+            txt=tn.text or ''
+            mm=list(re.finditer(r'\[\^(\d+)\]',txt))
+            if not mm: continue
+            run=tn.getparent(); parent=run.getparent(); idx=parent.index(run); pos=0; additions=[]
+            old_rpr=run.find(q(W,'rPr'))
+            for m in mm:
+                before=txt[pos:m.start()]
+                if before:
+                    nr=etree.Element(q(W,'r'))
+                    if old_rpr is not None: nr.append(etree.fromstring(etree.tostring(old_rpr)))
+                    nt=etree.SubElement(nr,q(W,'t')); nt.text=before
+                    if before.startswith(' ') or before.endswith(' '): nt.set(q(XML,'space'),'preserve')
+                    additions.append(nr)
+                n=int(m.group(1)); used.add(n)
+                rr=etree.Element(q(W,'r')); rpr=etree.SubElement(rr,q(W,'rPr')); va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript')
+                ref=etree.SubElement(rr,q(W,'footnoteReference')); ref.set(q(W,'id'),str(n)); additions.append(rr)
+                pos=m.end()
+            after=txt[pos:]
+            if after:
+                nr=etree.Element(q(W,'r'))
+                if old_rpr is not None: nr.append(etree.fromstring(etree.tostring(old_rpr)))
+                nt=etree.SubElement(nr,q(W,'t')); nt.text=after
+                if after.startswith(' ') or after.endswith(' '): nt.set(q(XML,'space'),'preserve')
+                additions.append(nr)
+            parent.remove(run)
+            for off,nr in enumerate(additions): parent.insert(idx+off,nr)
+        fnroot=etree.Element(q(W,'footnotes'),nsmap={'w':W})
+        for fid,tag in [(-1,'separator'),(0,'continuationSeparator')]:
+            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(fid)); p1=etree.SubElement(fn,q(W,'p')); r1=etree.SubElement(p1,q(W,'r')); etree.SubElement(r1,q(W,tag))
+        for n in sorted(used):
+            if n not in notes: continue
+            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(n)); p1=etree.SubElement(fn,q(W,'p'))
+            rnum=etree.SubElement(p1,q(W,'r')); rpr=etree.SubElement(rnum,q(W,'rPr')); va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript'); etree.SubElement(rnum,q(W,'footnoteRef'))
+            rt=etree.SubElement(p1,q(W,'r')); rp=etree.SubElement(rt,q(W,'rPr')); fonts=etree.SubElement(rp,q(W,'rFonts')); fonts.set(q(W,'ascii'),'Times New Roman'); fonts.set(q(W,'hAnsi'),'Times New Roman'); sz=etree.SubElement(rp,q(W,'sz')); sz.set(q(W,'val'),'20'); tt=etree.SubElement(rt,q(W,'t')); tt.set(q(XML,'space'),'preserve'); tt.text=' '+notes[n]
+        files['word/document.xml']=etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone='yes')
+        files['word/footnotes.xml']=etree.tostring(fnroot,xml_declaration=True,encoding='UTF-8',standalone='yes')
+        relp='word/_rels/document.xml.rels'; relroot=etree.fromstring(files[relp],parser); reltype='http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes'
+        if not any(x.get('Type')==reltype for x in relroot):
+            ids={x.get('Id') for x in relroot}; i=1
+            while f'rId{i}' in ids:i+=1
+            rel=etree.SubElement(relroot,q(REL,'Relationship')); rel.set('Id',f'rId{i}'); rel.set('Type',reltype); rel.set('Target','footnotes.xml')
+        files[relp]=etree.tostring(relroot,xml_declaration=True,encoding='UTF-8',standalone='yes')
+        ctp='[Content_Types].xml'; ctroot=etree.fromstring(files[ctp],parser)
+        if not any(x.get('PartName')=='/word/footnotes.xml' for x in ctroot):
+            ov=etree.SubElement(ctroot,q(CT,'Override')); ov.set('PartName','/word/footnotes.xml'); ov.set('ContentType','application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml')
+        files[ctp]=etree.tostring(ctroot,xml_declaration=True,encoding='UTF-8',standalone='yes')
+        out=io.BytesIO()
+        with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as zout:
+            written=set()
+            for info in infos:
+                if info.filename in files and info.filename not in written: zout.writestr(info,files[info.filename]); written.add(info.filename)
+            for name,b in files.items():
+                if name not in written: zout.writestr(name,b)
+        return out.getvalue()
+    except Exception:
+        return data
+
 # ============================================================
 # HEADER
 # ============================================================
@@ -4674,6 +4814,74 @@ Berikan status akhir tepat salah satu: LULUS PEDOMAN atau BELUM LULUS PEDOMAN. J
                     st.success("🔒 Proposal ditetapkan sebagai versi final setelah lulus audit Pedoman.")
                 if not _audit_ok:
                     st.caption("Finalisasi dikunci sampai audit menyatakan LULUS PEDOMAN.")
+
+                st.markdown("### 📄 Proposal Final Siap Cetak")
+                with st.expander("Identitas untuk sampul Word", expanded=False):
+                    _nama_word = st.text_input("Nama mahasiswa", key="proposal_final_nama_s2")
+                    _npm_word = st.text_input("NPM", key="proposal_final_npm_s2")
+                    _prodi_word = st.text_input("Program Studi", value="Pendidikan Agama Islam", key="proposal_final_prodi_s2")
+                    _tahun_word = st.number_input("Tahun", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="proposal_final_tahun_s2")
+
+                if st.button("📄 Siapkan Proposal Final & Word", key="siapkan_proposal_final_word_s2", type="primary", use_container_width=True):
+                    _audit_final = st.session_state.get("audit_pedoman_proposal_s2", "")
+                    _prompt_final = f"""Sempurnakan naskah berikut menjadi PROPOSAL TESIS FINAL yang siap diajukan kepada dosen.
+Gunakan PEDOMAN AKTIF sebagai aturan utama dan gunakan HASIL AUDIT hanya sebagai daftar masalah yang harus diperbaiki.
+
+ATURAN KERAS:
+1. Keluaran HANYA naskah proposal final, bukan laporan audit, bukan komentar, bukan daftar saran.
+2. Pertahankan judul dan jenis/metode penelitian yang sudah dipilih. Jangan mengubah penelitian kualitatif menjadi kuantitatif atau sebaliknya.
+3. Lengkapi dan rapikan struktur proposal sesuai Pedoman aktif.
+4. Jangan mengarang data lapangan, hasil penelitian, DOI, referensi, kutipan, atau nomor halaman.
+5. Jika naskah memuat [DATA LAPANGAN PERLU DILENGKAPI], jangan menciptakan data palsu. Ubah redaksi menjadi bahasa proposal yang tidak mengklaim hasil lapangan yang belum dilakukan bila secara akademik memungkinkan. Bila fakta khusus memang wajib, pertahankan penanda secara jelas agar penulis tahu harus mengisinya.
+6. Gunakan hanya referensi yang benar-benar tersedia dalam naskah/bank referensi. Jangan menciptakan sumber baru.
+7. Sesuaikan sitasi, footnote dan daftar pustaka dengan Pedoman aktif. Untuk footnote gunakan marker [^1], [^2], dst. di badan naskah dan tulis definisinya sebagai [^1]: ... pada bagian CATATAN KAKI. Jangan menebak halaman yang tidak diketahui.
+8. Jangan masukkan teks audit ke dalam proposal final.
+9. Akhiri dengan Daftar Pustaka Sementara sesuai Pedoman.
+
+JUDUL:
+{_judul_prop}
+
+METODE:
+{_metode_prop}
+
+PEDOMAN AKTIF:
+{st.session_state.get('pedoman_tesis_s2_teks','')[:50000]}
+
+HASIL AUDIT:
+{_audit_final[:25000]}
+
+NASKAH PROPOSAL SAAT INI:
+{_edit[:70000]}
+"""
+                    try:
+                        with st.spinner("Menyempurnakan proposal final sesuai Pedoman aktif..."):
+                            _final_raw = panggil_gemini(_prompt_final, 0.05)
+                            _final_teks = hasil_ai_teks(_final_raw)
+                        if _final_teks:
+                            st.session_state["proposal_s2_final"] = _final_teks
+                            _word = buat_docx_proposal_final(_final_teks, _judul_prop, _nama_word, _npm_word, _prodi_word, int(_tahun_word))
+                            st.session_state["proposal_s2_final_word"] = _word
+                            st.success("✅ Proposal final selesai disiapkan. Periksa naskah final, lalu unduh Word.")
+                        else:
+                            st.error("AI belum menghasilkan proposal final.")
+                    except Exception as _e:
+                        st.error(f"Proposal final belum dapat disiapkan: {_e}")
+
+                if st.session_state.get("proposal_s2_final"):
+                    with st.expander("📖 Lihat Proposal Final", expanded=True):
+                        st.markdown(st.session_state["proposal_s2_final"])
+                    _word_final = st.session_state.get("proposal_s2_final_word")
+                    if _word_final:
+                        st.download_button(
+                            "📥 Unduh Proposal Tesis Final (.docx)",
+                            data=_word_final,
+                            file_name="Proposal_Tesis_Final_IAID.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="unduh_proposal_final_word_s2",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.warning("Word belum tersedia. Klik 'Siapkan Proposal Final & Word'.")
 
     # ============================================================
     # SUBMENU 2 — LITERATUR & PENELITIAN TERDAHULU
