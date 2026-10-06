@@ -4643,7 +4643,7 @@ DRAF:
                             st.error(f"Koreksi belum dapat dilakukan: {_e}")
 
                 st.markdown("### ✅ Audit Kepatuhan Pedoman")
-                if st.button("🔍 Audit Proposal terhadap Pedoman",key="audit_pedoman_proposal_s2",use_container_width=True):
+                if st.button("🔍 Audit Proposal terhadap Pedoman",key="btn_audit_pedoman_proposal_s2",use_container_width=True):
                     _paudit=f"""Audit proposal berikut HANYA terhadap Pedoman aktif. Jangan mengarang aturan.
 PEDOMAN:
 {st.session_state.get('pedoman_tesis_s2_teks','')[:50000]}
