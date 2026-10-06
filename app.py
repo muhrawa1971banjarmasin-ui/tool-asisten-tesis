@@ -4173,12 +4173,40 @@ Jangan membuat data atau referensi palsu."""
 
         # Pulihkan data lama tanpa meminta pengguna mengulang Submenu 1.
         # Prioritas: data proyek -> dasar proposal -> judul final -> pilihan judul yang tersimpan.
+        # Ambil langsung nilai widget Submenu 1 jika jalur transfer belum terisi.
+        _judul_widget_s1 = ""
+        for _k in [
+            "judul_pilihan_final_s2",
+            "judul_pilihan_s2",
+            "pilihan_judul_s2",
+            "judul_utama_pilihan_s2",
+            "dropdown_pilih_judul_final",
+        ]:
+            if st.session_state.get(_k):
+                _judul_widget_s1 = st.session_state.get(_k)
+                break
+
+        # Fallback terakhir: cari state widget yang namanya mengandung judul + s2,
+        # tetapi abaikan editor Proposal sendiri.
+        if not _judul_widget_s1:
+            for _k, _v in list(st.session_state.items()):
+                _kl = str(_k).lower()
+                if (
+                    "judul" in _kl
+                    and "s2" in _kl
+                    and "proposal_s2_edit" not in _kl
+                    and isinstance(_v, str)
+                    and _v.strip()
+                ):
+                    _judul_widget_s1 = _v.strip()
+
         _judul_prop = (
             st.session_state.get("proposal_judul", "")
             or _proyek.get("judul")
             or _dasar.get("judul")
             or st.session_state.get("judul_tesis_s2_terpilih", "")
             or st.session_state.get("judul_utama_pilihan_s2", "")
+            or _judul_widget_s1
         )
         _masalah_prop = (
             st.session_state.get("proposal_masalah", "")
@@ -4190,6 +4218,20 @@ Jangan membuat data atau referensi palsu."""
         if not _masalah_prop:
             _versi_masalah = st.session_state.get("versi_input_masalah_ide_s2", 0)
             _masalah_prop = st.session_state.get(f"masalah_ide_s2_{_versi_masalah}", "")
+
+        if not _masalah_prop:
+            # Cari input masalah Submenu 1 yang memakai key dinamis/versi.
+            for _k, _v in list(st.session_state.items()):
+                _kl = str(_k).lower()
+                if (
+                    "masalah" in _kl
+                    and "s2" in _kl
+                    and "proposal_s2_edit" not in _kl
+                    and isinstance(_v, str)
+                    and _v.strip()
+                ):
+                    _masalah_prop = _v.strip()
+                    break
 
         _arah_prop = (
             st.session_state.get("proposal_arah", "")
