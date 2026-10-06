@@ -3351,7 +3351,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             # Simpan hanya state yang memang harus tetap hidup di luar No.1.
             # Library utama sengaja TIDAK dihapus.
             _hapus_pasti = {
-                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2",
+                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2", "metode_ide_s2",
                 "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
                 "judul_alternatif_s2", "judul_tesis_s2_terpilih",
                 "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
@@ -3401,7 +3401,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             # Reset TOPIK harus membersihkan input gagasan juga, bukan hanya hasil AI.
             # Library utama tetap dipertahankan.
             _hapus_reset_topik = {
-                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2",
+                "masalah_ide_s2", "lokasi_ide_s2", "tesis_ide_s2", "arah_ide_s2", "metode_ide_s2",
                 "hasil_ai_ide_judul_s2", "hasil_koreksi_ide_s2",
                 "judul_alternatif_s2", "judul_tesis_s2_terpilih",
                 "dasar_proposal_tesis_s2", "bank_bahan_ide_s2",
@@ -3435,6 +3435,25 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             placeholder="Tuliskan masalah nyata yang ingin diteliti...",
             height=160,
             key=_key_masalah_ide_s2,
+        )
+
+        st.markdown("### 🎯 Penentuan Metode Penelitian")
+        st.caption(
+            "Pilih metode sebelum Generate AI. Jika belum yakin, pilih Rekomendasi AI. "
+            "AI akan menyarankan metode yang paling sesuai berdasarkan masalah dan bahan penelitian."
+        )
+        metode_ide_s2 = st.selectbox(
+            "Pilih metode penelitian",
+            [
+                "🤖 Rekomendasi AI",
+                "🔵 Kualitatif",
+                "🟢 Kuantitatif",
+                "🟣 Mixed Methods",
+                "🟠 R&D / Research and Development",
+                "🔴 Penelitian Tindakan / Action Research",
+                "📚 Penelitian Literatur",
+            ],
+            key="metode_ide_s2",
         )
         lokasi_ide_s2 = ""
         if mode_ide_s2 == "📄 Adaptasi Tesis ke Lokasi/Objek Baru":
@@ -3672,6 +3691,20 @@ LOKASI/OBJEK BARU:
 ARAH PENELITIAN YANG DIINGINKAN:
 {arah_ide_s2}
 
+PILIHAN METODE PENELITIAN:
+{metode_ide_s2}
+
+ATURAN PENENTUAN METODE:
+- Jika pilihan pengguna adalah "🤖 Rekomendasi AI", tentukan SATU metode yang paling sesuai setelah membaca masalah dan seluruh bahan. Jelaskan alasan singkat pada bagian analisis, lalu buat 5 alternatif judul yang konsisten dengan metode rekomendasi tersebut.
+- Jika pengguna memilih metode tertentu, JANGAN menggantinya dengan metode lain. Analisis masalah, research gap, novelty, dan 5 alternatif judul harus konsisten dengan metode pilihan pengguna.
+- Jangan memaksakan variabel kuantitatif jika metode yang dipilih bukan Kuantitatif.
+- Jangan otomatis mengubah Penelitian Tindakan menjadi eksperimen hanya karena tujuan menggunakan kata "meningkatkan".
+- Untuk R&D, judul harus benar-benar mencerminkan pengembangan/validasi produk, model, media, modul, atau aplikasi yang relevan.
+- Untuk Kualitatif, utamakan fenomena, proses, pengalaman, implementasi, strategi, atau makna sesuai masalah.
+- Untuk Mixed Methods, judul harus layak menggunakan kombinasi data kuantitatif dan kualitatif.
+- Untuk Penelitian Literatur, jangan membuat seolah-olah ada intervensi lapangan.
+- Rekomendasi metode AI bersifat saran. Keputusan akhir tetap milik pengguna.
+
 BAHAN TESIS SUMBER (jika ada):
 {bahan_ide_s2 if bahan_ide_s2 else "Tidak ada tesis sumber yang diunggah."}
 
@@ -3692,8 +3725,8 @@ PAGAR KONTEKS:
 - Jangan membawa topik dari sesi/modul lain.
 - Jangan mengarang data, temuan, DOI, kutipan, nomor halaman, atau referensi.
 - Research gap dan novelty pada tahap ini adalah HIPOTESIS AWAL yang masih perlu dibuktikan melalui literatur.
-- Jangan memaksakan pendekatan kuantitatif, kualitatif, R&D, PTK/action research, atau metode lain.
-  Tawarkan arah yang masuk akal dan biarkan pengguna memilih.
+- Ikuti PILIHAN METODE PENELITIAN di atas.
+- Jika pengguna memilih Rekomendasi AI, rekomendasikan satu metode yang paling cocok tetapi jangan menetapkannya sebagai keputusan final pengguna.
 
 OUTPUT WAJIB HANYA:
 A. ANALISIS MASALAH
