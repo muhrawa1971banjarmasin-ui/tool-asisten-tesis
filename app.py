@@ -1,4 +1,4 @@
-rom pathlib import Path
+from pathlib import Path
 from copy import deepcopy
 from io import BytesIO
 
