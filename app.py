@@ -1754,12 +1754,14 @@ st.sidebar.text_input(
     key="proyek_aktif"
 )
 
-menu_pintu = st.sidebar.radio(
+menu_utama = st.sidebar.radio(
     "Menu Utama",
     [
         "🎓 Perkuliahan",
         "🔎 Analisis Karya Akademik",
-        "🎓 Tugas Akhir Perkuliahan",
+        "🎓 Skripsi S1",
+        "🎓 Tesis S2",
+        "🎓 Disertasi S3",
         "📚 Literatur & Referensi",
         "✨ Penyunting Akademik AI",
         "📝 Jurnal Akademik",
@@ -1767,24 +1769,6 @@ menu_pintu = st.sidebar.radio(
         "⚙️ Admin"
     ]
 )
-
-# Tugas Akhir Perkuliahan hanya menyatukan pintu masuk.
-# Seluruh mesin, submenu, dan fitur S1/S2/S3 lama tetap dipakai utuh.
-if menu_pintu == "🎓 Tugas Akhir Perkuliahan":
-    jenjang_tugas_akhir = st.sidebar.radio(
-        "Jenjang Tugas Akhir",
-        ["S1 • Skripsi", "S2 • Tesis", "S3 • Disertasi"],
-        index=1,
-        key="jenjang_tugas_akhir"
-    )
-    _peta_jenjang = {
-        "S1 • Skripsi": "🎓 Skripsi S1",
-        "S2 • Tesis": "🎓 Tesis S2",
-        "S3 • Disertasi": "🎓 Disertasi S3",
-    }
-    menu_utama = _peta_jenjang[jenjang_tugas_akhir]
-else:
-    menu_utama = menu_pintu
 
 # Pemetaan 10 menu utama ke modul yang sudah ada.
 # Fitur penelitian lama tetap dipakai, tetapi ditempatkan di dalam S1, S2, dan S3.
