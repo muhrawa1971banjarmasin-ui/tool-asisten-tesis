@@ -1,5 +1,6 @@
 from pathlib import Path
 from copy import deepcopy
+from io import BytesIO
 
 import streamlit as st
 import shutil
@@ -19,8 +20,23 @@ import time
 import random
 try:
     import docx
+    from docx.shared import Cm, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
 except ImportError:
     docx = None
+    Cm = Pt = WD_ALIGN_PARAGRAPH = None
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm as rl_cm
+except ImportError:
+    A4 = getSampleStyleSheet = ParagraphStyle = TA_CENTER = None
+    SimpleDocTemplate = Paragraph = Spacer = Table = TableStyle = PageBreak = None
+    colors = rl_cm = None
 
 
 # ============================================================
@@ -1034,20 +1050,175 @@ MASALAH:
                 rr = dict(r); rr["Kata Kunci"] = q; hasil.append(rr)
     return queries[:8], hasil
 
-def analisis_ketersediaan_referensi_judul_s2(judul, jumlah=10):
+def _jumlah_hasil_crossref(kata_kunci):
+    if not str(kata_kunci or "").strip(): return 0
+    try:
+        q=urllib.parse.quote(str(kata_kunci).strip())
+        data=_http_json(f"https://api.crossref.org/works?query.bibliographic={q}&rows=0")
+        return int(data.get("message",{}).get("total-results",0) or 0)
+    except Exception:
+        return 0
+
+def _jumlah_hasil_openalex(kata_kunci):
+    if not str(kata_kunci or "").strip(): return 0
+    try:
+        q=urllib.parse.quote(str(kata_kunci).strip())
+        data=_http_json(f"https://api.openalex.org/works?search={q}&per-page=1")
+        return int((data.get("meta") or {}).get("count",0) or 0)
+    except Exception:
+        return 0
+
+def _jumlah_hasil_semantic_scholar(kata_kunci):
+    if not str(kata_kunci or "").strip(): return 0
+    try:
+        q=urllib.parse.quote(str(kata_kunci).strip())
+        data=_http_json(f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=1&fields=title")
+        return int(data.get("total",0) or 0)
+    except Exception:
+        return 0
+
+def analisis_ketersediaan_referensi_judul_s2(judul, jumlah=20):
+    """Ketersediaan literatur nyata. Angka basis data tidak dijumlahkan karena bisa tumpang tindih."""
     refs = cari_multi_sumber(judul, jumlah)
     tahun_sekarang = datetime.now().year
     terbaru = 0
+    internasional = 0
+    terverifikasi = 0
     for r in refs:
         try:
             if int(str(r.get("Tahun", ""))[:4]) >= tahun_sekarang - 5:
                 terbaru += 1
         except Exception:
             pass
-    n = len(refs)
-    status = "🟢 Kuat / relatif mudah" if n >= 15 else "🟡 Cukup / perlu perluasan kata kunci" if n >= 6 else "🔴 Terbatas / perlu pencarian lebih luas"
-    return {"Judul":judul, "Kandidat":n, "Literatur 5 Tahun":terbaru,
-            "Sumber Internasional":n, "Status":status, "Referensi":refs}
+        if r.get("Sumber") in ("Crossref","OpenAlex","Semantic Scholar","Library of Congress"):
+            internasional += 1
+        if "terverifikasi" in str(r.get("Status","")).lower() or "teridentifikasi" in str(r.get("Status","")).lower():
+            terverifikasi += 1
+    cr=_jumlah_hasil_crossref(judul)
+    oa=_jumlah_hasil_openalex(judul)
+    ss=_jumlah_hasil_semantic_scholar(judul)
+    # Jangan menjumlahkan basis data karena duplikasi lintas indeks. Gunakan angka terbesar sebagai indikator cakupan.
+    indikator=max(cr,oa,ss,len(refs))
+    if indikator >= 100:
+        status="🟢 Banyak / sangat mendukung"
+    elif indikator >= 30:
+        status="🟢 Cukup banyak / mendukung"
+    elif indikator >= 10:
+        status="🟡 Cukup / perlu perluasan kata kunci"
+    else:
+        status="🔴 Terbatas / perlu pencarian lebih luas"
+    return {
+        "Judul":judul,
+        "Kandidat":len(refs),
+        "Literatur 5 Tahun":terbaru,
+        "Sumber Internasional":internasional,
+        "Terverifikasi":terverifikasi,
+        "Crossref":cr,
+        "OpenAlex":oa,
+        "Semantic Scholar":ss,
+        "Indikator Ketersediaan":indikator,
+        "Status":status,
+        "Referensi":refs,
+    }
+
+def _parse_analisis_10_judul(teks, judul_list):
+    teks=str(teks or "")
+    out=[]
+    for i in range(1,11):
+        def ambil(label):
+            m=re.search(rf"(?ims)^\s*\[{label}\s*{i}\]\s*[:\-]?\s*(.+?)(?=^\s*\[(?:JUDUL|GAP|NOVELTY|KEKUATAN|ALASAN)\s*\d+\]|\Z)",teks)
+            return re.sub(r"\s+"," ",m.group(1)).strip() if m else ""
+        j=ambil("JUDUL") or (judul_list[i-1] if i-1 < len(judul_list) else "")
+        out.append({"No":i,"Judul":j,"Gap":ambil("GAP"),"Novelty":ambil("NOVELTY"),"Kekuatan":ambil("KEKUATAN"),"Alasan":ambil("ALASAN")})
+    return out
+
+def _teks_laporan_analisis_judul_s2(masalah, metode, pedoman, analisis, data10, dipilih=""):
+    lines=["LAPORAN ANALISIS IDE DAN ALTERNATIF JUDUL TESIS S2", "", f"Tanggal analisis: {datetime.now().strftime('%d-%m-%Y %H:%M')}", f"Pedoman aktif: {pedoman or 'Belum ada pedoman aktif'}", f"Metode: {metode}", "", "PERMASALAHAN/GAGASAN AWAL", masalah or "-", "", "URAIAN ANALISIS IDE, RESEARCH GAP, DAN NOVELTY", analisis or "-"]
+    lines += ["", "ANALISIS 10 ALTERNATIF JUDUL"]
+    for d in data10:
+        av=d.get("Ketersediaan",{}) or {}
+        lines += ["", f"{d.get('No')}. {d.get('Judul','')}", f"Research Gap: {d.get('Gap','-') or '-'}", f"Novelty: {d.get('Novelty','-') or '-'}", f"Kekuatan: {d.get('Kekuatan','-') or '-'}", f"Alasan: {d.get('Alasan','-') or '-'}", f"Ketersediaan literatur terindeks: Crossref {av.get('Crossref',0)} | OpenAlex {av.get('OpenAlex',0)} | Semantic Scholar {av.get('Semantic Scholar',0)}", f"Kandidat unik yang diperiksa: {av.get('Kandidat',0)} | 5 tahun terakhir: {av.get('Literatur 5 Tahun',0)} | Terverifikasi/teridentifikasi: {av.get('Terverifikasi',0)}", f"Status ketersediaan: {av.get('Status','Belum diperiksa')}"]
+    if dipilih:
+        lines += ["", "JUDUL YANG DIPILIH PENGGUNA", dipilih]
+    lines += ["", "CATATAN", "Jumlah hasil Crossref, OpenAlex, dan Semantic Scholar ditampilkan per basis data dan tidak dijumlahkan karena satu karya dapat terindeks pada lebih dari satu basis data."]
+    return "\n".join(lines)
+
+def buat_docx_analisis_judul_s2(masalah, metode, pedoman, analisis, data10, dipilih=""):
+    if docx is None: return None
+    bio=BytesIO(); d=docx.Document(); sec=d.sections[0]
+    sec.top_margin=Cm(4); sec.left_margin=Cm(4); sec.bottom_margin=Cm(3); sec.right_margin=Cm(3)
+    styles=d.styles
+    styles['Normal'].font.name='Times New Roman'; styles['Normal'].font.size=Pt(12)
+    p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER; r=p.add_run('LAPORAN ANALISIS IDE DAN ALTERNATIF JUDUL TESIS S2'); r.bold=True; r.font.name='Times New Roman'; r.font.size=Pt(14)
+    for label,val in [("Tanggal analisis",datetime.now().strftime('%d-%m-%Y %H:%M')),("Pedoman aktif",pedoman or 'Belum ada pedoman aktif'),("Metode",metode)]:
+        p=d.add_paragraph(); p.add_run(label+': ').bold=True; p.add_run(str(val))
+    d.add_heading('A. Permasalahan/Gagasan Awal',level=1); d.add_paragraph(masalah or '-')
+    d.add_heading('B. Analisis Ide, Research Gap, dan Novelty',level=1)
+    for blok in str(analisis or '-').splitlines():
+        if blok.strip(): d.add_paragraph(blok.strip())
+    d.add_heading('C. Analisis 10 Alternatif Judul',level=1)
+    table=d.add_table(rows=1, cols=7); table.style='Table Grid'
+    hdr=['No','Judul','Research Gap','Novelty','Kekuatan','Ketersediaan Literatur','Status']
+    for i,h in enumerate(hdr): table.rows[0].cells[i].text=h
+    for x in data10:
+        av=x.get('Ketersediaan',{}) or {}; cells=table.add_row().cells
+        vals=[str(x.get('No','')),x.get('Judul',''),x.get('Gap','-') or '-',x.get('Novelty','-') or '-',x.get('Kekuatan','-') or '-',f"Crossref {av.get('Crossref',0)}; OpenAlex {av.get('OpenAlex',0)}; S2 {av.get('Semantic Scholar',0)}; sampel unik {av.get('Kandidat',0)}",av.get('Status','Belum diperiksa')]
+        for i,v in enumerate(vals): cells[i].text=str(v)
+    d.add_paragraph('Catatan: jumlah hasil tiap basis data tidak dijumlahkan karena satu karya dapat terindeks pada lebih dari satu basis data.')
+    if dipilih:
+        d.add_heading('D. Judul yang Dipilih Pengguna',level=1); d.add_paragraph(dipilih)
+    d.save(bio); bio.seek(0); return bio.getvalue()
+
+def buat_pdf_analisis_judul_s2(masalah, metode, pedoman, analisis, data10, dipilih=""):
+    # Utamakan ReportLab. Jika belum dipasang di Streamlit Cloud, gunakan PDF teks sederhana
+    # agar tombol PDF tetap berfungsi tanpa menambah dependency baru.
+    if SimpleDocTemplate is None:
+        teks=_teks_laporan_analisis_judul_s2(masalah,metode,pedoman,analisis,data10,dipilih)
+        # PDF core font Helvetica mendukung Latin-1. Karakter di luar itu dinormalisasi aman.
+        teks=(teks.replace('–','-').replace('—','-').replace('“','"').replace('”','"').replace('’',"'")
+                  .replace('🟢','[KUAT]').replace('🟡','[CUKUP]').replace('🔴','[LEMAH]'))
+        raw=teks.encode('latin-1','replace').decode('latin-1')
+        # Bungkus baris agar tidak terpotong di sisi kanan.
+        lines=[]
+        for para in raw.splitlines():
+            words=para.split(); cur=''
+            if not words: lines.append(''); continue
+            for w in words:
+                if len(cur)+len(w)+1>92:
+                    lines.append(cur); cur=w
+                else: cur=(cur+' '+w).strip()
+            if cur: lines.append(cur)
+        pages=[lines[i:i+48] for i in range(0,len(lines),48)] or [[]]
+        objects=[]
+        # 1 catalog, 2 pages, 3 font, then page/content pairs
+        kids=[]
+        for idx,page_lines in enumerate(pages):
+            page_obj=4+idx*2; content_obj=page_obj+1; kids.append(f'{page_obj} 0 R')
+            y=790; cmds=['BT','/F1 10 Tf','14 TL']
+            for line in page_lines:
+                esc=line.replace('\\','\\\\').replace('(','\\(').replace(')','\\)')
+                cmds.append(f'1 0 0 1 70 {y} Tm ({esc}) Tj'); y-=14
+            cmds.append('ET'); stream='\n'.join(cmds).encode('latin-1','replace')
+            objects.append((page_obj,f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_obj} 0 R >>'.encode('latin-1')))
+            objects.append((content_obj,b'<< /Length '+str(len(stream)).encode()+b' >>\nstream\n'+stream+b'\nendstream'))
+        base=[(1,b'<< /Type /Catalog /Pages 2 0 R >>'),(2,f'<< /Type /Pages /Kids [{" ".join(kids)}] /Count {len(pages)} >>'.encode('latin-1')),(3,b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')]
+        allobjs=sorted(base+objects,key=lambda x:x[0]); out=bytearray(b'%PDF-1.4\n'); offsets={0:0}
+        for num,body in allobjs:
+            offsets[num]=len(out); out.extend(f'{num} 0 obj\n'.encode()); out.extend(body); out.extend(b'\nendobj\n')
+        xref=len(out); maxobj=max(offsets)
+        out.extend(f'xref\n0 {maxobj+1}\n'.encode()); out.extend(b'0000000000 65535 f \n')
+        for i in range(1,maxobj+1): out.extend(f'{offsets.get(i,0):010d} 00000 n \n'.encode())
+        out.extend(f'trailer\n<< /Size {maxobj+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF'.encode())
+        return bytes(out)
+    bio=BytesIO(); doc=SimpleDocTemplate(bio,pagesize=A4,rightMargin=3*rl_cm,leftMargin=4*rl_cm,topMargin=4*rl_cm,bottomMargin=3*rl_cm)
+    styles=getSampleStyleSheet(); normal=ParagraphStyle('BodyTNR',parent=styles['BodyText'],fontName='Times-Roman',fontSize=11,leading=16); title=ParagraphStyle('TitleTNR',parent=styles['Title'],fontName='Times-Bold',fontSize=14,alignment=TA_CENTER,leading=18)
+    story=[Paragraph('LAPORAN ANALISIS IDE DAN ALTERNATIF JUDUL TESIS S2',title),Spacer(1,10),Paragraph(f"Tanggal analisis: {datetime.now().strftime('%d-%m-%Y %H:%M')}",normal),Paragraph(f"Pedoman aktif: {html.escape(pedoman or 'Belum ada pedoman aktif')}",normal),Paragraph(f"Metode: {html.escape(str(metode))}",normal),Spacer(1,8),Paragraph('<b>A. Permasalahan/Gagasan Awal</b>',normal),Paragraph(html.escape(masalah or '-').replace('\n','<br/>'),normal),Spacer(1,8),Paragraph('<b>B. Analisis Ide, Research Gap, dan Novelty</b>',normal),Paragraph(html.escape(analisis or '-').replace('\n','<br/>'),normal),Spacer(1,8),Paragraph('<b>C. Analisis 10 Alternatif Judul</b>',normal)]
+    for x in data10:
+        av=x.get('Ketersediaan',{}) or {}
+        story += [Spacer(1,7),Paragraph(f"<b>{x.get('No')}. {html.escape(x.get('Judul',''))}</b>",normal),Paragraph(f"Research Gap: {html.escape(x.get('Gap','-') or '-')}",normal),Paragraph(f"Novelty: {html.escape(x.get('Novelty','-') or '-')}",normal),Paragraph(f"Kekuatan: {html.escape(x.get('Kekuatan','-') or '-')}",normal),Paragraph(f"Ketersediaan: Crossref {av.get('Crossref',0)} | OpenAlex {av.get('OpenAlex',0)} | Semantic Scholar {av.get('Semantic Scholar',0)} | sampel unik {av.get('Kandidat',0)}",normal),Paragraph(f"Status: {html.escape(av.get('Status','Belum diperiksa'))}",normal)]
+    story += [Spacer(1,8),Paragraph('Catatan: jumlah hasil tiap basis data tidak dijumlahkan karena satu karya dapat terindeks pada lebih dari satu basis data.',normal)]
+    if dipilih: story += [Spacer(1,8),Paragraph('<b>D. Judul yang Dipilih Pengguna</b>',normal),Paragraph(html.escape(dipilih),normal)]
+    doc.build(story); bio.seek(0); return bio.getvalue()
 
 
 def panel_ai_penulisan(konteks, jenis_output, instruksi, referensi=None, key="ai"):
@@ -3457,7 +3628,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                 "masalah_terakhir_ide_s2", "versi_naskah_ide_s2",
                 "muat_judul_ai_s2", "judul_utama_pilihan_s2",
                 "referensi_penguat_ide_s2", "kata_kunci_ref_ide_s2",
-                "pilih_ref_penguat_ide_s2", "kelayakan_ref_5_judul_s2",
+                "pilih_ref_penguat_ide_s2", "kelayakan_ref_10_judul_s2",
                 "judul_uji_kelayakan_s2", "hasil_uji_judul_s2",
                 "data_uji_judul_s2", "hasil_penulisan_ai", "naskah_aktif",
                 "hasil_s2", "edit_s2", "hasil_koreksi_s2",
@@ -3476,8 +3647,8 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                         del st.session_state[_key]
 
             # Paksa widget 5 judul kosong pada render berikutnya.
-            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
-            for _i in range(5):
+            st.session_state["judul_alternatif_s2"] = [""] * 10
+            for _i in range(10):
                 st.session_state[f"judul_alt_s2_{_i}"] = ""
 
             st.session_state["bank_bahan_ide_s2"] = []
@@ -3507,7 +3678,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                 "masalah_terakhir_ide_s2", "versi_naskah_ide_s2",
                 "muat_judul_ai_s2", "judul_utama_pilihan_s2",
                 "referensi_penguat_ide_s2", "kata_kunci_ref_ide_s2",
-                "pilih_ref_penguat_ide_s2", "kelayakan_ref_5_judul_s2",
+                "pilih_ref_penguat_ide_s2", "kelayakan_ref_10_judul_s2",
                 "hasil_penulisan_ai", "naskah_aktif", "hasil_s2",
             }
             _frag_reset_topik = (
@@ -3517,7 +3688,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             for _key in list(st.session_state.keys()):
                 _ks = str(_key)
                 if _key in _hapus_reset_topik or any(_frag in _ks for _frag in _frag_reset_topik):
-                    if mode_bank_bahan_ide_s2 != "🤖 Otomatis dengan AI" and (_ks not in ("bank_referensi", "library_referensi")):
+                    if _ks not in ("bank_referensi", "library_referensi"):
                         del st.session_state[_key]
             st.session_state["versi_input_masalah_ide_s2"] = int(
                 st.session_state.get("versi_input_masalah_ide_s2", 0)
@@ -3782,7 +3953,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                     if tambah_bank_referensi(_refs_penguat[_i]): _baru+=1
                 st.success(f"{_baru} referensi baru masuk ke Library. Duplikat dilewati.")
 
-        if st.button("🤖 Analisis Ide, Gap, Novelty & 5 Judul", key="gen_ide_s2", type="primary"):
+        if st.button("🤖 Analisis Ide, Gap, Novelty & 10 Judul", key="gen_ide_s2", type="primary"):
             if not masalah_ide_s2.strip():
                 st.warning("Tuliskan permasalahan/gagasan penelitian terlebih dahulu.")
             else:
@@ -3841,8 +4012,8 @@ PEDOMAN INSTITUSI AKTIF:
 {pedoman_aktif_s2 if pedoman_aktif_s2 else "Tidak ada pedoman institusi yang diunggah/diaktifkan."}
 
 ATURAN PENENTUAN METODE:
-- Jika pilihan pengguna adalah "🤖 Rekomendasi AI", tentukan SATU metode yang paling sesuai setelah membaca masalah dan seluruh bahan. Jelaskan alasan singkat pada bagian analisis, lalu buat 5 alternatif judul yang konsisten dengan metode rekomendasi tersebut.
-- Jika pengguna memilih metode tertentu, JANGAN menggantinya dengan metode lain. Analisis masalah, research gap, novelty, dan 5 alternatif judul harus konsisten dengan metode pilihan pengguna.
+- Jika pilihan pengguna adalah "🤖 Rekomendasi AI", tentukan SATU metode yang paling sesuai setelah membaca masalah dan seluruh bahan. Jelaskan alasan singkat pada bagian analisis, lalu buat 10 alternatif judul yang konsisten dengan metode rekomendasi tersebut.
+- Jika pengguna memilih metode tertentu, JANGAN menggantinya dengan metode lain. Analisis masalah, research gap, novelty, dan 10 alternatif judul harus konsisten dengan metode pilihan pengguna.
 - Jangan memaksakan variabel kuantitatif jika metode yang dipilih bukan Kuantitatif.
 - Jangan otomatis mengubah Penelitian Tindakan menjadi eksperimen hanya karena tujuan menggunakan kata "meningkatkan".
 - Untuk R&D, judul harus benar-benar mencerminkan pengembangan/validasi produk, model, media, modul, atau aplikasi yang relevan.
@@ -3892,21 +4063,21 @@ C. RESEARCH GAP AWAL
 D. POTENSI NOVELTY
 Berikan 2-4 kemungkinan novelty yang logis dan tandai sebagai POTENSI, bukan klaim final.
 
-E. 5 ALTERNATIF JUDUL TESIS
-Tulis tepat dengan format:
+E. 10 ALTERNATIF JUDUL TESIS
+Tulis TEPAT 10 alternatif judul. Untuk SETIAP judul gunakan format berikut agar dapat dibaca aplikasi:
 [JUDUL 1] ...
-[JUDUL 2] ...
-[JUDUL 3] ...
-[JUDUL 4] ...
-[JUDUL 5] ...
+[GAP 1] Uraikan research gap judul 1 secara ringkas dan spesifik.
+[NOVELTY 1] Uraikan potensi novelty judul 1 secara ringkas dan spesifik.
+[KEKUATAN 1] KUAT / CUKUP / LEMAH
+[ALASAN 1] Jelaskan alasan penilaian kekuatan, fokus, kelayakan metode, dan risiko utama.
+Ulangi pola yang sama sampai [JUDUL 10], [GAP 10], [NOVELTY 10], [KEKUATAN 10], [ALASAN 10].
 
 F. CATATAN PEMILIHAN
-Untuk setiap judul jelaskan: fokus, kelebihan, risiko/kebutuhan data, dan metode yang mungkin.
-Beri rekomendasi maksimal 2 judul terkuat beserta alasan, tetapi keputusan tetap milik pengguna.
+Bandingkan 10 judul dan rekomendasikan 3 judul terkuat beserta alasan. Keputusan final tetap milik pengguna.
 
 BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
 
-                with st.spinner("AI menganalisis masalah dan menyiapkan 5 alternatif judul..."):
+                with st.spinner("AI menganalisis masalah dan menyiapkan 10 alternatif judul..."):
                     _h_ide = panggil_gemini(_prompt_ide_s2)
 
                 if _h_ide.get("sukses") and str(_h_ide.get("hasil", "")).strip():
@@ -3929,7 +4100,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                         st.session_state["hasil_ai_ide_judul_s2"] = ""
                         st.error(
                             "Hasil AI terdeteksi masuk ke penyusunan Proposal, sehingga tidak ditampilkan. "
-                            "Silakan klik Generate sekali lagi. Tahap No.1 hanya boleh menghasilkan analisis dan 5 alternatif judul."
+                            "Silakan klik Generate sekali lagi. Tahap No.1 hanya boleh menghasilkan analisis dan 10 alternatif judul."
                         )
                     else:
                         st.session_state["hasil_ai_ide_judul_s2"] = _hasil_baru
@@ -3937,7 +4108,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                         st.session_state["versi_naskah_ide_s2"] += 1
 
                         _judul_ai = re.findall(
-                            r"(?im)^\s*\[JUDUL\s*[1-5]\]\s*[:\-]?\s*(.+?)\s*$",
+                            r"(?im)^\s*\[JUDUL\s*(?:10|[1-9])\]\s*[:\-]?\s*(.+?)\s*$",
                             _hasil_baru,
                         )
                         _judul_ai = [
@@ -3947,7 +4118,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                         ]
 
                         if _judul_ai:
-                            _judul_ai = (_judul_ai + ["", "", "", "", ""])[:5]
+                            _judul_ai = (_judul_ai + [""] * 10)[:10]
                             st.session_state["judul_alternatif_s2"] = _judul_ai
                             # Bank judul membaca state ini sebagai nilai awal pada rerun.
                             st.session_state["muat_judul_ai_s2"] = True
@@ -3957,7 +4128,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                             )
                         else:
                             st.warning(
-                                "Analisis selesai, tetapi 5 judul belum terbaca otomatis. "
+                                "Analisis selesai, tetapi 10 judul belum terbaca otomatis. "
                                 "Hasil tetap ditampilkan untuk Anda edit."
                             )
                 else:
@@ -3974,7 +4145,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
                 ]:
                     if _k in st.session_state:
                         del st.session_state[_k]
-                st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+                st.session_state["judul_alternatif_s2"] = [""] * 10
                 st.success("Hasil analisis AI dihapus. Bank Bahan tetap tersimpan.")
                 st.rerun()
 
@@ -3986,7 +4157,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
             _naskah_ide = ""
         if _naskah_ide:
             st.divider()
-            st.subheader("📊 Hasil Analisis Ide, Gap, Novelty & 5 Alternatif Judul")
+            st.subheader("📊 Hasil Analisis Ide, Gap, Novelty & 10 Alternatif Judul")
             _v_ide = st.session_state.get("versi_naskah_ide_s2", 0)
             _edit_ide = st.text_area(
                 "Hasil AI dapat diedit langsung di sini",
@@ -4001,7 +4172,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
 Koreksi HANYA tahap Ide & Pengajuan Judul berikut.
 Jangan membuat proposal, BAB I-III, daftar pustaka, atau catatan kaki.
 Pertahankan topik pengguna.
-Periksa masalah, gap awal, potensi novelty, 5 alternatif judul, dan kelayakan arah metode.
+Periksa masalah, gap awal, potensi novelty, 10 alternatif judul, dan kelayakan arah metode.
 Pengguna sendiri yang memilih judul final.
 Jangan membuat data atau referensi palsu.
 
@@ -4025,25 +4196,25 @@ NASKAH TERBARU:
 
 
         # ------------------------------------------------------------
-        # BANK 5 ALTERNATIF JUDUL — dapat diedit sebelum masuk proposal
+        # BANK 10 ALTERNATIF JUDUL — dapat diedit sebelum masuk proposal
         # ------------------------------------------------------------
         st.markdown("#### 🏷️ Bank Alternatif Judul")
         st.caption(
-            "Setelah analisis masalah/ide, susun hingga 5 judul. "
+            "Setelah analisis masalah/ide, susun hingga 10 judul. "
             "Semua judul dapat diedit manual sebelum satu judul ditetapkan."
         )
 
         if "judul_alternatif_s2" not in st.session_state:
-            st.session_state["judul_alternatif_s2"] = ["", "", "", "", ""]
+            st.session_state["judul_alternatif_s2"] = [""] * 10
 
-        # Muat 5 judul hasil Generate ke widget hanya setelah Generate baru berhasil.
+        # Muat 10 judul hasil Generate ke widget hanya setelah Generate baru berhasil.
         if st.session_state.pop("muat_judul_ai_s2", False):
-            for _i, _j in enumerate(st.session_state["judul_alternatif_s2"][:5]):
+            for _i, _j in enumerate(st.session_state["judul_alternatif_s2"][:10]):
                 st.session_state[f"judul_alt_s2_{_i}"] = _j
 
-        # Pengguna bebas mengedit 5 judul sebelum memilih satu.
+        # Pengguna bebas mengedit 10 judul sebelum memilih satu.
         judul_edit_s2 = []
-        for _i in range(5):
+        for _i in range(10):
             _key_judul = f"judul_alt_s2_{_i}"
             if _key_judul not in st.session_state:
                 st.session_state[_key_judul] = st.session_state["judul_alternatif_s2"][_i]
@@ -4057,24 +4228,75 @@ NASKAH TERBARU:
 
         judul_tersedia_s2 = [j.strip() for j in judul_edit_s2 if j.strip()]
         if any(j.strip() for j in judul_edit_s2):
-            if st.button("📚 Cek Ketersediaan Referensi untuk 5 Judul", key="cek_ref_5_judul_s2", use_container_width=True):
+            if st.button("📚 Cek Banyaknya Literatur untuk 10 Judul", key="cek_ref_10_judul_s2", use_container_width=True):
                 _kel=[]
                 with st.spinner("Mengecek ketersediaan referensi nyata untuk setiap judul..."):
                     for _j in judul_edit_s2:
                         if _j.strip():
-                            _kel.append(analisis_ketersediaan_referensi_judul_s2(_j.strip(),10))
-                st.session_state["kelayakan_ref_5_judul_s2"]=_kel
-        if st.session_state.get("kelayakan_ref_5_judul_s2"):
-            st.markdown("#### 📚 Analisis Kelayakan Referensi")
-            st.caption("Jumlah berasal dari hasil pencarian metadata nyata, bukan perkiraan AI.")
-            for _no,_d in enumerate(st.session_state["kelayakan_ref_5_judul_s2"],1):
+                            _kel.append(analisis_ketersediaan_referensi_judul_s2(_j.strip(),20))
+                st.session_state["kelayakan_ref_10_judul_s2"]=_kel
+        if st.session_state.get("kelayakan_ref_10_judul_s2"):
+            st.markdown("#### 📚 Banyaknya Literatur yang Tersedia untuk 10 Judul")
+            st.caption("Angka berasal dari basis data nyata. Crossref, OpenAlex, dan Semantic Scholar ditampilkan terpisah dan tidak dijumlahkan karena dapat berisi karya yang sama.")
+            for _no,_d in enumerate(st.session_state["kelayakan_ref_10_judul_s2"],1):
                 with st.expander(f"Alternatif {_no} — {_d['Status']}", expanded=False):
                     st.write(f"**Judul:** {_d['Judul']}")
-                    st.write(f"**Kandidat referensi:** {_d['Kandidat']}")
-                    st.write(f"**Literatur 5 tahun terakhir:** {_d['Literatur 5 Tahun']}")
-                    st.write(f"**Status:** {_d['Status']}")
-                    for _r in _d.get("Referensi",[])[:5]:
+                    st.write(f"**Crossref:** {_d.get('Crossref',0):,} hasil")
+                    st.write(f"**OpenAlex:** {_d.get('OpenAlex',0):,} hasil")
+                    st.write(f"**Semantic Scholar:** {_d.get('Semantic Scholar',0):,} hasil")
+                    st.write(f"**Kandidat unik yang diperiksa aplikasi:** {_d.get('Kandidat',0)}")
+                    st.write(f"**Literatur 5 tahun terakhir dalam sampel:** {_d.get('Literatur 5 Tahun',0)}")
+                    st.write(f"**Terverifikasi/teridentifikasi dalam sampel:** {_d.get('Terverifikasi',0)}")
+                    st.write(f"**Status ketersediaan:** {_d['Status']}")
+                    for _r in _d.get("Referensi",[])[:10]:
                         st.write(f"• {_r.get('Tahun','')} — {_r.get('Judul','')} [{_r.get('Sumber','')}]")
+
+        # Gabungkan uraian Gap/Novelty/Kekuatan AI dengan data ketersediaan literatur nyata.
+        _analisis_10 = _parse_analisis_10_judul(st.session_state.get("hasil_ai_ide_judul_s2", ""), judul_edit_s2)
+        _kel_map = {str(x.get("Judul","")).strip(): x for x in st.session_state.get("kelayakan_ref_10_judul_s2", []) if isinstance(x,dict)}
+        for _x in _analisis_10:
+            _x["Ketersediaan"] = _kel_map.get(str(_x.get("Judul","")).strip(), {})
+
+        if any(x.get("Judul") for x in _analisis_10):
+            st.markdown("#### 🧾 Uraian Analisis 10 Judul")
+            st.caption("Setiap judul dilengkapi Research Gap, Novelty, kekuatan, alasan, dan banyaknya literatur yang tersedia.")
+            for _x in _analisis_10:
+                if not _x.get("Judul"): continue
+                _av=_x.get("Ketersediaan",{}) or {}
+                _label=f"Judul {_x['No']} | {_x.get('Kekuatan','Belum dinilai') or 'Belum dinilai'} | {_av.get('Status','Literatur belum dicek')}"
+                with st.expander(_label, expanded=False):
+                    st.write(f"**Judul:** {_x.get('Judul','')}")
+                    st.write(f"**Research Gap:** {_x.get('Gap','Belum dianalisis') or 'Belum dianalisis'}")
+                    st.write(f"**Novelty:** {_x.get('Novelty','Belum dianalisis') or 'Belum dianalisis'}")
+                    st.write(f"**Kekuatan:** {_x.get('Kekuatan','Belum dinilai') or 'Belum dinilai'}")
+                    st.write(f"**Alasan:** {_x.get('Alasan','Belum dianalisis') or 'Belum dianalisis'}")
+                    if _av:
+                        st.write(f"**Banyaknya literatur:** Crossref {_av.get('Crossref',0):,} | OpenAlex {_av.get('OpenAlex',0):,} | Semantic Scholar {_av.get('Semantic Scholar',0):,}")
+                        st.write(f"**Sampel unik diperiksa:** {_av.get('Kandidat',0)} | **5 tahun terakhir:** {_av.get('Literatur 5 Tahun',0)} | **Terverifikasi/teridentifikasi:** {_av.get('Terverifikasi',0)}")
+                    else:
+                        st.info("Klik 'Cek Banyaknya Literatur untuk 10 Judul' agar jumlah literatur nyata ditampilkan.")
+
+            st.markdown("#### 💾 Simpan / Cetak Analisis Submenu 1")
+            _ped_nama=str(st.session_state.get("pedoman_tesis_s2_nama","") or "")
+            _judul_saat_ini=str(st.session_state.get("judul_utama_pilihan_s2","") or "")
+            _docx=buat_docx_analisis_judul_s2(masalah_ide_s2,metode_ide_s2,_ped_nama,st.session_state.get("hasil_ai_ide_judul_s2",""),_analisis_10,_judul_saat_ini)
+            _pdf=buat_pdf_analisis_judul_s2(masalah_ide_s2,metode_ide_s2,_ped_nama,st.session_state.get("hasil_ai_ide_judul_s2",""),_analisis_10,_judul_saat_ini)
+            cexp1,cexp2,cexp3=st.columns(3)
+            with cexp1:
+                if _docx:
+                    st.download_button("📄 Unduh Word",data=_docx,file_name="Analisis_10_Judul_Tesis_S2.docx",mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",use_container_width=True,key="unduh_word_analisis10_s2")
+                else: st.warning("python-docx belum tersedia.")
+            with cexp2:
+                if _pdf:
+                    st.download_button("📕 Unduh PDF",data=_pdf,file_name="Analisis_10_Judul_Tesis_S2.pdf",mime="application/pdf",use_container_width=True,key="unduh_pdf_analisis10_s2")
+                else: st.warning("PDF belum dapat dibuat.")
+            with cexp3:
+                if st.button("💾 Simpan Analisis",key="simpan_analisis10_s2",use_container_width=True):
+                    _hist=st.session_state.setdefault("riwayat_analisis_judul_s2",[])
+                    _hist.append({"waktu":datetime.now().strftime("%d-%m-%Y %H:%M"),"masalah":masalah_ide_s2,"metode":metode_ide_s2,"pedoman":_ped_nama,"analisis":st.session_state.get("hasil_ai_ide_judul_s2",""),"judul":deepcopy(_analisis_10),"judul_dipilih":_judul_saat_ini})
+                    st.success(f"Analisis tersimpan sebagai versi {_hist.__len__()} dalam proyek sesi ini.")
+            if st.session_state.get("riwayat_analisis_judul_s2"):
+                st.caption(f"Tersimpan {len(st.session_state['riwayat_analisis_judul_s2'])} versi analisis pada sesi/proyek aktif.")
 
         if judul_tersedia_s2:
             judul_pilihan_s2 = st.selectbox(
@@ -4123,7 +4345,7 @@ Jangan membuat data atau referensi palsu."""
 
             with cjudul2:
                 if st.button(
-                    "✅ Tetapkan Judul & Lanjutkan ke Proposal",
+                    "✅ Tetapkan Judul & Lanjutkan ke Literatur",
                     key="tetapkan_judul_s2",
                     use_container_width=True,
                 ):
@@ -4143,6 +4365,9 @@ Jangan membuat data atau referensi palsu."""
                         "arah": arah_ide_s2,
                         "mode": mode_ide_s2,
                         "metode": metode_ide_s2,
+                        "analisis_ide": st.session_state.get("hasil_ai_ide_judul_s2", ""),
+                        "analisis_10_judul": deepcopy(_analisis_10),
+                        "ketersediaan_literatur_10_judul": deepcopy(st.session_state.get("kelayakan_ref_10_judul_s2", [])),
                     }
 
                     # Tetap simpan format lama agar fitur yang sudah berjalan tidak berubah.
@@ -4159,7 +4384,7 @@ Jangan membuat data atau referensi palsu."""
                     st.session_state["_judul_proposal_s2_sumber"] = judul_pilihan_s2
                     st.session_state["_masalah_proposal_s2_sumber"] = masalah_ide_s2
                     st.success(
-                        "Judul utama sudah ditetapkan sebagai dasar Proposal Tesis. "
+                        "Judul utama sudah ditetapkan dan siap diteruskan ke Literatur & Penelitian Terdahulu. "
                         "Permasalahan dan arah penelitian ikut disimpan."
                     )
         else:
@@ -4432,7 +4657,8 @@ Berikan status akhir tepat salah satu: LULUS PEDOMAN atau BELUM LULUS PEDOMAN. J
                     if _audit: st.session_state["audit_pedoman_proposal_s2"]=_audit
                 if st.session_state.get("audit_pedoman_proposal_s2"):
                     st.markdown(st.session_state["audit_pedoman_proposal_s2"])
-                _audit_ok="LULUS PEDOMAN" in st.session_state.get("audit_pedoman_proposal_s2","") and "BELUM LULUS PEDOMAN" not in st.session_state.get("audit_pedoman_proposal_s2","")
+                _audit_state = hasil_ai_teks(st.session_state.get("audit_pedoman_proposal_s2", ""))
+                _audit_ok = ("LULUS PEDOMAN" in _audit_state) and ("BELUM LULUS PEDOMAN" not in _audit_state)
                 if st.button("✅ Finalisasi Proposal",key="finalisasi_proposal_s2",type="primary",use_container_width=True,disabled=not _audit_ok):
                     st.session_state["proposal_s2_final"]=_edit
                     st.success("🔒 Proposal ditetapkan sebagai versi final setelah lulus audit Pedoman.")
