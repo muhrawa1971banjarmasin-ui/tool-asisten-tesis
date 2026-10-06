@@ -4205,10 +4205,47 @@ Jangan membuat data atau referensi palsu."""
         _bank_prop = st.session_state.get("bank_bahan_ide_s2", [])
         _refs_prop = st.session_state.get("bank_referensi", [])
 
-        if not str(_judul_prop).strip():
-            st.warning("Tetapkan judul terlebih dahulu pada Submenu 1.")
-        else:
+        # Proposal tidak boleh terkunci walaupun state Submenu 1 belum terbaca.
+        # Bila data otomatis tersedia, kolom langsung terisi. Bila belum, pengguna tetap dapat mengetik.
+        if "judul_proposal_s2_edit" not in st.session_state:
+            st.session_state["judul_proposal_s2_edit"] = str(_judul_prop or "")
+        elif _judul_prop and not st.session_state.get("judul_proposal_s2_edit"):
+            st.session_state["judul_proposal_s2_edit"] = str(_judul_prop)
+
+        if "masalah_proposal_s2_edit" not in st.session_state:
+            st.session_state["masalah_proposal_s2_edit"] = str(_masalah_prop or "")
+        elif _masalah_prop and not st.session_state.get("masalah_proposal_s2_edit"):
+            st.session_state["masalah_proposal_s2_edit"] = str(_masalah_prop)
+
+        _judul_prop = st.text_input(
+            "Judul Tesis",
+            key="judul_proposal_s2_edit",
+            placeholder="Otomatis dari Submenu 1, atau dapat diketik di sini",
+        )
+        _masalah_prop = st.text_area(
+            "Permasalahan / konteks awal",
+            key="masalah_proposal_s2_edit",
+            height=120,
+            placeholder="Otomatis dari Submenu 1, atau dapat diketik di sini",
+        )
+
+        if str(_judul_prop).strip():
+            st.session_state["judul_tesis_s2_terpilih"] = _judul_prop
+            _proyek_baru = st.session_state.get("proyek_tesis_s2", {})
+            if not isinstance(_proyek_baru, dict):
+                _proyek_baru = {}
+            _proyek_baru.update({
+                "judul": _judul_prop,
+                "masalah": _masalah_prop,
+                "arah": _arah_prop,
+                "metode": _metode_prop,
+            })
+            st.session_state["proyek_tesis_s2"] = _proyek_baru
             st.success(f"🎓 Judul aktif: {_judul_prop}")
+        else:
+            st.info("Judul dari Submenu 1 belum terbaca. Kolom tetap dapat diketik tanpa kembali ke Submenu 1.")
+
+        if str(_judul_prop).strip():
             _nama_pedoman_prop = st.session_state.get("pedoman_tesis_s2_nama", "")
             if _pedoman_prop:
                 st.success(f"🟢 Pedoman aktif otomatis: {_nama_pedoman_prop or 'Pedoman Tesis yang telah diaktifkan'}")
