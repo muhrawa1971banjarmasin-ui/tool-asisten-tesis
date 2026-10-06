@@ -4164,10 +4164,43 @@ Jangan membuat data atau referensi palsu."""
         if not isinstance(_dasar, dict):
             _dasar = {}
 
-        _judul_prop = _proyek.get("judul") or _dasar.get("judul") or st.session_state.get("judul_tesis_s2_terpilih", "")
-        _masalah_prop = _proyek.get("masalah") or _dasar.get("masalah", "")
-        _arah_prop = _proyek.get("arah") or _dasar.get("arah", "")
-        _metode_prop = _proyek.get("metode") or st.session_state.get("metode_ide_s2", "Belum ditentukan")
+        # Pulihkan data lama tanpa meminta pengguna mengulang Submenu 1.
+        # Prioritas: data proyek -> dasar proposal -> judul final -> pilihan judul yang tersimpan.
+        _judul_prop = (
+            _proyek.get("judul")
+            or _dasar.get("judul")
+            or st.session_state.get("judul_tesis_s2_terpilih", "")
+            or st.session_state.get("judul_utama_pilihan_s2", "")
+        )
+        _masalah_prop = (
+            _proyek.get("masalah")
+            or _dasar.get("masalah", "")
+            or st.session_state.get("masalah_ide_s2", "")
+        )
+        # Dukungan untuk widget masalah yang memakai nonce versi.
+        if not _masalah_prop:
+            _versi_masalah = st.session_state.get("versi_input_masalah_ide_s2", 0)
+            _masalah_prop = st.session_state.get(f"masalah_ide_s2_{_versi_masalah}", "")
+
+        _arah_prop = (
+            _proyek.get("arah")
+            or _dasar.get("arah", "")
+            or st.session_state.get("arah_ide_s2", "")
+        )
+        _metode_prop = (
+            _proyek.get("metode")
+            or st.session_state.get("metode_ide_s2", "Belum ditentukan")
+        )
+
+        # Migrasikan otomatis data lama ke format proyek baru agar submenu berikutnya stabil.
+        if str(_judul_prop).strip() and not _proyek.get("judul"):
+            st.session_state["proyek_tesis_s2"] = {
+                "judul": _judul_prop,
+                "masalah": _masalah_prop,
+                "arah": _arah_prop,
+                "mode": _dasar.get("mode", st.session_state.get("mode_ide_s2", "")),
+                "metode": _metode_prop,
+            }
         _pedoman_prop = st.session_state.get("pedoman_tesis_s2_analisis", "") if st.session_state.get("pedoman_tesis_s2_aktif") else ""
         _bank_prop = st.session_state.get("bank_bahan_ide_s2", [])
         _refs_prop = st.session_state.get("bank_referensi", [])
@@ -4176,6 +4209,12 @@ Jangan membuat data atau referensi palsu."""
             st.warning("Tetapkan judul terlebih dahulu pada Submenu 1.")
         else:
             st.success(f"🎓 Judul aktif: {_judul_prop}")
+            _nama_pedoman_prop = st.session_state.get("pedoman_tesis_s2_nama", "")
+            if _pedoman_prop:
+                st.success(f"🟢 Pedoman aktif otomatis: {_nama_pedoman_prop or 'Pedoman Tesis yang telah diaktifkan'}")
+            else:
+                st.caption("Pedoman institusi belum diaktifkan pada bagian Pedoman Penulisan Tesis.")
+
             st.caption(f"Metode: {_metode_prop} • Judul, masalah, pedoman, Bank Bahan, dan referensi digunakan otomatis.")
 
             with st.expander("➕ Tambah bahan khusus Proposal (opsional)", expanded=False):
