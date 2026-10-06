@@ -4370,6 +4370,108 @@ DRAF:
                     st.session_state["proposal_s2_final"]=_edit
                     st.success("🔒 Proposal ditetapkan sebagai versi final.")
 
+        # ------------------------------------------------------------
+        # HAPUS HASIL GENERATE PROPOSAL SAJA
+        # File/data unggahan, pedoman, Bank Bahan, Bank Referensi,
+        # perpustakaan kitab, dan perpustakaan ebook tetap dipertahankan.
+        # ------------------------------------------------------------
+        st.divider()
+        st.markdown("### 🗑️ Coba Generate Proposal Lagi")
+        st.caption("Tombol ini hanya menghapus hasil yang dibuat AI pada Proposal. Semua hasil unggahan dan perpustakaan sumber tetap tersimpan sehingga dapat langsung dipakai untuk mencoba generate ulang.")
+        if st.button(
+            "🗑️ Hapus Hasil Generate Proposal Saja",
+            key="hapus_generate_proposal_saja_s2",
+            use_container_width=True,
+        ):
+            _hapus_generate_proposal = [
+                "proposal_s2_draf_otomatis",
+                "proposal_s2_editor_otomatis",
+                "proposal_s2_final",
+                "proposal_s2_dengan_referensi",
+                "proposal_tesis_s2_berreferensi",
+            ]
+            for _k_hapus in _hapus_generate_proposal:
+                st.session_state.pop(_k_hapus, None)
+            for _i_hapus in range(1, 5):
+                st.session_state.pop(f"proposal_s2_tahap_{_i_hapus}", None)
+            st.success("✅ Hasil generate Proposal sudah dihapus. Pedoman, dokumen unggahan, Bank Bahan, Bank Referensi, kitab, dan ebook tetap tersimpan.")
+            st.rerun()
+
+        # ------------------------------------------------------------
+        # PREVIEW PROPOSAL FINAL SESUAI PEDOMAN AKTIF
+        # Menampilkan hasil dari cover sampai tabel/daftar pustaka.
+        # Proposal asli/final tidak diubah oleh panel ini.
+        # ------------------------------------------------------------
+        st.divider()
+        st.markdown("### 📥 Proposal Final Siap Diajukan")
+        st.caption("Preview mengikuti pedoman tesis aktif. Jika Submenu 3 sudah menerapkan referensi dan footnote, versi berreferensi otomatis diprioritaskan tanpa mengubah Proposal final asli.")
+
+        _proposal_preview = str(
+            st.session_state.get("proposal_s2_dengan_referensi", "")
+            or st.session_state.get("proposal_s2_final", "")
+            or st.session_state.get("proposal_s2_draf_otomatis", "")
+            or ""
+        ).strip()
+
+        _id1,_id2 = st.columns(2)
+        with _id1:
+            _nama_mhs = st.text_input("Nama Mahasiswa", value=st.session_state.get("identitas_tesis_nama", ""), key="identitas_tesis_nama")
+            _npm_mhs = st.text_input("NPM", value=st.session_state.get("identitas_tesis_npm", ""), key="identitas_tesis_npm")
+            _prodi_mhs = st.text_input("Program Studi", value=st.session_state.get("identitas_tesis_prodi", ""), key="identitas_tesis_prodi")
+        with _id2:
+            _institusi_mhs = st.text_input("Institut/Universitas", value=st.session_state.get("identitas_tesis_institusi", "IAI Darussalam Martapura"), key="identitas_tesis_institusi")
+            _pascasarjana_mhs = st.text_input("Fakultas/Pascasarjana", value=st.session_state.get("identitas_tesis_pascasarjana", "Pascasarjana"), key="identitas_tesis_pascasarjana")
+            _kota_tahun = st.text_input("Kota dan Tahun", value=st.session_state.get("identitas_tesis_kota_tahun", "Martapura, 2026"), key="identitas_tesis_kota_tahun")
+
+        if not _proposal_preview:
+            st.info("Proposal belum tersedia. Generate dan finalisasi Proposal terlebih dahulu.")
+        else:
+            _judul_preview = str(_judul_prop or "JUDUL PROPOSAL TESIS").strip()
+            _footnote_count_preview = len(re.findall(r"\[\^\d+\]", _proposal_preview))
+            _table_lines = [x for x in _proposal_preview.splitlines() if x.strip().startswith("|") and x.strip().endswith("|")]
+            _has_table = len(_table_lines) >= 2
+            _has_dp = "DAFTAR PUSTAKA" in _proposal_preview.upper()
+            _has_fn = _footnote_count_preview > 0 or "CATATAN KAKI" in _proposal_preview.upper()
+            _has_arabic = bool(re.search(r"[\u0600-\u06FF]", _proposal_preview))
+
+            _p1,_p2,_p3,_p4 = st.columns(4)
+            _p1.metric("Footnote", _footnote_count_preview)
+            _p2.metric("Tabel", "Ada" if _has_table else "Tidak")
+            _p3.metric("Daftar Pustaka", "Ada" if _has_dp else "Belum")
+            _p4.metric("Teks Arab", "Ada" if _has_arabic else "Tidak")
+
+            with st.expander("📕 1. Preview Cover / Halaman Sampul", expanded=True):
+                st.markdown(f"<div style='text-align:center; padding:28px 12px'><h3>{_judul_preview}</h3><br><b>PROPOSAL TESIS</b><br><br><div style='font-size:46px'>🏛️</div><small>Logo institusi mengikuti berkas/template resmi saat ekspor final</small><br><br>Oleh:<br><b>{_nama_mhs or '[NAMA MAHASISWA]'}</b><br>NPM: {_npm_mhs or '[NPM]'}<br><br><b>{_pascasarjana_mhs or '[PASCASARJANA]'}</b><br><b>{_prodi_mhs or '[PROGRAM STUDI]'}</b><br><b>{_institusi_mhs or '[INSTITUSI]'}</b><br><b>{_kota_tahun or '[KOTA, TAHUN]'}</b></div>", unsafe_allow_html=True)
+
+            with st.expander("📑 2. Preview Isi Proposal Lengkap", expanded=True):
+                st.markdown(_proposal_preview)
+
+            if _has_table:
+                with st.expander("📊 3. Tabel yang Terdeteksi", expanded=False):
+                    st.info("Tabel di dalam naskah ditampilkan pada preview isi dan akan dipertahankan pada penyusunan dokumen final.")
+                    st.code("\n".join(_table_lines[:40]), language="markdown")
+
+            with st.expander("✅ 4. Audit Format Pedoman Aktif", expanded=True):
+                st.write("**Format dasar IAID yang terbaca dari pedoman aktif saat ini:** A4, Times New Roman 12, spasi ganda, margin atas/kiri 4 cm dan bawah/kanan 3 cm.")
+                st.write("**Tulisan Arab:** Traditional Arabic 16 untuk isi; 18 bold untuk judul Arab.")
+                st.write(f"**Footnote:** {'✅ Terdeteksi' if _has_fn else '⚠️ Belum terdeteksi pada versi ini'}")
+                st.write(f"**Daftar pustaka:** {'✅ Terdeteksi' if _has_dp else '⚠️ Belum terdeteksi pada versi ini'}")
+                st.write(f"**Tabel:** {'✅ Terdeteksi' if _has_table else 'ℹ️ Tidak ada tabel pada naskah'}")
+                if st.session_state.get("proposal_s2_dengan_referensi"):
+                    st.success("🟢 Preview memakai Proposal versi berreferensi dari Submenu 3.")
+                else:
+                    st.warning("Proposal versi berreferensi belum tersedia. Selesaikan penerapan referensi & footnote di Submenu 3 agar preview final memuat sitasi lengkap.")
+
+            st.download_button(
+                "📄 Unduh Preview Proposal Final (.txt)",
+                data=(f"{_judul_preview}\n\nPROPOSAL TESIS\n\nOleh: {_nama_mhs}\nNPM: {_npm_mhs}\n{_pascasarjana_mhs}\n{_prodi_mhs}\n{_institusi_mhs}\n{_kota_tahun}\n\n" + _proposal_preview).encode("utf-8"),
+                file_name="Preview_Proposal_Final.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="download_preview_proposal_final_txt",
+            )
+            st.caption("DOCX/PDF final sebaiknya dibuat setelah audit seluruh pedoman lulus agar cover, tabel, footnote asli Word, font Arab, margin, dan penomoran tidak berubah.")
+
     # ============================================================
     # SUBMENU 3 — LITERATUR & PENELITIAN TERDAHULU
     # Mengikuti pedoman aktif, memakai referensi nyata, dan memberi
@@ -4377,6 +4479,21 @@ DRAF:
     # ============================================================
     if submenu_s2 == "🔎 Literatur & Penelitian Terdahulu":
         st.markdown("### 🔎 Literatur & Penelitian Terdahulu")
+
+        # Hapus hanya hasil AI pada Submenu 3. File unggahan, kitab, ebook,
+        # Bank Referensi, hasil pencarian metadata, dan pedoman tetap disimpan.
+        if st.button(
+            "🗑️ Hapus Hasil Generate Submenu Ini Saja",
+            key="hapus_generate_literatur_s2",
+            use_container_width=True,
+        ):
+            for _k_hapus_lit in [
+                "matriks_penelitian_terdahulu_s2",
+                "proposal_s2_dengan_referensi",
+            ]:
+                st.session_state.pop(_k_hapus_lit, None)
+            st.success("Hasil Generate AI Submenu 3 dihapus. Pedoman, kitab, ebook, Bank Referensi, dan seluruh file unggahan tetap tersimpan.")
+            st.rerun()
 
         _proyek_lit = st.session_state.get("proyek_tesis_s2", {})
         if not isinstance(_proyek_lit, dict):
@@ -4798,6 +4915,27 @@ BANK DAFTAR PUSTAKA:\n{_dp}
         "📑 Proposal Tesis",
         "🔎 Literatur & Penelitian Terdahulu",
     ]:
+        # Berlaku untuk Submenu 4-12: hapus hanya keluaran AI pada ruang kerja
+        # yang sedang aktif. Upload, pedoman aktif, Bank Bahan, Bank Referensi,
+        # kitab, ebook, dan dokumen sumber tidak ikut dihapus.
+        if st.button(
+            "🗑️ Hapus Hasil Generate Submenu Ini Saja",
+            key=f"hapus_generate_s2_{submenu_s2}",
+            use_container_width=True,
+        ):
+            for _k_hapus_s2 in [
+                "hasil_penulisan_ai",
+                "hasil_koreksi_s2",
+                "final_tesis_s2",
+                "naskah_aktif",
+                "hasil_s2",
+                "hasil_koreksi_s2_edit",
+                "final_tesis_s2_edit",
+            ]:
+                st.session_state.pop(_k_hapus_s2, None)
+            st.success("Hasil Generate AI pada submenu ini dihapus. Semua file unggahan dan sumber referensi tetap tersimpan.")
+            st.rerun()
+
         pilihan_tahap_s2 = tahap_per_submenu_s2[submenu_s2]
         if len(pilihan_tahap_s2) == 1:
             tahap = pilihan_tahap_s2[0]
