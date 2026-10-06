@@ -4652,21 +4652,29 @@ Keluarkan proposal lengkap, bukan laporan analisis.
                 )
 
         # ========================================================
-        # MESIN 2 — PROMPT PEMBUAT PROPOSAL DARI INPUT MINIMAL
+        # MESIN 2 — PROMPT AI FINAL: INPUT + FORMAT + SUMBER DIKUNCI
         # ========================================================
         with _tab_buat:
             st.caption(
-                "Mesin ini sengaja sederhana: hanya mengambil MASALAH PENELITIAN dan JENIS PENELITIAN. "
-                "Judul, struktur proposal, pengembangan teori, gap, novelty, dan rancangan metode dibangun oleh AI."
+                "Isi masalah, judul, jenis penelitian, gaya sitasi, dan format naskah. "
+                "Semua pilihan menjadi acuan tetap sebelum AI menyusun proposal."
             )
+
             _masalah_m2 = st.text_area(
-                "Masalah Penelitian",
+                "1. 📝 Masalah Penelitian",
                 height=180,
-                placeholder="Contoh: Guru masih mengalami kesulitan menyusun perencanaan kokurikuler yang sistematis...",
+                placeholder="Tuliskan masalah utama yang ingin diteliti...",
                 key="mesin2_masalah_proposal_tesis",
             )
+
+            _judul_m2 = st.text_input(
+                "2. 📌 Judul Penelitian",
+                placeholder="Ketik judul tesis yang akan digunakan...",
+                key="mesin2_judul_baru_proposal_tesis",
+            )
+
             _jenis_m2 = st.selectbox(
-                "Jenis Penelitian",
+                "3. 🔬 Jenis Penelitian yang Digunakan",
                 [
                     "R&D / Research and Development",
                     "Kualitatif",
@@ -4677,51 +4685,105 @@ Keluarkan proposal lengkap, bukan laporan analisis.
                 key="mesin2_jenis_proposal_tesis",
             )
 
+            _gaya_m2 = st.selectbox(
+                "4. 📚 Gaya Sitasi / Catatan Kaki",
+                [
+                    "Chicago Notes & Bibliography (Footnote)",
+                    "Turabian Notes-Bibliography",
+                    "APA 7th Edition",
+                    "IEEE",
+                ],
+                key="mesin2_gaya_sitasi_proposal_tesis",
+            )
+
+            _c1_m2, _c2_m2 = st.columns(2)
+            with _c1_m2:
+                _font_m2 = st.selectbox(
+                    "5. 🔤 Jenis Huruf",
+                    ["Times New Roman", "Cambria", "Arial", "Calibri"],
+                    key="mesin2_font_proposal_tesis",
+                )
+            with _c2_m2:
+                _ukuran_m2 = st.selectbox(
+                    "6. 🔢 Ukuran Huruf",
+                    ["12 pt", "11 pt", "10 pt"],
+                    key="mesin2_ukuran_font_proposal_tesis",
+                )
+
+            _kedalaman_m2 = st.selectbox(
+                "7. 📖 Kedalaman Proposal",
+                ["Mendalam S2", "Standar"],
+                key="mesin2_kedalaman_proposal_tesis",
+            )
+
+            st.info(
+                "🔒 Judul dan jenis penelitian dikunci. Referensi ilmiah kontemporer diprioritaskan "
+                "tahun 2020–2026. Sumber sebelum 2020 hanya untuk sumber primer, teori seminal/original, "
+                "Al-Qur'an, hadis, kitab/tafsir klasik, karya ulama klasik, atau regulasi yang masih relevan."
+            )
+
             if st.button(
-                "✨ Buat Proposal Tesis Lengkap",
+                "✨ Generik Prompt AI Proposal Tesis",
                 key="jalankan_mesin2_proposal_tesis",
                 type="primary",
                 use_container_width=True,
             ):
+                _kurang_m2 = []
                 if not str(_masalah_m2 or "").strip():
-                    st.warning("Masukkan masalah penelitian terlebih dahulu.")
+                    _kurang_m2.append("Masalah Penelitian")
+                if not str(_judul_m2 or "").strip():
+                    _kurang_m2.append("Judul Penelitian")
+
+                if _kurang_m2:
+                    st.warning("Lengkapi terlebih dahulu: " + ", ".join(_kurang_m2) + ".")
                 else:
                     _ped_m2 = st.session_state.get("pedoman_tesis_s2_teks", "")
                     _prompt_m2 = f"""Anda adalah penulis akademik dan asisten riset tingkat MAGISTER.
-Bertindaklah seperti ketika mahasiswa berkata:
-"Berdasarkan masalah dan jenis penelitian ini, buatkan proposal tesis S2 saya secara lengkap."
+Susun proposal tesis S2 yang lengkap, mendalam, argumentatif, dan siap dibawa ke bimbingan.
 
-INPUT PENGGUNA HANYA DUA:
+INPUT PENGGUNA YANG SUDAH FINAL:
 MASALAH PENELITIAN:
 {_masalah_m2}
 
-JENIS PENELITIAN:
+JUDUL PENELITIAN FINAL:
+{_judul_m2}
+
+JENIS PENELITIAN FINAL:
 {_jenis_m2}
 
+GAYA SITASI / RUJUKAN:
+{_gaya_m2}
+
+FORMAT NASKAH:
+Jenis huruf: {_font_m2}
+Ukuran huruf: {_ukuran_m2}
+Kedalaman: {_kedalaman_m2}
+Bahasa: Bahasa Indonesia akademik tingkat S2
+
 PEDOMAN TESIS AKTIF:
-{_ped_m2[:50000] if _ped_m2 else "Tidak tersedia. Jangan mengarang ketentuan kampus."}
+{_ped_m2[:50000] if _ped_m2 else "Tidak tersedia. Jangan mengarang ketentuan institusi yang tidak diketahui."}
 
-TUGAS UTAMA:
-1. Rumuskan 3 alternatif judul tesis yang akademik, fokus, realistis, dan konsisten dengan masalah.
-2. Pilih SATU judul terbaik dan gunakan judul itu untuk seluruh proposal.
-3. Susun PROPOSAL TESIS S2 LENGKAP, mendalam, argumentatif, dan koheren.
-4. Jangan bertindak sebagai editor. Anda MEMBANGUN proposal dari masalah yang diberikan.
-5. Jangan membuat hasil penelitian seolah penelitian sudah dilakukan.
+PENGUNCIAN:
+1. JANGAN membuat alternatif judul.
+2. JANGAN mengganti, memperpendek, memperluas, atau memparafrasekan JUDUL PENELITIAN FINAL.
+3. JANGAN mengganti JENIS PENELITIAN FINAL.
+4. Judul -> masalah -> rumusan/fokus -> tujuan -> teori -> gap -> novelty -> metode wajib konsisten.
+5. Jangan membuat hasil penelitian seolah-olah penelitian telah dilaksanakan.
 
-SISTEMATIKA WAJIB:
+SISTEMATIKA PROPOSAL:
 
 BAGIAN AWAL
-- HALAMAN SAMPUL: PROPOSAL TESIS, judul terpilih, [LOGO IAI DARUSSALAM MARTAPURA],
-  Nama:, NPM:, Institut Agama Islam Darussalam Martapura, Pascasarjana,
-  Program Studi Pendidikan Agama Islam, Martapura, tahun.
+- HALAMAN SAMPUL: PROPOSAL TESIS, judul final persis seperti input,
+  [LOGO IAI DARUSSALAM MARTAPURA], Nama:, NPM:, Institut Agama Islam Darussalam Martapura,
+  Pascasarjana, Program Studi Pendidikan Agama Islam, Martapura, tahun.
 - KATA PENGANTAR.
 - DAFTAR ISI.
-- DAFTAR TABEL hanya jika ada tabel.
+- DAFTAR TABEL hanya jika benar-benar terdapat tabel. Jangan membuat halaman Daftar Tabel kosong.
 
 BAB I PENDAHULUAN
 A. Latar Belakang Masalah.
-   Kembangkan secara mendalam dari kondisi ideal, konteks ilmiah, masalah,
-   urgensi, dukungan literatur, kesenjangan, dan alasan penelitian.
+   Kembangkan secara mendalam: kondisi ideal, konteks ilmiah, masalah pengguna, urgensi,
+   bukti literatur, kesenjangan, dan alasan penelitian. Jangan mengarang data lapangan.
 B. Rumusan Masalah/Fokus Penelitian.
 C. Tujuan Penelitian.
 D. Signifikansi/Manfaat Penelitian.
@@ -4729,71 +4791,103 @@ E. Definisi Operasional/Istilah.
 
 BAB II KAJIAN PUSTAKA DAN KERANGKA PIKIR
 A. Penelitian Terdahulu.
-   Bangun peta penelitian yang cukup kaya, bandingkan persamaan/perbedaan,
-   keterbatasan, dan posisi penelitian.
+   Gunakan beberapa penelitian yang benar-benar relevan dan mutakhir; jelaskan persamaan,
+   perbedaan, keterbatasan, dan posisi penelitian.
 B. Kajian Teori.
-   Uraikan teori utama dan hubungan antarkonsep secara mendalam.
+   Uraikan teori utama, konsep, dimensi/indikator bila relevan, serta hubungan antarkonsep.
 C. Landasan Normatif Islam.
-   Masukkan Al-Qur'an dan/atau hadis yang BENAR-BENAR relevan, terjemah,
-   tafsir/penjelasan, lalu hubungkan DALIL -> MAKNA/TAFSIR -> KONSEP PENELITIAN.
+   Gunakan Al-Qur'an dan/atau hadis yang benar-benar relevan, terjemah, sumber tafsir/penjelasan,
+   kemudian hubungkan DALIL -> MAKNA/TAFSIR -> KONSEP PENELITIAN.
    Perspektif Ahlussunnah wal Jamaah harus akademik dan relevan, bukan tempelan.
 D. Research Gap dan Posisi Penelitian.
 E. Kebaruan/Novelty Penelitian bila relevan.
 F. Kerangka Pikir/Kerangka Konseptual.
-G. Asumsi Dasar dan Hipotesis HANYA jika sesuai jenis penelitian.
+G. Asumsi Dasar dan Hipotesis hanya jika sesuai jenis penelitian.
 
 BAB III METODE PENELITIAN
-WAJIB mengikuti tepat jenis penelitian yang dipilih pengguna.
-- R&D: pilih model pengembangan yang paling sesuai (misalnya ADDIE jika tepat),
-  jelaskan alasan, tahap, subjek uji coba, validator bila diperlukan, produk,
-  instrumen, validasi, uji coba, pengumpulan dan analisis data.
-- Kualitatif: pendekatan/jenis, lokasi, subjek/informan, objek/fokus,
-  data/sumber data, teknik pengumpulan, instrumen, analisis, keabsahan, tahapan.
-- Kuantitatif: desain, variabel, populasi/sampel, definisi operasional,
-  instrumen, validitas/reliabilitas, pengumpulan data, analisis statistik.
-- Action Research/PTK: setting/subjek, desain/siklus, tindakan, observasi,
-  instrumen, indikator keberhasilan, analisis.
+Gunakan HANYA keluarga metode pada JENIS PENELITIAN FINAL.
+- R&D: harus R&D, bukan diubah menjadi kualitatif. Tentukan model pengembangan yang tepat,
+  alasan pemilihan, tahap pengembangan, produk/model, subjek uji coba/pengguna, validator bila perlu,
+  instrumen, pengumpulan data, validasi/uji coba, dan analisis data.
+- Kualitatif: pendekatan/jenis, lokasi, subjek/informan, objek/fokus, data/sumber,
+  pengumpulan, instrumen, analisis, keabsahan, tahapan, dan etika bila relevan.
+- Kuantitatif: desain, variabel, populasi/sampel, definisi operasional, instrumen,
+  validitas/reliabilitas, pengumpulan data, dan analisis statistik.
+- Action Research/PTK: setting/subjek, desain/siklus, tindakan, observasi, instrumen,
+  indikator keberhasilan, dan analisis.
 - Library Research: pendekatan, sumber primer/sekunder, penelusuran literatur,
-  kritik/validasi sumber, analisis dan sintesis.
-JANGAN mencampur desain penelitian yang tidak kompatibel.
+  kritik/validasi sumber, analisis, dan sintesis.
+JANGAN mencampur metode yang tidak kompatibel.
 
 SETELAH BAB III
-- SISTEMATIKA PENULISAN.
+- SISTEMATIKA PENULISAN sesuai Pedoman aktif.
 - DAFTAR PUSTAKA SEMENTARA.
 
-KUTIPAN, FOOTNOTE, DAN REFERENSI:
-- Proposal harus memiliki dukungan kutipan ilmiah dan catatan kaki, bukan teks tanpa sumber.
-- Gunakan sumber akademik yang relevan dan kredibel sepanjang pengetahuan yang dapat dipertanggungjawabkan.
-- Jangan mengarang DOI, URL, nomor halaman, volume/nomor jurnal, atau kutipan langsung.
-- Jika detail bibliografis tidak cukup pasti, jangan memalsukannya. Beri tanda [KANDIDAT REFERENSI - VERIFIKASI]
-  pada entri tersebut agar dapat diproses kemudian di menu Literatur & Referensi.
-- Setiap sumber yang benar-benar dikutip harus muncul dalam Daftar Pustaka Sementara.
-- Jangan menghilangkan footnote hanya karena detail halaman belum diketahui.
-  Untuk parafrasa, gunakan catatan sumber tanpa membuat nomor halaman palsu.
-- Untuk kutipan langsung, nomor halaman wajib benar; jika tidak diketahui, jangan gunakan kutipan langsung.
+ATURAN SUMBER DAN TAHUN:
+1. Referensi ilmiah kontemporer untuk jurnal, buku akademik, penelitian terdahulu,
+   teknologi, pendidikan, kurikulum, dan kajian mutakhir diprioritaskan tahun 2020–2026.
+2. Penelitian terdahulu WAJIB mengutamakan tahun 2020–2026.
+3. Sumber sebelum 2020 hanya diperbolehkan jika memang diperlukan sebagai:
+   sumber primer, teori seminal/original theory, Al-Qur'an, hadis, kitab/tafsir klasik,
+   karya ulama klasik, atau regulasi yang masih berlaku/relevan.
+4. Jangan menggunakan sumber lama hanya karena lebih mudah diingat.
+5. Targetkan dukungan referensi proposal yang kaya dan relevan, sekitar 20–30 sumber bila
+   dapat dipertanggungjawabkan. Kualitas dan keterverifikasian lebih penting daripada jumlah.
+6. Jangan mengarang penulis, judul, tahun, penerbit, jurnal, volume, nomor, halaman, DOI, URL,
+   kutipan langsung, atau metadata apa pun.
+7. Jika detail bibliografis belum cukup pasti, jangan membuat detail palsu.
+   Catat sebagai kandidat yang memerlukan verifikasi di luar naskah final.
+8. Regulasi harus disebut dengan identitas yang benar dan jangan mengarang nomor regulasi.
 
-BATAS FAKTUAL:
-- Jangan mengarang data lapangan, nama lokasi spesifik, jumlah subjek, hasil observasi,
-  wawancara, statistik, temuan, atau efektivitas yang belum diteliti.
-- Bila rincian operasional belum diketahui, rumuskan sebagai rencana yang akan ditetapkan
-  secara metodologis, bukan fakta palsu.
-- Nama dan NPM tetap kosong jika tidak diberikan.
+ATURAN KUTIPAN / FOOTNOTE:
+1. HASIL WAJIB MEMILIKI KUTIPAN SUMBER di dalam pembahasan. Jangan menghasilkan paragraf
+   teori, definisi, regulasi, penelitian terdahulu, atau klaim ilmiah tanpa sumber ketika rujukan diperlukan.
+2. Jika gaya yang dipilih adalah Chicago Notes & Bibliography atau Turabian:
+   gunakan penanda catatan kaki bernomor pada teks dan sediakan CATATAN KAKI yang sesuai,
+   kemudian sinkronkan dengan Daftar Pustaka.
+3. Jika APA 7 dipilih, gunakan author-date in-text citation dan Daftar Pustaka APA 7.
+4. Jika IEEE dipilih, gunakan nomor sitasi [1], [2], dst. dan daftar referensi IEEE.
+5. Kutipan langsung hanya boleh digunakan jika teks dan halaman benar-benar diketahui.
+   Jika halaman tidak diketahui, PARAFRASE dan jangan mengarang nomor halaman.
+6. Semua sumber yang dikutip harus terdapat di Daftar Pustaka, kecuali jenis sumber yang menurut
+   Pedoman aktif diperlakukan secara khusus.
+7. Jangan memasukkan sumber ke Daftar Pustaka jika tidak benar-benar digunakan, kecuali secara jelas
+   diberi status bibliografi pendukung yang memang diminta.
+8. Dalil Al-Qur'an, hadis, dan tafsir harus dapat ditelusuri dan dirujuk sesuai Pedoman.
 
-STANDAR MUTU:
-- Tulis seperti proposal tesis S2 yang sungguh-sungguh akan dibimbing dosen.
-- Jangan membuat BAB I/II hanya berupa ringkasan pendek.
-- Pastikan judul -> masalah -> rumusan/fokus -> tujuan -> teori -> gap -> metode konsisten.
-- Jangan masukkan Simulasi Seminar Proposal.
-- Keluarkan naskah proposal, bukan penjelasan proses AI.
+KUALITAS AKADEMIK:
+- Tulis sebagai proposal tesis S2, bukan ringkasan atau outline.
+- BAB I dan BAB II harus mendalam dan argumentatif.
+- Penelitian terdahulu harus benar-benar membantu membangun research gap.
+- Novelty tidak boleh diklaim hanya dengan kalimat "belum pernah diteliti"; jelaskan posisi kebaruannya.
+- Jangan mengarang kondisi empiris, jumlah responden/subjek, hasil observasi, wawancara, statistik,
+  temuan, efektivitas, atau hasil uji yang belum dilakukan.
+- Informasi yang belum diketahui ditulis sebagai rencana penelitian.
+- Nama dan NPM tetap kosong jika belum diberikan.
+- Jangan memasukkan Simulasi Seminar Proposal.
+- Keluarkan naskah proposal lengkap, bukan penjelasan proses AI.
+
+FORMAT:
+- Gunakan {_font_m2} {_ukuran_m2} sebagai metadata format yang harus diterapkan saat ekspor Word.
+- Jangan menulis instruksi format ini sebagai isi proposal.
 """
                     try:
-                        with st.spinner("Mesin 2 sedang menyusun proposal tesis lengkap..."):
+                        with st.spinner("Mesin 2 sedang menyusun proposal, kutipan, dan referensi..."):
                             _hasil_m2 = hasil_ai_teks(
-                                _panggil_gemini_rest_aman(_prompt_m2, temperature=0.45, max_output_tokens=16384)
+                                _panggil_gemini_rest_aman(
+                                    _prompt_m2,
+                                    temperature=0.30,
+                                    max_output_tokens=16384
+                                )
                             )
                         if _hasil_m2:
                             st.session_state["mesin2_hasil_proposal_tesis"] = _hasil_m2
                             st.session_state["proposal_s2_draf_otomatis"] = _hasil_m2
+                            st.session_state["mesin2_judul_terkunci"] = str(_judul_m2).strip()
+                            st.session_state["mesin2_jenis_terkunci"] = _jenis_m2
+                            st.session_state["mesin2_gaya_terkunci"] = _gaya_m2
+                            st.session_state["mesin2_font_terkunci"] = _font_m2
+                            st.session_state["mesin2_ukuran_terkunci"] = _ukuran_m2
                             st.success("✅ Proposal Tesis AI selesai dibuat.")
                         else:
                             st.error("AI belum menghasilkan proposal.")
@@ -4801,12 +4895,36 @@ STANDAR MUTU:
                         st.error(f"Mesin 2 belum dapat dijalankan: {_e}")
 
             if st.session_state.get("mesin2_hasil_proposal_tesis"):
+                _judul_kunci = st.session_state.get("mesin2_judul_terkunci", "")
+                _jenis_kunci = st.session_state.get("mesin2_jenis_terkunci", "")
+                _gaya_kunci = st.session_state.get("mesin2_gaya_terkunci", "")
+                _font_kunci = st.session_state.get("mesin2_font_terkunci", "")
+                _ukuran_kunci = st.session_state.get("mesin2_ukuran_terkunci", "")
+
+                st.markdown("#### 🔒 Pengaturan Proposal")
+                st.caption(f"Judul: {_judul_kunci}")
+                st.caption(f"Jenis penelitian: {_jenis_kunci}")
+                st.caption(f"Gaya sitasi: {_gaya_kunci}")
+                st.caption(f"Format: {_font_kunci} {_ukuran_kunci}")
+                st.caption("Referensi kontemporer: diprioritaskan 2020–2026")
+
                 st.text_area(
                     "Proposal Tesis Hasil Mesin 2",
                     value=st.session_state["mesin2_hasil_proposal_tesis"],
                     height=800,
                     key="mesin2_hasil_tampil_proposal_tesis",
                 )
+
+                _hasil_lower = str(st.session_state["mesin2_hasil_proposal_tesis"]).lower()
+                _ada_dp = ("daftar pustaka" in _hasil_lower) or ("references" in _hasil_lower)
+                _ada_rujukan = any(x in _hasil_lower for x in [
+                    "catatan kaki", "footnote", "doi.org", "et al.", "vol.", "no.",
+                    "[1]", "(2020", "(2021", "(2022", "(2023", "(2024", "(2025", "(2026"
+                ])
+                if _ada_dp and _ada_rujukan:
+                    st.success("🟢 Indikator awal: naskah sudah memuat unsur rujukan dan daftar pustaka. Tetap verifikasi sumber di Literatur & Referensi.")
+                else:
+                    st.warning("🟡 Perlu penyempurnaan: unsur kutipan/rujukan atau daftar pustaka belum terdeteksi lengkap.")
 
         st.divider()
         st.caption("Ruang kerja proposal lama tetap tersedia di bawah untuk menjaga fungsi aplikasi yang sudah berjalan.")
