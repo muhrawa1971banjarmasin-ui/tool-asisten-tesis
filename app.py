@@ -4116,6 +4116,13 @@ Jangan membuat data atau referensi palsu."""
                 ):
                     st.session_state["judul_tesis_s2_terpilih"] = judul_pilihan_s2
 
+                    # Jalur transfer sederhana dan stabil khusus Submenu Proposal.
+                    # State lama tetap dipertahankan agar fitur yang sudah berjalan tidak terganggu.
+                    st.session_state["proposal_judul"] = judul_pilihan_s2
+                    st.session_state["proposal_masalah"] = masalah_ide_s2
+                    st.session_state["proposal_metode"] = metode_ide_s2
+                    st.session_state["proposal_arah"] = arah_ide_s2
+
                     # DATA PROYEK TESIS S2: sumber utama antar-submenu.
                     st.session_state["proyek_tesis_s2"] = {
                         "judul": judul_pilihan_s2,
@@ -4167,13 +4174,15 @@ Jangan membuat data atau referensi palsu."""
         # Pulihkan data lama tanpa meminta pengguna mengulang Submenu 1.
         # Prioritas: data proyek -> dasar proposal -> judul final -> pilihan judul yang tersimpan.
         _judul_prop = (
-            _proyek.get("judul")
+            st.session_state.get("proposal_judul", "")
+            or _proyek.get("judul")
             or _dasar.get("judul")
             or st.session_state.get("judul_tesis_s2_terpilih", "")
             or st.session_state.get("judul_utama_pilihan_s2", "")
         )
         _masalah_prop = (
-            _proyek.get("masalah")
+            st.session_state.get("proposal_masalah", "")
+            or _proyek.get("masalah")
             or _dasar.get("masalah", "")
             or st.session_state.get("masalah_ide_s2", "")
         )
@@ -4183,12 +4192,14 @@ Jangan membuat data atau referensi palsu."""
             _masalah_prop = st.session_state.get(f"masalah_ide_s2_{_versi_masalah}", "")
 
         _arah_prop = (
-            _proyek.get("arah")
+            st.session_state.get("proposal_arah", "")
+            or _proyek.get("arah")
             or _dasar.get("arah", "")
             or st.session_state.get("arah_ide_s2", "")
         )
         _metode_prop = (
-            _proyek.get("metode")
+            st.session_state.get("proposal_metode", "")
+            or _proyek.get("metode")
             or st.session_state.get("metode_ide_s2", "Belum ditentukan")
         )
 
@@ -4231,6 +4242,10 @@ Jangan membuat data atau referensi palsu."""
 
         if str(_judul_prop).strip():
             st.session_state["judul_tesis_s2_terpilih"] = _judul_prop
+            st.session_state["proposal_judul"] = _judul_prop
+            st.session_state["proposal_masalah"] = _masalah_prop
+            st.session_state["proposal_metode"] = _metode_prop
+            st.session_state["proposal_arah"] = _arah_prop
             _proyek_baru = st.session_state.get("proyek_tesis_s2", {})
             if not isinstance(_proyek_baru, dict):
                 _proyek_baru = {}
