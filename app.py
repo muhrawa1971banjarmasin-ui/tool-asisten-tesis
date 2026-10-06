@@ -4638,7 +4638,15 @@ Jangan membuat data atau referensi palsu."""
         else:
             st.info("Judul dari Submenu 1 belum terbaca. Kolom tetap dapat diketik tanpa kembali ke Submenu 1.")
 
-        if str(_judul_prop).strip():
+        _ada_bahan_proposal = bool(
+            str(_judul_prop or "").strip()
+            or str(_masalah_prop or "").strip()
+            or str(_arah_prop or "").strip()
+            or (isinstance(_bank_prop, list) and len(_bank_prop) > 0)
+            or (isinstance(_refs_prop, list) and len(_refs_prop) > 0)
+        )
+
+        if _ada_bahan_proposal:
             _nama_pedoman_prop = st.session_state.get("pedoman_tesis_s2_nama", "")
             if _pedoman_prop:
                 st.success(f"🟢 Pedoman aktif otomatis: {_nama_pedoman_prop or 'Pedoman Tesis yang telah diaktifkan'}")
@@ -4815,285 +4823,299 @@ Berikan status akhir tepat salah satu: LULUS PEDOMAN atau BELUM LULUS PEDOMAN. J
                 if not _audit_ok:
                     st.caption("Finalisasi dikunci sampai audit menyatakan LULUS PEDOMAN.")
 
-                st.markdown("### ✨ Generik AI Kesempurnaan Proposal Sesuai Pedoman S2")
-                st.caption("AI mengembangkan proposal yang sudah ada. Pedoman aktif menjadi aturan utama. Isi yang sudah baik tidak dipersingkat atau dibuang.")
-
-                if st.button("✨ Generik AI Kesempurnaan Proposal Sesuai Pedoman S2", key="generik_kesempurnaan_proposal_s2", type="primary", use_container_width=True):
-                    _pedoman_gen = st.session_state.get("pedoman_tesis_s2_teks", "")
-                    _audit_gen = st.session_state.get("audit_pedoman_proposal_s2", "")
-                    _refs_gen = st.session_state.get("referensi_final_tesis_s2", []) or st.session_state.get("bank_referensi", [])
-                    _refs_gen_teks = "\n".join(
-                        format_referensi(x) if isinstance(x, dict) else str(x)
-                        for x in (_refs_gen[:80] if isinstance(_refs_gen, list) else [])
-                    ) if isinstance(_refs_gen, list) else str(_refs_gen)[:50000]
-
-                    _prompt_gen = f"""Anda adalah ASISTEN AKADEMIK S2 yang bertugas MENYEMPURNAKAN dan MENGEMBANGKAN proposal tesis, bukan meringkasnya.
-
-HIERARKI ACUAN WAJIB:
-1. PEDOMAN PENULISAN TESIS S2 AKTIF adalah aturan tertinggi untuk struktur, sistematika, kutipan, catatan kaki, daftar pustaka, transliterasi, Al-Qur'an, hadis, dan kaidah penulisan.
-2. NASKAH PROPOSAL SAAT INI adalah naskah induk. Pertahankan seluruh substansi, argumentasi, bagian, kutipan, dan referensi yang sudah baik.
-3. REFERENSI/LITERATUR TERSEDIA adalah bahan akademik untuk memperkuat dan mengembangkan naskah.
-4. HASIL AUDIT hanya menjadi petunjuk bagian yang perlu diperbaiki.
-
-TUGAS UTAMA:
-- Kembangkan proposal menjadi lebih lengkap, mendalam, koheren, dan layak untuk bimbingan proposal tesis S2.
-- JANGAN mempersingkat naskah. Jangan menghapus pembahasan yang sudah baik. Jika ada kekurangan, TAMBAHKAN penjelasan yang relevan.
-- Perkuat latar belakang, identifikasi/batasan/fokus atau rumusan masalah, tujuan, manfaat/signifikansi, kajian teori, penelitian terdahulu, research gap, novelty, kerangka berpikir, dan metode sesuai jenis penelitian, tetapi hanya sejauh struktur tersebut diwajibkan/diizinkan Pedoman aktif.
-- Jaga konsistensi antara judul, masalah, rumusan/fokus, tujuan, teori, penelitian terdahulu, gap, novelty, kerangka berpikir, metode, subjek/objek, instrumen, teknik pengumpulan data, dan analisis data.
-- Jangan mengubah judul atau metode utama tanpa kebutuhan yang jelas dari Pedoman.
-
-ATURAN REFERENSI DAN KUTIPAN:
-- Pertahankan SEMUA referensi valid yang sudah dikutip dalam proposal.
-- Gunakan referensi tersedia yang relevan untuk menambah kekuatan argumentasi. Jangan memasukkan referensi hanya untuk menambah jumlah.
-- Setiap sumber yang benar-benar dikutip harus muncul di Daftar Pustaka, dan entri Daftar Pustaka yang dipertahankan harus dapat ditelusuri kegunaannya dalam naskah.
-- Jangan membuat penulis, judul, tahun, DOI, URL, nomor halaman, kutipan langsung, kitab, tafsir, atau hadis palsu.
-- Jika bahan referensi belum cukup untuk suatu klaim, jangan mengarang. Beri penanda [REFERENSI TAMBAHAN PERLU DICARI/VERIFIKASI] pada titik yang memang memerlukan sumber tambahan agar mesin pencarian literatur aplikasi dapat melengkapinya.
-- Format catatan kaki dan daftar pustaka mengikuti Pedoman aktif. Bila halaman sumber belum diketahui, jangan menebaknya.
-
-LANDASAN ISLAM DAN CIRI KEILMUAN INSTITUSI:
-- Periksa Kajian Teori/landasan teori. Proposal WAJIB memuat landasan normatif Islam yang relevan berupa ayat Al-Qur'an dan/atau hadis sesuai tema penelitian.
-- Ayat Al-Qur'an harus relevan, bukan tempelan: cantumkan teks Arab bila Pedoman menghendaki, nama surah dan nomor ayat, terjemah, kemudian jelaskan hubungan ayat dengan konsep penelitian.
-- Sertakan penjelasan/tafsir yang relevan dari sumber tafsir yang tersedia dan dapat dipertanggungjawabkan. Hubungkan AYAT -> TAFSIR -> KONSEP/TEORI PENELITIAN.
-- Bila menggunakan hadis, pastikan relevan dan sumbernya dapat dipertanggungjawabkan; jelaskan HADIS -> MAKNA -> HUBUNGAN DENGAN PENELITIAN.
-- Integrasikan perspektif Ahlussunnah wal Jamaah secara akademik dan proporsional sesuai karakter Institut Agama Islam Darussalam Martapura, bukan sekadar menempelkan istilah Aswaja.
-- Jika sumber tafsir/hadis yang diperlukan belum tersedia/terverifikasi dalam bahan, jangan menciptakan bibliografi palsu. Tandai kebutuhan sumber tersebut secara jelas agar dapat dilengkapi melalui pencarian referensi aplikasi.
-
-LARANGAN:
-- Jangan mengarang data lapangan, hasil penelitian, responden, statistik, temuan, atau kesimpulan penelitian yang belum dilakukan.
-- Jangan mengubah proposal menjadi tesis hasil penelitian.
-- Jangan menampilkan laporan audit, komentar kepada penulis, JSON, metadata internal, atau penjelasan proses AI dalam keluaran.
-- Jangan memendekkan proposal hanya agar lebih ringkas.
-
-KELUARAN:
-- HANYA naskah Proposal Tesis Hasil Penyempurnaan AI.
-- Struktur dan urutan mengikuti Pedoman aktif.
-- Pertahankan footnote/kutipan yang valid dan sinkronkan seluruh sumber yang digunakan dengan Daftar Pustaka.
-- Naskah boleh dan seharusnya bertambah panjang bila pengembangan akademik memang diperlukan.
-
-JUDUL:
-{_judul_prop}
-
-METODE TERPILIH:
-{_metode_prop}
-
-PEDOMAN AKTIF:
-{_pedoman_gen[:50000] if _pedoman_gen else 'Pedoman aktif belum tersedia. Jangan mengklaim kesesuaian aturan yang tidak diberikan.'}
-
-HASIL AUDIT TERAKHIR:
-{_audit_gen[:20000]}
-
-REFERENSI/LITERATUR TERSEDIA:
-{_refs_gen_teks[:50000]}
-
-NASKAH PROPOSAL INDUK:
-{_edit[:90000]}
-"""
-                    try:
-                        with st.spinner("AI sedang mengembangkan proposal berdasarkan Pedoman S2, literatur, dan naskah induk..."):
-                            _gen_raw = panggil_gemini(_prompt_gen, 0.15)
-                            _gen_teks = hasil_ai_teks(_gen_raw)
-                        if not _gen_teks:
-                            st.error("AI belum menghasilkan naskah penyempurnaan.")
-                        elif len(_gen_teks.strip()) < int(len(_edit.strip()) * 0.90):
-                            st.error("Hasil AI terdeteksi terlalu pendek sehingga tidak diterapkan. Proposal induk tetap aman dan tidak berubah.")
-                        else:
-                            st.session_state["proposal_s2_hasil_penyempurnaan_ai"] = _gen_teks
-                            st.session_state["proposal_s2_draf_otomatis"] = _gen_teks
-                            st.session_state["proposal_s2_editor_pending"] = _gen_teks
-                            st.session_state.pop("audit_pedoman_proposal_s2", None)
-                            st.success("✅ Proposal berhasil dikembangkan. Isi lama dipertahankan dan bagian yang perlu diperkuat telah dikembangkan berdasarkan Pedoman S2.")
-                            st.rerun()
-                    except Exception as _e:
-                        st.error(f"Penyempurnaan AI belum dapat dilakukan: {_e}")
-
-                if st.session_state.get("proposal_s2_hasil_penyempurnaan_ai"):
-                    with st.expander("📖 Lihat Proposal Tesis Hasil Penyempurnaan AI", expanded=False):
-                        st.markdown(st.session_state["proposal_s2_hasil_penyempurnaan_ai"])
-
-
-                # ============================================================
-                # PROPOSAL AKHIR LENGKAP SIAP DIAJUKAN
-                # Tidak mengganti mesin proposal lama. Tahap ini hanya
-                # memfinalkan hasil penyempurnaan yang sudah ada.
-                # ============================================================
-                st.markdown("### 🎓 Proposal Akhir Lengkap Siap Diajukan")
+                st.markdown("### ✨ Prompt Akhir Proposal Tesis")
                 st.caption(
-                    "Tahap akhir setelah Generik AI Kesempurnaan Proposal. "
-                    "AI mempertahankan naskah yang sudah baik, melengkapi bagian yang masih kurang, "
-                    "menjaga referensi, lalu melakukan audit kesiapan sebelum Word dibuat."
+                    "Cukup gunakan bahan yang sudah ada di aplikasi. Bisa dimulai dari masalah penelitian, "
+                    "judul, jenis penelitian, beberapa artikel/bahan, atau proposal yang belum lengkap. "
+                    "AI menyusun proposal tesis lengkap menurut sistematika yang telah ditetapkan."
                 )
 
-                _naskah_akhir_sumber = (
-                    st.session_state.get("proposal_s2_hasil_penyempurnaan_ai")
-                    or st.session_state.get("proposal_s2_draf_otomatis")
-                    or _edit
-                )
+                with st.expander("➕ Bahan tambahan untuk Prompt Akhir (opsional)", expanded=False):
+                    _bahan_prompt_akhir = st.file_uploader(
+                        "Tambahkan artikel, jurnal, proposal awal, PDF, DOCX, atau TXT jika diperlukan",
+                        type=["pdf", "docx", "txt"],
+                        accept_multiple_files=True,
+                        key="bahan_prompt_akhir_proposal_s2",
+                    )
+                    st.caption("Tidak wajib. Semua bahan yang sudah tersimpan di aplikasi tetap dibaca otomatis.")
 
                 if st.button(
-                    "🎓 Generik Proposal Akhir Lengkap Siap Diajukan",
-                    key="generik_proposal_akhir_lengkap_s2",
+                    "✨ Prompt Akhir Proposal Tesis",
+                    key="prompt_akhir_proposal_tesis_s2",
                     type="primary",
                     use_container_width=True,
                 ):
-                    _ped_akhir = st.session_state.get("pedoman_tesis_s2_teks", "")
-                    _refs_akhir = (
+                    _ped_prompt = st.session_state.get("pedoman_tesis_s2_teks", "")
+                    _profil_prompt = st.session_state.get("pedoman_tesis_s2_analisis", "")
+                    _refs_prompt = (
                         st.session_state.get("referensi_final_tesis_s2", [])
                         or st.session_state.get("bank_referensi", [])
                     )
-                    _refs_akhir_teks = "\n".join(
+                    _bank_prompt = st.session_state.get("bank_bahan_ide_s2", [])
+
+                    _teks_bahan_prompt = []
+                    for _bf in (_bahan_prompt_akhir or []):
+                        try:
+                            _bt = ekstrak_teks(_bf)
+                            if _bt and not str(_bt).startswith("ERROR:"):
+                                _teks_bahan_prompt.append(
+                                    f"FILE: {getattr(_bf, 'name', 'dokumen')}\n{str(_bt)[:18000]}"
+                                )
+                        except Exception:
+                            pass
+
+                    _bank_prompt_teks = "\n\n".join(
+                        str(x)[:9000] for x in (_bank_prompt[:20] if isinstance(_bank_prompt, list) else [])
+                    ) if isinstance(_bank_prompt, list) else str(_bank_prompt)[:50000]
+
+                    _refs_prompt_teks = "\n".join(
                         format_referensi(x) if isinstance(x, dict) else str(x)
-                        for x in (_refs_akhir[:100] if isinstance(_refs_akhir, list) else [])
-                    ) if isinstance(_refs_akhir, list) else str(_refs_akhir)[:60000]
+                        for x in (_refs_prompt[:100] if isinstance(_refs_prompt, list) else [])
+                    ) if isinstance(_refs_prompt, list) else str(_refs_prompt)[:60000]
 
-                    _prompt_akhir = f"""Anda adalah editor akademik tingkat magister yang menyiapkan PROPOSAL TESIS AKHIR untuk diajukan kepada dosen pembimbing/seminar proposal.
+                    _naskah_sebelumnya = (
+                        st.session_state.get("proposal_s2_hasil_penyempurnaan_ai")
+                        or st.session_state.get("proposal_s2_draf_otomatis")
+                        or _edit
+                        or ""
+                    )
 
-PRINSIP PALING PENTING:
-1. PEDOMAN TESIS S2 AKTIF adalah acuan tertinggi.
-2. NASKAH SUMBER adalah proposal induk. JANGAN meringkas, memangkas, atau membuang bagian yang sudah baik.
-3. Hasil akhir harus sekurang-kurangnya mempertahankan kedalaman dan keluasan naskah sumber. Kembangkan bila masih tipis.
-4. Jangan mengarang data lapangan, hasil penelitian, informan, responden, statistik, kutipan, halaman, DOI, penulis, kitab, tafsir, hadis, atau referensi.
-5. Proposal adalah rencana penelitian, bukan laporan hasil penelitian.
-6. Jangan menulis komentar AI, laporan audit, JSON, atau penjelasan proses. Keluarkan hanya naskah proposal.
+                    _judul_prompt = str(_judul_prop or "").strip()
+                    _masalah_prompt = str(_masalah_prop or "").strip()
+                    _arah_prompt = str(_arah_prop or "").strip()
+                    _metode_prompt = str(_metode_prop or "").strip()
 
-KELENGKAPAN AKADEMIK:
-- Susun seluruh bagian proposal sesuai urutan dan istilah yang diwajibkan PEDOMAN AKTIF.
-- Pastikan BAB I lengkap dan argumentatif: masalah nyata/akademik, konteks, urgensi, bukti literatur, kesenjangan penelitian, posisi penelitian, alasan pemilihan topik, serta konsistensi menuju rumusan/fokus masalah dan tujuan.
-- Pastikan BAB II lengkap: teori utama dan teori pendukung yang benar-benar relevan, hubungan antarkonsep, penelitian terdahulu yang dianalisis bukan hanya didaftar, posisi penelitian, research gap, novelty/kebaruan yang proporsional, dan kerangka berpikir bila diwajibkan pedoman.
-- Pastikan BAB III lengkap sesuai jenis penelitian yang dipilih: pendekatan/jenis/desain, lokasi bila memang telah ditetapkan dalam proposal, subjek/objek atau populasi/sampel sesuai metode, data/sumber data, teknik pengumpulan data, instrumen, keabsahan/validitas, teknik analisis, prosedur/tahapan, dan etika bila relevan. Jangan memaksakan unsur kuantitatif ke penelitian kualitatif atau sebaliknya.
-- Jaga benang merah JUDUL -> LATAR BELAKANG -> MASALAH/FOKUS -> TUJUAN -> TEORI -> METODE.
-- Jangan mengubah judul, fokus, atau metode utama secara diam-diam.
+                    _prompt_akhir = f"""Anda adalah ASISTEN AKADEMIK AI tingkat magister.
+Tugas Anda adalah MEMBUAT PROPOSAL TESIS S2 LENGKAP seperti ketika seorang mahasiswa meminta:
+"Berdasarkan bahan yang saya miliki, buatkan proposal tesis lengkap yang layak diajukan."
 
-LANDASAN ISLAM:
-- Pada kajian teori, pastikan terdapat landasan Al-Qur'an dan/atau hadis yang benar-benar relevan dengan konsep penelitian.
-- Hubungkan AYAT -> TAFSIR/PENJELASAN -> KONSEP PENELITIAN.
-- Jika hadis digunakan, hubungkan HADIS -> MAKNA -> RELEVANSI PENELITIAN.
-- Integrasikan perspektif Ahlussunnah wal Jamaah secara akademik dan proporsional sesuai karakter IAID Darussalam Martapura.
-- Jangan memakai dalil sebagai hiasan dan jangan mengklaim Al-Qur'an/hadis membahas teknologi atau istilah modern secara langsung jika memang tidak demikian.
-- Bila sumber tafsir/hadis belum tersedia atau belum terverifikasi, jangan membuat sumber palsu. Pertahankan hanya sumber yang dapat dipertanggungjawabkan.
+Anda BUKAN sekadar editor naskah lama. Gunakan seluruh bahan yang tersedia sebagai ACUAN,
+kemudian kembangkan proposal secara luas, mendalam, argumentatif, akademik, dan koheren.
 
-KUTIPAN, FOOTNOTE, DAN DAFTAR PUSTAKA:
-- Pertahankan semua kutipan dan referensi valid dari naskah sumber.
-- Jangan mengurangi jumlah referensi valid hanya untuk merapikan tulisan.
-- Referensi tambahan hanya boleh berasal dari REFERENSI TERVERIFIKASI/TERSEDIA di bawah.
-- Setiap sumber yang dikutip harus sinkron dengan Daftar Pustaka.
-- Sumber yang berulang cukup satu entri dalam Daftar Pustaka.
-- Ikuti gaya catatan kaki, bibliografi, transliterasi, penulisan Arab, Al-Qur'an, dan hadis menurut PEDOMAN AKTIF.
-- Jangan menciptakan nomor halaman yang tidak diketahui.
+============================================================
+A. CARA MEMBACA INPUT
+============================================================
+Input pengguna boleh TIDAK LENGKAP.
+Pengguna mungkin hanya mempunyai:
+- masalah penelitian; atau
+- judul; atau
+- jenis penelitian; atau
+- beberapa artikel/bahan; atau
+- proposal setengah jadi; atau
+- kombinasi sebagian dari semuanya.
 
-STANDAR HASIL:
-- Bahasa akademik S2, formal, koheren, tidak berulang secara tidak perlu.
-- Tidak ada bagian yang berubah menjadi hasil penelitian.
-- Tidak boleh ada placeholder generik seperti "isi di sini", "contoh", "dst.", atau instruksi kepada mahasiswa.
-- Jika ada fakta personal/lapangan yang memang belum diberikan dan mustahil disimpulkan, jangan mengarang. Pertahankan penanda kebutuhan data secara minimal dan spesifik.
-- Daftar Pustaka harus berada di akhir dan sinkron dengan sumber yang digunakan.
-- Keluaran harus berupa naskah proposal lengkap, bukan ringkasan.
+Jika JUDUL belum tersedia tetapi masalah/bahan cukup jelas:
+- rumuskan satu judul tesis yang paling konsisten dengan masalah, bidang PAI/madrasah, dan metode;
+- jangan meminta pengguna mengisi ulang seluruh proposal.
 
-JUDUL:
-{_judul_prop}
+Jika METODE sudah dipilih pengguna, hormati metode tersebut dan susun BAB III secara konsisten.
+Jika metode benar-benar belum ditentukan, pilih metode yang paling logis dari tujuan penelitian
+dan nyatakan pilihan tersebut secara akademik tanpa mencampur beberapa desain yang tidak kompatibel.
 
-JENIS/METODE PENELITIAN:
-{_metode_prop}
+Naskah lama adalah BAHAN, bukan batas kreativitas akademik.
+Pertahankan gagasan yang baik, tetapi Anda boleh menata ulang, memperluas, memperdalam,
+dan menulis kembali bagian yang lemah agar menjadi satu proposal tesis yang utuh.
+
+============================================================
+B. ACUAN DAN HIERARKI
+============================================================
+1. PEDOMAN TESIS S2 AKTIF, bila tersedia, adalah rambu penulisan institusi.
+2. SISTEMATIKA WAJIB di bawah menjadi kerangka proposal, kecuali Pedoman aktif secara tegas
+   mensyaratkan penamaan/urutan berbeda.
+3. Bahan aplikasi, artikel, bank bahan, referensi, masalah, judul, arah penelitian,
+   metode, dan proposal lama menjadi sumber konteks.
+4. Jangan mengubah proposal menjadi laporan hasil penelitian.
+
+============================================================
+C. SISTEMATIKA PROPOSAL WAJIB
+============================================================
+BAGIAN AWAL
+1. HALAMAN SAMPUL
+   Tampilkan elemen:
+   - PROPOSAL TESIS
+   - Judul
+   - tempat untuk Logo IAI Darussalam Martapura
+   - Nama
+   - NPM
+   - Institut Agama Islam Darussalam Martapura
+   - Pascasarjana
+   - Program Studi Pendidikan Agama Islam
+   - Martapura
+   - Tahun
+   Jika Nama/NPM belum tersedia, gunakan label "Nama:" dan "NPM:" tanpa mengarang identitas.
+2. KATA PENGANTAR
+3. DAFTAR ISI
+4. DAFTAR TABEL, hanya jika memang ada tabel.
+
+BAB I PENDAHULUAN
+A. Latar Belakang Masalah
+B. Rumusan Masalah/Fokus Penelitian
+C. Tujuan Penelitian
+D. Signifikansi/Manfaat Penelitian
+E. Definisi Operasional/Istilah
+
+BAB II KAJIAN PUSTAKA DAN KERANGKA PIKIR
+A. Penelitian Terdahulu
+B. Kajian Teori
+C. Landasan Normatif Islam yang relevan
+   - Al-Qur'an dan/atau hadis yang relevan;
+   - terjemah;
+   - tafsir/penjelasan akademik;
+   - hubungan DALIL -> TAFSIR/MAKNA -> KONSEP PENELITIAN;
+   - perspektif Ahlussunnah wal Jamaah secara akademik dan proporsional.
+D. Research Gap dan Posisi Penelitian
+E. Kebaruan/Novelty Penelitian, bila relevan
+F. Kerangka Pikir/Kerangka Konseptual
+G. Asumsi Dasar dan Hipotesis, HANYA bila sesuai jenis penelitian.
+
+BAB III METODE PENELITIAN
+Susun SUBBAGIAN BAB III sesuai metode yang benar-benar digunakan.
+- Kualitatif: pendekatan/jenis, lokasi, subjek/informan, objek/fokus, data/sumber data,
+  teknik pengumpulan, instrumen, analisis, keabsahan, tahapan, etika bila relevan.
+- Kuantitatif: desain, variabel, populasi/sampel, definisi operasional variabel,
+  instrumen, validitas/reliabilitas, pengumpulan data, teknik analisis statistik.
+- R&D: model pengembangan yang dipilih, tahapan, subjek uji/validator, produk,
+  instrumen, validasi, uji coba, teknik pengumpulan dan analisis data.
+- Action Research/PTK: setting/subjek, desain/siklus, tindakan, observasi,
+  instrumen, indikator keberhasilan, analisis.
+- Library Research: jenis/pendekatan, sumber primer/sekunder, teknik pengumpulan
+  literatur, kritik/validasi sumber, teknik analisis.
+JANGAN mencampur struktur metode yang tidak kompatibel.
+
+SETELAH BAB III
+- SISTEMATIKA PENULISAN, sesuai Pedoman aktif.
+- DAFTAR PUSTAKA SEMENTARA.
+
+JANGAN memasukkan Simulasi Seminar Proposal ke dalam naskah.
+
+============================================================
+D. STANDAR PENGEMBANGAN AKADEMIK
+============================================================
+- Latar belakang harus berkembang dari konteks ideal -> realitas/permasalahan ->
+  dukungan kajian/literatur -> kesenjangan -> urgensi -> arah solusi/penelitian.
+- Jangan membuat latar belakang hanya beberapa paragraf pendek.
+- Penelitian terdahulu harus cukup kaya untuk menunjukkan peta penelitian,
+  persamaan, perbedaan, keterbatasan studi terdahulu, dan posisi penelitian ini.
+- Kajian teori harus benar-benar menjelaskan konsep/teori utama dan hubungan antarkonsep,
+  bukan hanya daftar definisi.
+- Research gap harus diturunkan dari penelitian terdahulu dan teori, bukan klaim kosong.
+- Novelty harus proporsional dengan bukti yang tersedia.
+- Kerangka pikir harus menunjukkan alur logis masalah -> teori/konsep -> proses penelitian -> sasaran.
+- BAB III harus konsisten dengan rumusan masalah dan tujuan.
+- Jaga konsistensi JUDUL -> LATAR BELAKANG -> RUMUSAN/FOKUS -> TUJUAN ->
+  TEORI -> GAP -> KERANGKA PIKIR -> METODE.
+
+============================================================
+E. REFERENSI: BEBAS MEMPERKAYA, TETAPI JUJUR STATUSNYA
+============================================================
+Anda BOLEH mengusulkan sebanyak mungkin literatur akademik yang relevan untuk memperkaya proposal:
+jurnal nasional/internasional, buku akademik, regulasi, sumber metodologi, tafsir, hadis,
+dan sumber ilmiah lain yang relevan.
+
+Bedakan dua kelompok:
+1. SUMBER TERSEDIA/TERVERIFIKASI APLIKASI:
+   boleh digunakan sebagai sumber yang sudah tersedia.
+2. SUMBER TAMBAHAN USULAN AI:
+   boleh diusulkan untuk memperkaya proposal, tetapi JANGAN mengarang DOI, URL,
+   nomor halaman, volume, nomor jurnal, atau metadata yang tidak benar-benar diketahui.
+   Tandai secara wajar sebagai kandidat yang perlu diverifikasi di menu Literatur & Referensi.
+
+Jangan membuat daftar pustaka fiktif hanya untuk terlihat banyak.
+Lebih baik memberikan kandidat bibliografis yang jujur untuk diverifikasi daripada metadata palsu.
+Referensi yang sudah valid dari bahan pengguna jangan dihilangkan.
+
+============================================================
+F. BATAS KEBEBASAN AI
+============================================================
+AI bebas mengembangkan ARGUMENTASI, STRUKTUR PENJELASAN, ANALISIS TEORITIS,
+SINTESIS LITERATUR, GAP, NOVELTY, KERANGKA PIKIR, dan PENJELASAN METODOLOGIS.
+
+AI DILARANG mengarang:
+- hasil observasi/wawancara;
+- jumlah informan/responden yang belum diberikan;
+- nama lokasi/madrasah yang belum diberikan;
+- data statistik lapangan;
+- hasil uji;
+- temuan penelitian;
+- kutipan langsung palsu;
+- nomor halaman palsu;
+- DOI/URL palsu;
+- identitas mahasiswa.
+
+Jika fakta lapangan belum tersedia, tulis secara metodologis sebagai rencana penelitian,
+bukan sebagai temuan yang sudah terjadi.
+
+============================================================
+G. KELUARAN
+============================================================
+Keluarkan HANYA NASKAH PROPOSAL TESIS LENGKAP.
+Jangan keluarkan laporan audit, komentar AI, JSON, instruksi kepada pengguna, atau penjelasan proses.
+Gunakan bahasa Indonesia akademik tingkat S2.
+Utamakan kelengkapan dan kedalaman substansi, bukan sekadar mengejar jumlah halaman.
+Jangan meringkas hanya karena input pengguna sedikit.
+
+============================================================
+DATA DAN BAHAN APLIKASI
+============================================================
+JUDUL YANG TERSEDIA:
+{_judul_prompt if _judul_prompt else "Belum tersedia. Rumuskan dari masalah dan bahan jika memungkinkan."}
+
+MASALAH/KONTEKS:
+{_masalah_prompt if _masalah_prompt else "Belum tersedia secara khusus."}
+
+ARAH PENELITIAN:
+{_arah_prompt if _arah_prompt else "Belum tersedia secara khusus."}
+
+JENIS/METODE:
+{_metode_prompt if _metode_prompt else "Belum ditentukan."}
 
 PEDOMAN TESIS S2 AKTIF:
-{_ped_akhir[:55000] if _ped_akhir else "Pedoman belum tersedia. Jangan mengarang aturan kampus."}
+{_ped_prompt[:50000] if _ped_prompt else "Belum tersedia. Jangan mengarang ketentuan kampus."}
 
-REFERENSI TERVERIFIKASI/TERSEDIA:
-{_refs_akhir_teks[:55000]}
+PROFIL/ANALISIS PEDOMAN:
+{_profil_prompt[:18000] if _profil_prompt else "Belum tersedia."}
 
-NASKAH SUMBER YANG WAJIB DIPERTAHANKAN DAN DISEMPURNAKAN:
-{_naskah_akhir_sumber[:95000]}
+REFERENSI/LITERATUR YANG SUDAH ADA DI APLIKASI:
+{_refs_prompt_teks[:55000] if _refs_prompt_teks else "Belum ada referensi tersimpan."}
+
+BANK BAHAN APLIKASI:
+{_bank_prompt_teks[:50000] if _bank_prompt_teks else "Belum ada Bank Bahan."}
+
+BAHAN TAMBAHAN YANG BARU DIUNGGAH:
+{chr(10).join(_teks_bahan_prompt)[:60000] if _teks_bahan_prompt else "Tidak ada."}
+
+PROPOSAL/DRAF SEBELUMNYA, JIKA ADA:
+{_naskah_sebelumnya[:85000] if _naskah_sebelumnya else "Belum ada. Susun proposal dari bahan parsial yang tersedia."}
 """
+
                     try:
-                        with st.spinner("AI sedang menyusun proposal akhir lengkap tanpa meringkas naskah..."):
-                            _akhir_raw = _panggil_gemini_rest_aman(
+                        with st.spinner("AI sedang menyusun Proposal Tesis lengkap dari seluruh bahan aplikasi..."):
+                            _prompt_raw = _panggil_gemini_rest_aman(
                                 _prompt_akhir,
-                                temperature=0.12,
+                                temperature=0.35,
                                 max_output_tokens=16384,
                             )
-                            _akhir_teks = hasil_ai_teks(_akhir_raw)
+                            _prompt_teks = hasil_ai_teks(_prompt_raw)
 
-                        if not _akhir_teks:
-                            st.error("AI belum menghasilkan Proposal Akhir.")
-                        elif len(_akhir_teks.strip()) < int(len(str(_naskah_akhir_sumber).strip()) * 0.92):
-                            st.error(
-                                "Hasil akhir terdeteksi terlalu pendek. Hasil ditolak dan proposal sebelumnya tetap aman."
-                            )
+                        if not _prompt_teks:
+                            st.error("AI belum menghasilkan Proposal Tesis.")
                         else:
-                            st.session_state["proposal_s2_akhir_kandidat"] = _akhir_teks
-
-                            _prompt_audit_akhir = f"""Audit naskah Proposal Tesis S2 berikut terhadap PEDOMAN AKTIF dan kesiapan akademiknya.
-
-Jangan menulis ulang proposal. Audit secara ketat tetapi sesuai JENIS PENELITIAN, bukan memakai aturan metode lain.
-
-Periksa:
-1. struktur/sistematika sesuai Pedoman;
-2. kelengkapan BAB I, BAB II, BAB III dan bagian lain yang diwajibkan;
-3. konsistensi judul -> masalah/fokus -> tujuan -> teori -> metode;
-4. kedalaman latar belakang, teori, penelitian terdahulu, gap, novelty, kerangka berpikir;
-5. ketepatan metode sesuai jenis penelitian;
-6. landasan Al-Qur'an/hadis, tafsir/penjelasan, dan relevansi perspektif Aswaja bila diwajibkan/selaras dengan pedoman dan konteks institusi;
-7. kutipan/footnote dan Daftar Pustaka;
-8. adanya referensi fiktif, data penelitian yang belum dilakukan, atau klaim hasil yang tidak semestinya;
-9. placeholder atau bagian yang masih meminta mahasiswa mengisi;
-10. apakah naskah secara substansi sudah layak dibawa untuk bimbingan/pengajuan proposal.
-
-Jangan menyatakan margin, font, spasi, atau layout fisik DOCX telah lulus hanya dari teks.
-
-Pada baris TERAKHIR tulis TEPAT salah satu:
-SIAP DIAJUKAN
-atau
-BELUM SIAP DIAJUKAN
-
-PEDOMAN:
-{_ped_akhir[:50000] if _ped_akhir else "Pedoman tidak tersedia."}
-
-PROPOSAL:
-{_akhir_teks[:100000]}
-"""
-                            with st.spinner("Melakukan audit kesiapan Proposal Akhir..."):
-                                _audit_akhir = hasil_ai_teks(
-                                    _panggil_gemini_rest_aman(
-                                        _prompt_audit_akhir,
-                                        temperature=0.05,
-                                        max_output_tokens=6000,
-                                    )
-                                )
-
-                            st.session_state["audit_proposal_s2_akhir"] = _audit_akhir
-                            _siap = (
-                                bool(_audit_akhir)
-                                and re.search(r"(?m)^\s*SIAP DIAJUKAN\s*$", _audit_akhir) is not None
-                                and re.search(r"(?m)^\s*BELUM SIAP DIAJUKAN\s*$", _audit_akhir) is None
+                            st.session_state["proposal_s2_prompt_akhir"] = _prompt_teks
+                            st.session_state["proposal_s2_hasil_penyempurnaan_ai"] = _prompt_teks
+                            st.session_state["proposal_s2_draf_otomatis"] = _prompt_teks
+                            st.session_state["proposal_s2_editor_pending"] = _prompt_teks
+                            st.session_state.pop("audit_pedoman_proposal_s2", None)
+                            st.success(
+                                "✅ Prompt Akhir Proposal Tesis selesai. Proposal disusun dari bahan yang tersedia "
+                                "di aplikasi dan dapat dilanjutkan ke Literatur & Referensi untuk verifikasi sumber."
                             )
-
-                            if _siap:
-                                st.session_state["proposal_s2_akhir_siap_diajukan"] = _akhir_teks
-                                st.session_state["proposal_s2_draf_otomatis"] = _akhir_teks
-                                st.session_state["proposal_s2_editor_pending"] = _akhir_teks
-                                st.success("✅ Proposal Akhir lulus audit substansi dan ditetapkan sebagai versi siap diajukan.")
-                            else:
-                                st.session_state.pop("proposal_s2_akhir_siap_diajukan", None)
-                                st.warning(
-                                    "Proposal Akhir sudah disusun, tetapi audit masih menemukan bagian yang harus diperbaiki. "
-                                    "Naskah sebelumnya tidak ditimpa."
-                                )
+                            st.rerun()
                     except Exception as _e:
-                        st.error(f"Proposal Akhir belum dapat diproses: {_e}")
+                        st.error(f"Prompt Akhir Proposal Tesis belum dapat dijalankan: {_e}")
 
-                _audit_akhir_tampil = st.session_state.get("audit_proposal_s2_akhir", "")
-                if _audit_akhir_tampil:
-                    with st.expander("🔍 Audit Kesiapan Proposal Akhir", expanded=False):
-                        st.markdown(_audit_akhir_tampil)
-
-                _proposal_akhir_siap = st.session_state.get("proposal_s2_akhir_siap_diajukan", "")
-                _proposal_akhir_kandidat = st.session_state.get("proposal_s2_akhir_kandidat", "")
-                if _proposal_akhir_siap:
-                    st.success("🔒 Status: SIAP DIAJUKAN secara substansi berdasarkan audit teks.")
-                    with st.expander("📖 Lihat Proposal Akhir Lengkap Siap Diajukan", expanded=False):
-                        st.markdown(_proposal_akhir_siap)
-                elif _proposal_akhir_kandidat:
-                    with st.expander("📖 Lihat Kandidat Proposal Akhir", expanded=False):
-                        st.markdown(_proposal_akhir_kandidat)
+                if st.session_state.get("proposal_s2_prompt_akhir"):
+                    with st.expander("📖 Lihat Hasil Prompt Akhir Proposal Tesis", expanded=False):
+                        st.markdown(st.session_state["proposal_s2_prompt_akhir"])
 
                 st.markdown("### 📄 Word Proposal untuk Bimbingan")
                 with st.expander("Identitas untuk sampul Word", expanded=False):
@@ -5103,7 +5125,7 @@ PROPOSAL:
                     _tahun_word = st.number_input("Tahun", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="proposal_final_tahun_s2")
 
                 _naskah_word = (
-                    st.session_state.get("proposal_s2_akhir_siap_diajukan")
+                    st.session_state.get("proposal_s2_prompt_akhir")
                     or st.session_state.get("proposal_s2_hasil_penyempurnaan_ai")
                     or _edit
                 )
@@ -5111,10 +5133,7 @@ PROPOSAL:
                     try:
                         _word = buat_docx_proposal_final(_naskah_word, _judul_prop, _nama_word, _npm_word, _prodi_word, int(_tahun_word))
                         st.session_state["proposal_s2_word_bimbingan"] = _word
-                        if st.session_state.get("proposal_s2_akhir_siap_diajukan"):
-                            st.success("✅ Word Proposal Akhir siap diajukan berhasil disiapkan dari naskah yang telah lulus audit substansi.")
-                        else:
-                            st.success("✅ Word proposal untuk bimbingan berhasil disiapkan tanpa membuat ulang atau meringkas proposal.")
+                        st.success("✅ Word proposal untuk bimbingan berhasil disiapkan tanpa membuat ulang atau meringkas proposal.")
                     except Exception as _e:
                         st.error(f"Word belum dapat disiapkan: {_e}")
 
@@ -5123,7 +5142,7 @@ PROPOSAL:
                     st.download_button(
                         "📥 Unduh Proposal Tesis untuk Bimbingan (.docx)",
                         data=_word_bimbingan,
-                        file_name="Proposal_Tesis_Hasil_Penyempurnaan_AI_IAID.docx",
+                        file_name="Proposal_Tesis_Hasil_Prompt_Akhir_IAID.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         key="unduh_proposal_bimbingan_s2",
                         use_container_width=True,
