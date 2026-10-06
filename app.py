@@ -4155,287 +4155,181 @@ Jangan membuat data atau referensi palsu."""
     # ============================================================
     if submenu_s2 == "📑 Proposal Tesis":
         st.markdown("### 📑 Ruang Kerja Proposal Tesis")
-        st.caption(
-            "Proposal dibangun bertahap. Judul/masalah dari submenu Ide & Judul "
-            "digunakan sebagai dasar bila sudah ditetapkan."
-        )
 
-        # Ambil data final dari proyek Tesis S2. Jika belum ada, gunakan struktur lama.
+        # Semua dasar Proposal diambil otomatis dari hasil final Submenu 1.
         _proyek = st.session_state.get("proyek_tesis_s2", {})
         _dasar = st.session_state.get("dasar_proposal_tesis_s2", {})
+        if not isinstance(_proyek, dict):
+            _proyek = {}
+        if not isinstance(_dasar, dict):
+            _dasar = {}
 
-        if isinstance(_proyek, dict) and _proyek.get("judul"):
-            _judul_dasar = _proyek.get("judul", "")
-            _masalah_dasar = _proyek.get("masalah", "")
-            _arah_dasar = _proyek.get("arah", "")
-        elif isinstance(_dasar, dict):
-            _judul_dasar = _dasar.get("judul", st.session_state.get("judul_tesis_s2_terpilih", ""))
-            _masalah_dasar = _dasar.get("masalah", "")
-            _arah_dasar = _dasar.get("arah", "")
+        _judul_prop = _proyek.get("judul") or _dasar.get("judul") or st.session_state.get("judul_tesis_s2_terpilih", "")
+        _masalah_prop = _proyek.get("masalah") or _dasar.get("masalah", "")
+        _arah_prop = _proyek.get("arah") or _dasar.get("arah", "")
+        _metode_prop = _proyek.get("metode") or st.session_state.get("metode_ide_s2", "Belum ditentukan")
+        _pedoman_prop = st.session_state.get("pedoman_tesis_s2_analisis", "") if st.session_state.get("pedoman_tesis_s2_aktif") else ""
+        _bank_prop = st.session_state.get("bank_bahan_ide_s2", [])
+        _refs_prop = st.session_state.get("bank_referensi", [])
+
+        if not str(_judul_prop).strip():
+            st.warning("Tetapkan judul terlebih dahulu pada Submenu 1.")
         else:
-            _judul_dasar = st.session_state.get("judul_tesis_s2_terpilih", "")
-            _masalah_dasar = str(_dasar or "")
-            _arah_dasar = ""
+            st.success(f"🎓 Judul aktif: {_judul_prop}")
+            st.caption(f"Metode: {_metode_prop} • Judul, masalah, pedoman, Bank Bahan, dan referensi digunakan otomatis.")
 
-        # Sinkronkan otomatis judul dan masalah yang SUDAH DITETAPKAN di Submenu 1.
-        # Streamlit mempertahankan nilai widget berdasarkan key, sehingga parameter value saja
-        # tidak cukup untuk memperbarui judul lama. Sinkronisasi dilakukan sebelum widget dibuat.
-        _judul_sinkron_s2 = str(_judul_dasar or "").strip()
-        _masalah_sinkron_s2 = str(_masalah_dasar or "").strip()
+            with st.expander("➕ Tambah bahan khusus Proposal (opsional)", expanded=False):
+                _tambahan_prop = st.file_uploader(
+                    "PDF, DOCX, TXT",
+                    type=["pdf","docx","txt"],
+                    accept_multiple_files=True,
+                    key="tambahan_bahan_proposal_s2",
+                )
 
-        if _judul_sinkron_s2 and not st.session_state.get("judul_proposal_s2"):
-            st.session_state["judul_proposal_s2"] = _judul_sinkron_s2
-        if _masalah_sinkron_s2 and not st.session_state.get("masalah_proposal_s2"):
-            st.session_state["masalah_proposal_s2"] = _masalah_sinkron_s2
-
-        judul_prop_s2 = st.text_input(
-            "Judul Tesis",
-            key="judul_proposal_s2",
-        )
-        masalah_prop_s2 = st.text_area(
-            "Permasalahan / konteks awal",
-            height=130,
-            key="masalah_proposal_s2",
-        )
-
-        fase_prop_s2 = st.radio(
-            "Tahapan Proposal",
-            [
+            _tahap_prop = [
                 "I. Pendahuluan Penelitian",
                 "II. Kajian Pustaka & Kerangka Pikir",
                 "III. Metode Penelitian & Sistematika",
                 "IV. Simulasi Seminar Proposal",
-            ],
-            key="fase_proposal_s2",
-        )
+            ]
+            st.markdown("#### Tahapan Proposal")
+            for _i,_nama in enumerate(_tahap_prop,1):
+                _ok="✅" if st.session_state.get(f"proposal_s2_tahap_{_i}") else "⬜"
+                st.write(f"{_ok} {_nama}")
 
-        bagian_per_fase_s2 = {
-            "I. Pendahuluan Penelitian": [
-                "Judul Penelitian",
-                "Latar Belakang Masalah",
-                "Rumusan Masalah / Fokus Penelitian",
-                "Tujuan dan Signifikansi Penelitian",
-                "Definisi Operasional / Istilah",
-            ],
-            "II. Kajian Pustaka & Kerangka Pikir": [
-                "Penelitian Terdahulu",
-                "Kajian Teori",
-                "Research Gap & Novelty",
-                "Kerangka Berpikir / Kerangka Konseptual",
-                "Asumsi Dasar & Hipotesis (jika diperlukan)",
-            ],
-            "III. Metode Penelitian & Sistematika": [
-                "Metode Penelitian",
-                "Sumber Data / Populasi & Sampel",
-                "Teknik Pengumpulan Data",
-                "Instrumen Penelitian",
-                "Teknik Analisis Data",
-                "Keabsahan Data / Uji Prasyarat",
-                "Tahapan / Prosedur Penelitian",
-                "Sistematika Penulisan",
-            ],
-            "IV. Simulasi Seminar Proposal": [
-                "Outline Presentasi Proposal",
-                "Catatan Presenter",
-                "Prediksi Pertanyaan Dosen/Penguji",
-                "Latihan Jawaban",
-                "Evaluasi & Perbaikan Proposal",
-            ],
-        }
+            if st.button("🤖 Generate Proposal Otomatis",key="generate_proposal_otomatis_s2",type="primary",use_container_width=True):
+                _tambahan_teks=[]
+                for _f in (_tambahan_prop or []):
+                    try:
+                        _t=ekstrak_teks(_f)
+                        if _t and not str(_t).startswith("ERROR:"):
+                            _tambahan_teks.append(f"{getattr(_f,'name','dokumen')}:\n{str(_t)[:12000]}")
+                    except Exception:
+                        pass
 
-        bagian_prop_s2 = st.selectbox(
-            "Bagian yang dikerjakan",
-            bagian_per_fase_s2[fase_prop_s2],
-            key="bagian_proposal_s2",
-        )
+                _bank_ringkas="\n\n".join(str(x)[:5000] for x in _bank_prop[:12]) if isinstance(_bank_prop,list) else str(_bank_prop)[:30000]
+                _ref_ringkas="\n".join(str(x)[:1200] for x in _refs_prop[:40]) if isinstance(_refs_prop,list) else str(_refs_prop)[:30000]
 
-        metode_prop_s2 = st.selectbox(
-            "Pendekatan/Metode Penelitian",
-            [
-                "Belum ditentukan",
-                "Kualitatif",
-                "Kuantitatif",
-                "R&D (Research and Development)",
-                "Action Research / PTK",
-                "Penelitian Literatur",
-                "Mixed Methods",
-            ],
-            key="metode_proposal_s2",
-        )
-
-        catatan_prop_s2 = st.text_area(
-            "Catatan, arahan dosen, atau bahan tambahan (opsional)",
-            height=120,
-            key="catatan_proposal_s2",
-        )
-
-        unggah_prop_s2 = st.file_uploader(
-            "Unggah bahan pendukung untuk bagian ini (PDF/DOCX/TXT)",
-            type=["pdf", "docx", "txt"],
-            accept_multiple_files=True,
-            key=f"unggah_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}",
-        )
-
-        bahan_prop_s2 = ""
-        for _f in unggah_prop_s2 or []:
-            try:
-                _txt = ekstrak_teks(_f)
-                if _txt and not str(_txt).startswith("ERROR:"):
-                    bahan_prop_s2 += f"\n\nBAHAN {_f.name}:\n{_txt}"
-            except Exception:
-                pass
-
-        key_draft_prop = f"draft_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}"
-        key_review_prop = f"review_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}"
-
-        if st.button(
-            f"🤖 Generate AI — {bagian_prop_s2}",
-            key=f"generate_proposal_s2_{fase_prop_s2}_{bagian_prop_s2}",
-            type="primary",
-            use_container_width=True,
-        ):
-            instr_prop_s2 = f"""Anda adalah Asisten Akademik AI untuk penyusunan Proposal Tesis S2.
+                _prompt=f"""Anda adalah Asisten Akademik AI untuk menyusun PROPOSAL TESIS S2.
+Gunakan seluruh data proyek yang sudah ditetapkan. Jangan meminta pengguna mengisi ulang.
 
 JUDUL:
-{judul_prop_s2}
+{_judul_prop}
 
-MASALAH/KONTEKS:
-{masalah_prop_s2}
+PERMASALAHAN/KONTEKS:
+{_masalah_prop}
 
-ARAH AWAL:
-{_arah_dasar}
-
-FASE:
-{fase_prop_s2}
-
-BAGIAN YANG HARUS DITULIS:
-{bagian_prop_s2}
+ARAH PENELITIAN:
+{_arah_prop}
 
 METODE:
-{metode_prop_s2}
+{_metode_prop}
 
-CATATAN/ARAHAN DOSEN:
-{catatan_prop_s2}
+PEDOMAN INSTITUSI:
+{_pedoman_prop if _pedoman_prop else "Tidak ada pedoman institusi khusus yang aktif."}
 
-Tulis hanya bagian yang sedang dikerjakan, tetapi jaga konsistensinya dengan judul,
-masalah, research gap, tujuan, metode, data, analisis, dan kontribusi penelitian.
+BANK BAHAN:
+{_bank_ringkas if _bank_ringkas else "Tidak ada dokumen khusus."}
 
-KETENTUAN:
-- Gunakan bahasa akademik tingkat magister.
-- Jangan membuat data lapangan yang belum tersedia.
-- Jangan membuat referensi, DOI, halaman, kutipan, atau hasil penelitian palsu.
-- Jika sumber belum tersedia, tandai bagian yang memerlukan sumber.
-- Untuk penelitian terdahulu, gap, dan novelty, gunakan sumber yang tersedia di Library.
-- Metode harus mengikuti pertanyaan/tujuan penelitian.
-- Jika Kualitatif: jelaskan fokus, subjek/konteks, sumber data, pengumpulan data,
-  analisis, dan keabsahan sesuai kebutuhan bagian.
-- Jika Kuantitatif: jelaskan variabel, populasi/sampel, instrumen, dan analisis
-  sesuai kebutuhan bagian.
-- Jika R&D: jelaskan produk/model, model pengembangan, validasi, uji coba,
-  dan kriteria keberhasilan sesuai kebutuhan bagian.
-- Jika Action Research/PTK: jelaskan masalah praktik, tindakan, siklus,
-  observasi, refleksi, dan indikator keberhasilan sesuai kebutuhan bagian.
-- Jika Literatur: jelaskan pertanyaan, korpus/batasan sumber, strategi penelusuran,
-  seleksi, ekstraksi, analisis/sintesis, gap, dan kontribusi sesuai kebutuhan.
-- Jangan mengubah fakta atau maksud penelitian pengguna.
+REFERENSI TERSEDIA:
+{_ref_ringkas if _ref_ringkas else "Belum ada referensi terverifikasi di Bank Referensi."}
 
-BAHAN PENDUKUNG:
-{bahan_prop_s2[:50000]}
+BAHAN TAMBAHAN:
+{chr(10).join(_tambahan_teks) if _tambahan_teks else "Tidak ada."}
+
+Susun satu draf Proposal Tesis yang utuh dan saling konsisten dengan struktur:
+
+I. PENDAHULUAN PENELITIAN
+- Latar Belakang Masalah
+- Rumusan Masalah/Fokus Penelitian
+- Tujuan Penelitian
+- Signifikansi/Manfaat Penelitian
+- Definisi Operasional/Istilah bila relevan
+
+II. KAJIAN PUSTAKA & KERANGKA PIKIR
+- Penelitian Terdahulu
+- Kajian Teori
+- Research Gap
+- Novelty
+- Kerangka Pikir/Kerangka Konseptual sesuai metode
+
+III. METODE PENELITIAN & SISTEMATIKA
+- Pendekatan dan jenis penelitian
+- Subjek/objek atau populasi/sampel sesuai metode
+- Data/sumber data atau variabel sesuai metode
+- Teknik pengumpulan data
+- Instrumen bila relevan
+- Teknik analisis data
+- Keabsahan data/uji instrumen sesuai metode
+- Sistematika penulisan
+
+IV. PERSIAPAN SIMULASI SEMINAR PROPOSAL
+- Ringkasan proposal
+- Alasan pemilihan judul
+- Gap dan novelty
+- Alasan pemilihan metode
+- 10 prediksi pertanyaan penguji dan poin jawaban
+
+ATURAN:
+- Ikuti pedoman institusi yang diunggah bila tersedia.
+- Sesuaikan metodologi dengan metode yang sudah dipilih.
+- Jangan mengarang data lapangan, persentase, hasil penelitian, DOI, halaman, kutipan, atau referensi.
+- Gunakan referensi nyata yang tersedia. Bila bukti kurang, beri tanda bahwa bagian perlu diperkuat.
+- Jangan membuat BAB IV hasil penelitian atau BAB V kesimpulan penelitian.
+- Hasil harus dapat diedit pengguna.
 """
-            panel_ai_penulisan(
-                bahan_prop_s2 or masalah_prop_s2 or judul_prop_s2,
-                f"Proposal Tesis S2 — {bagian_prop_s2}",
-                instr_prop_s2,
-                st.session_state.bank_referensi,
-                "s2_proposal",
-            )
-            _hasil = st.session_state.get("hasil_penulisan_ai", "")
-            if _hasil:
-                st.session_state[key_draft_prop] = _hasil
+                try:
+                    _hasil=panggil_gemini(_prompt)
+                    if _hasil:
+                        st.session_state["proposal_s2_draf_otomatis"]=str(_hasil)
+                        st.session_state["proposal_s2_editor_otomatis"]=str(_hasil)
+                        for _i in range(1,5):
+                            st.session_state[f"proposal_s2_tahap_{_i}"]=True
+                        st.rerun()
+                    else:
+                        st.error("AI belum menghasilkan draf proposal.")
+                except Exception as _e:
+                    st.error(f"Proposal belum dapat dibuat: {_e}")
 
-        if st.session_state.get(key_draft_prop):
-            st.markdown(f"#### ✍️ Edit — {bagian_prop_s2}")
-            draft_prop_s2 = st.text_area(
-                "Edit hasil sampai sesuai arahan pembimbing",
-                value=st.session_state[key_draft_prop],
-                height=560,
-                key=f"editor_{key_draft_prop}",
-            )
-            st.session_state[key_draft_prop] = draft_prop_s2
+            if st.session_state.get("proposal_s2_draf_otomatis"):
+                st.success("✅ Draf proposal selesai.")
+                _edit=st.text_area(
+                    "✍️ Draf Proposal — dapat diedit",
+                    key="proposal_s2_editor_otomatis",
+                    height=700,
+                )
+                _c1,_c2=st.columns(2)
+                with _c1:
+                    if st.button("💾 Simpan Revisi",key="simpan_revisi_proposal_s2",use_container_width=True):
+                        st.session_state["proposal_s2_draf_otomatis"]=_edit
+                        st.success("Revisi disimpan.")
+                with _c2:
+                    if st.button("🤖 Koreksi Ulang AI",key="koreksi_proposal_s2",use_container_width=True):
+                        _prompt_k=f"""Review dan perbaiki Proposal Tesis S2 berikut secara utuh.
+Pertahankan judul. Periksa konsistensi masalah, rumusan/fokus, tujuan, teori, gap, novelty, metode, dan sistematika.
+Ikuti pedoman institusi bila tersedia. Jangan mengarang data, referensi, DOI, halaman, kutipan, atau hasil penelitian.
 
-            cp1, cp2 = st.columns(2)
-            with cp1:
-                if st.button(
-                    "🔍 Koreksi Ulang Bagian Ini",
-                    key=f"koreksi_{key_draft_prop}",
-                    use_container_width=True,
-                ):
-                    instr_review_prop = f"""Review akademik bagian proposal tesis berikut.
+JUDUL:
+{_judul_prop}
 
-Judul: {judul_prop_s2}
-Bagian: {bagian_prop_s2}
-Metode: {metode_prop_s2}
+PEDOMAN:
+{_pedoman_prop if _pedoman_prop else "Tidak ada pedoman khusus."}
 
-Periksa:
-1. kesesuaian dengan judul dan masalah;
-2. kedalaman akademik tingkat S2;
-3. alur argumentasi dan koherensi;
-4. kesesuaian gap/novelty bila relevan;
-5. kesesuaian metode;
-6. klaim yang memerlukan referensi;
-7. relevansi sitasi/referensi;
-8. bahasa akademik;
-9. konsistensi dengan bagian proposal lainnya.
-
-Jangan membuat data atau sumber palsu.
-Berikan catatan koreksi dan versi revisi yang disarankan.
-
-NASKAH TERBARU:
-{draft_prop_s2}
+DRAF:
+{_edit}
 """
-                    panel_ai_penulisan(
-                        draft_prop_s2,
-                        f"Koreksi Proposal — {bagian_prop_s2}",
-                        instr_review_prop,
-                        st.session_state.bank_referensi,
-                        "s2_proposal_review",
-                    )
-                    st.session_state[key_review_prop] = st.session_state.get(
-                        "hasil_penulisan_ai", ""
-                    )
+                        try:
+                            _k=panggil_gemini(_prompt_k)
+                            if _k:
+                                st.session_state["proposal_s2_draf_otomatis"]=str(_k)
+                                st.session_state["proposal_s2_editor_otomatis"]=str(_k)
+                                st.rerun()
+                        except Exception as _e:
+                            st.error(f"Koreksi belum dapat dilakukan: {_e}")
 
-            with cp2:
-                if st.button(
-                    "✅ Simpan Bagian sebagai Final",
-                    key=f"final_{key_draft_prop}",
-                    use_container_width=True,
-                ):
-                    st.session_state[f"final_{key_draft_prop}"] = draft_prop_s2
-                    st.success(f"{bagian_prop_s2} disimpan sebagai versi final.")
-
-        if st.session_state.get(key_review_prop):
-            st.markdown("#### 🤖 Hasil Koreksi Ulang")
-            st.text_area(
-                "Hasil review AI",
-                value=st.session_state[key_review_prop],
-                height=420,
-                key=f"display_{key_review_prop}",
-            )
-
-        # Ringkasan progres proposal
-        st.markdown("#### 📈 Progres Proposal")
-        semua_bagian_prop = [
-            _b for _fase, _list in bagian_per_fase_s2.items() for _b in _list
-        ]
-        selesai_prop = 0
-        for _fase, _list in bagian_per_fase_s2.items():
-            for _b in _list:
-                if st.session_state.get(f"final_draft_proposal_s2_{_fase}_{_b}"):
-                    selesai_prop += 1
-        st.progress(selesai_prop / max(len(semua_bagian_prop), 1))
-        st.caption(f"{selesai_prop} dari {len(semua_bagian_prop)} bagian proposal telah difinalisasi.")
-
-
+                if st.button("✅ Finalisasi Proposal",key="finalisasi_proposal_s2",type="primary",use_container_width=True):
+                    st.session_state["proposal_s2_final"]=_edit
+                    st.success("🔒 Proposal ditetapkan sebagai versi final.")
 
     # No.1 dan Proposal memakai workspace khusus di atas.
     # Generator generik hanya tampil pada submenu 3-12.
