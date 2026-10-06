@@ -4722,6 +4722,13 @@ Jangan membuat referensi. Jangan membuat ayat. Ini hanya peta kebutuhan sumber."
             st.session_state.pop("kandidat_literatur_tesis_s2", None)
             st.session_state.pop("kebutuhan_literatur_tesis_s2", None)
 
+        # Terapkan perubahan kata kunci yang diminta tombol pada rerun sebelumnya.
+        # Jangan mengubah nilai session_state sebuah widget setelah widget itu
+        # sudah dibuat pada run yang sama karena Streamlit akan menolaknya.
+        _kw_pending = st.session_state.pop("_pending_kw_literatur_tesis_s2", None)
+        if _kw_pending is not None:
+            st.session_state["kw_literatur_tesis_s2"] = str(_kw_pending)
+
         _kw=st.text_input("Kata kunci pencarian", key="kw_literatur_tesis_s2")
         _tahun_min=st.number_input("Prioritas tahun minimal", min_value=1900, max_value=datetime.now().year, value=2020, key="tahun_min_lit_s2")
         if st.button("🔎 Cari Referensi", use_container_width=True, key="cari_lit_tesis_s2"):
@@ -4748,8 +4755,11 @@ Jangan membuat referensi. Jangan membuat ayat. Ini hanya peta kebutuhan sumber."
                             tambah_bank_referensi(_r); st.rerun()
                     with _b:
                         if st.button("🔄 Cari Pengganti",key=f"ganti_lit_{_i}",use_container_width=True):
-                            st.session_state["kw_literatur_tesis_s2"]=_r.get('Judul','') or _kw
-                            st.session_state["kandidat_literatur_tesis_s2"]=cari_multi_sumber(_r.get('Judul','') or _kw,12)
+                            _kw_pengganti = _r.get('Judul','') or _kw
+                            # Simpan sebagai pending. Nilai widget diterapkan pada awal
+                            # rerun berikutnya, sebelum text_input dibuat.
+                            st.session_state["_pending_kw_literatur_tesis_s2"] = _kw_pengganti
+                            st.session_state["kandidat_literatur_tesis_s2"] = cari_multi_sumber(_kw_pengganti,12)
                             st.rerun()
 
         _final=st.session_state.get("referensi_final_tesis_s2",[])
