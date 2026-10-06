@@ -3292,6 +3292,100 @@ elif menu == "🎓 Tesis S2":
     }
 
     # SUBMENU 1 — Pencarian Ide & Pengajuan Judul
+    # ============================================================
+    # PEDOMAN PENULISAN TESIS - ACUAN UNGGAHAN, BUKAN PERMANEN
+    # Berlaku untuk proyek/sesi Tesis S2 dan menjadi konteks AI.
+    # ============================================================
+    st.markdown("## 📘 Pedoman Penulisan Tesis")
+    st.caption(
+        "Unggah pedoman resmi kampus Anda. Pedoman tidak ditanam permanen di aplikasi. "
+        "File yang diunggah menjadi acuan penulisan untuk tahapan Tesis S2."
+    )
+
+    _pedoman_file_s2 = st.file_uploader(
+        "📤 Unggah Pedoman Penulisan Tesis (PDF/DOCX/TXT)",
+        type=["pdf", "docx", "txt"],
+        key="unggah_pedoman_tesis_s2",
+        help="Gunakan pedoman resmi perguruan tinggi/institut/universitas Anda.",
+    )
+
+    _c1_ped, _c2_ped = st.columns(2)
+    with _c1_ped:
+        if st.button("🤖 Analisis & Aktifkan Pedoman", key="analisis_pedoman_tesis_s2", use_container_width=True):
+            if _pedoman_file_s2 is None:
+                st.warning("Unggah file pedoman terlebih dahulu.")
+            else:
+                try:
+                    _teks_pedoman = ekstrak_teks(_pedoman_file_s2)
+                    if not str(_teks_pedoman).strip():
+                        st.error("Teks pedoman belum dapat dibaca. Gunakan PDF/DOCX/TXT yang berisi teks.")
+                    else:
+                        _prompt_pedoman = f"""
+Anda adalah analis pedoman akademik. Analisis HANYA dokumen pedoman yang diberikan.
+DILARANG mengarang ketentuan yang tidak terdapat dalam dokumen.
+Jika suatu ketentuan tidak ditemukan, tulis: "Tidak ditemukan dalam pedoman".
+
+Susun PROFIL PEDOMAN TESIS dengan bagian:
+1. Identitas institusi/pedoman jika tercantum.
+2. Sistematika proposal tesis.
+3. Jenis/metode penelitian yang diatur dan sistematika masing-masing jika ada.
+4. Aturan sitasi, footnote/innote, dan daftar pustaka.
+5. Ketentuan jumlah/jenis referensi jika ada.
+6. Format pengetikan: kertas, margin, font, ukuran, spasi, paragraf, penomoran.
+7. Ketentuan transliterasi jika ada.
+8. Ketentuan abstrak, tabel, gambar, lampiran, dan bagian awal/akhir jika ada.
+9. Ketentuan seminar/ujian/pengesahan jika ada.
+10. Checklist kepatuhan yang dapat digunakan AI saat menulis dan mengaudit tesis.
+
+DOKUMEN PEDOMAN:
+{str(_teks_pedoman)[:60000]}
+"""
+                        _hasil_pedoman = panggil_gemini(_prompt_pedoman)
+                        if _hasil_pedoman:
+                            st.session_state["pedoman_tesis_s2_teks"] = str(_teks_pedoman)
+                            st.session_state["pedoman_tesis_s2_analisis"] = str(_hasil_pedoman)
+                            st.session_state["pedoman_tesis_s2_nama"] = getattr(_pedoman_file_s2, "name", "Pedoman Tesis")
+                            st.session_state["pedoman_tesis_s2_aktif"] = True
+                            st.success("Pedoman berhasil dianalisis dan dijadikan acuan aktif.")
+                            st.rerun()
+                        else:
+                            st.error("Analisis pedoman belum menghasilkan keluaran.")
+                except Exception as _e_ped:
+                    st.error(f"Pedoman belum dapat diproses: {_e_ped}")
+
+    with _c2_ped:
+        if st.button("🗑️ Hapus / Ganti Pedoman", key="hapus_pedoman_tesis_s2", use_container_width=True):
+            for _kped in [
+                "pedoman_tesis_s2_teks",
+                "pedoman_tesis_s2_analisis",
+                "pedoman_tesis_s2_nama",
+                "pedoman_tesis_s2_aktif",
+                "unggah_pedoman_tesis_s2",
+            ]:
+                if _kped in st.session_state:
+                    del st.session_state[_kped]
+            st.rerun()
+
+    if st.session_state.get("pedoman_tesis_s2_aktif"):
+        st.success(
+            f"🟢 Pedoman aktif: {st.session_state.get('pedoman_tesis_s2_nama', 'Pedoman Tesis')}. "
+            "Pedoman ini menjadi acuan AI pada proyek Tesis S2."
+        )
+        with st.expander("📋 Lihat Hasil Analisis Pedoman", expanded=False):
+            st.markdown(st.session_state.get("pedoman_tesis_s2_analisis", ""))
+    else:
+        st.info("Belum ada pedoman aktif. Anda tetap dapat menggunakan aplikasi, tetapi AI belum memakai pedoman institusi khusus.")
+
+    # Konteks ringkas pedoman untuk dipakai prompt Tesis S2.
+    pedoman_aktif_s2 = ""
+    if st.session_state.get("pedoman_tesis_s2_aktif"):
+        pedoman_aktif_s2 = (
+            "\n\nPEDOMAN INSTITUSI YANG WAJIB DIIKUTI:\n"
+            + st.session_state.get("pedoman_tesis_s2_analisis", "")
+            + "\nATURAN: Jangan membuat ketentuan yang tidak terdapat dalam pedoman. "
+              "Jika pedoman tidak mengatur suatu hal, nyatakan bahwa ketentuan tersebut tidak ditemukan dalam pedoman.\n"
+        )
+
     if submenu_s2 == "💡 Pencarian Ide & Pengajuan Judul 🌟":
         st.markdown("### 🌟 Ruang Kerja Ide, Permasalahan & Judul")
         mode_ide_s2 = st.radio(
@@ -3693,6 +3787,9 @@ ARAH PENELITIAN YANG DIINGINKAN:
 
 PILIHAN METODE PENELITIAN:
 {metode_ide_s2}
+
+PEDOMAN INSTITUSI AKTIF:
+{pedoman_aktif_s2 if pedoman_aktif_s2 else "Tidak ada pedoman institusi yang diunggah/diaktifkan."}
 
 ATURAN PENENTUAN METODE:
 - Jika pilihan pengguna adalah "🤖 Rekomendasi AI", tentukan SATU metode yang paling sesuai setelah membaca masalah dan seluruh bahan. Jelaskan alasan singkat pada bagian analisis, lalu buat 5 alternatif judul yang konsisten dengan metode rekomendasi tersebut.
