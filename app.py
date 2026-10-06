@@ -3571,6 +3571,39 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         # ============================================================
         # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
         # ============================================================
+        st.markdown("### 🧠 Cara Menyiapkan Bahan Penguat")
+        mode_bank_bahan_ide_s2 = st.radio(
+            "Pilih cara menyiapkan bahan penguat permasalahan:",
+            [
+                "🤖 Otomatis dengan AI",
+                "📂 Gunakan Dokumen Saya",
+                "🔄 Gabungkan AI + Dokumen Saya",
+            ],
+            key="mode_bank_bahan_ide_s2",
+            help=(
+                "Otomatis dengan AI: tidak wajib unggah dokumen. "
+                "Dokumen Saya: gunakan bahan yang Anda miliki. "
+                "Gabungkan: AI melengkapi dokumen Anda."
+            ),
+        )
+
+        if mode_bank_bahan_ide_s2 == "🤖 Otomatis dengan AI":
+            st.info(
+                "Anda tidak wajib mengunggah dokumen. AI akan membantu memetakan kebutuhan bahan, "
+                "kata kunci, teori, penelitian terdahulu, regulasi, dan data yang perlu diperkuat. "
+                "Referensi akademik tetap dicari dari sumber nyata dan tidak boleh dibuat-buat."
+            )
+        elif mode_bank_bahan_ide_s2 == "📂 Gunakan Dokumen Saya":
+            st.info(
+                "Unggah bahan yang Anda miliki pada Bank Bahan di bawah. "
+                "AI akan memprioritaskan isi dokumen tersebut sebagai penguat permasalahan."
+            )
+        else:
+            st.info(
+                "AI akan menggunakan dokumen Anda terlebih dahulu, lalu membantu mencari dan "
+                "memetakan bahan tambahan yang masih kurang."
+            )
+
         st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
         st.caption(
             "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
@@ -3787,6 +3820,15 @@ ARAH PENELITIAN YANG DIINGINKAN:
 
 PILIHAN METODE PENELITIAN:
 {metode_ide_s2}
+
+MODE BANK BAHAN PENGUAT:
+{mode_bank_bahan_ide_s2}
+
+ATURAN BANK BAHAN:
+- Jika mode "🤖 Otomatis dengan AI", pengguna tidak wajib memiliki dokumen. Petakan bahan penguat yang diperlukan berdasarkan permasalahan, lalu gunakan pencarian referensi nyata yang tersedia di aplikasi. Jangan mengarang judul artikel, penulis, DOI, regulasi, angka, persentase, atau fakta lapangan.
+- Jika mode "📂 Gunakan Dokumen Saya", prioritaskan bukti dari Bank Bahan pengguna. Jika bukti belum cukup, jelaskan kekurangannya tanpa membuat data baru.
+- Jika mode "🔄 Gabungkan AI + Dokumen Saya", gunakan dokumen pengguna sebagai bukti utama dan lengkapi kekurangannya melalui pemetaan AI serta pencarian sumber nyata.
+- Bedakan fakta dari dokumen pengguna, hasil pencarian referensi nyata, dan saran AI tentang bahan yang masih perlu dicari.
 
 PEDOMAN INSTITUSI AKTIF:
 {pedoman_aktif_s2 if pedoman_aktif_s2 else "Tidak ada pedoman institusi yang diunggah/diaktifkan."}
