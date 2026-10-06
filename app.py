@@ -2,6 +2,24 @@ from pathlib import Path
 from copy import deepcopy
 
 import streamlit as st
+
+def _tampil_tanpa_bagian_e_f(teks):
+    """Untuk tampilan saja: sembunyikan bagian E (5 alternatif judul) dan F."""
+    teks = str(teks or "")
+    pola = [
+        r"(?im)^\s*#{0,6}\s*E\.\s*5\s+ALTERNATIF\s+JUDUL\s+TESIS.*$",
+        r"(?im)^\s*#{0,6}\s*E\.\s*ALTERNATIF\s+JUDUL.*$",
+        r"(?im)^\s*#{0,6}\s*F\.\s*CATATAN\s+PEMILIHAN.*$",
+    ]
+    posisi = []
+    for p in pola:
+        m = re.search(p, teks)
+        if m:
+            posisi.append(m.start())
+    if posisi:
+        teks = teks[:min(posisi)].rstrip()
+    return teks
+
 import shutil
 import pandas as pd
 import PyPDF2
@@ -3978,13 +3996,7 @@ BERHENTI setelah bagian F. JANGAN LANJUT KE PROPOSAL."""
             # Bagian E (5 alternatif judul) dan F (catatan pemilihan)
             # tetap tersimpan secara internal untuk mesin pemilihan judul,
             # tetapi tidak lagi ditampilkan di kotak hasil analisis.
-            _naskah_tampil_ide = _naskah_ide
-            _upper_tampil = _naskah_tampil_ide.upper()
-            _pos_e = _upper_tampil.find("### E. 5 ALTERNATIF JUDUL TESIS")
-            if _pos_e < 0:
-                _pos_e = _upper_tampil.find("E. 5 ALTERNATIF JUDUL TESIS")
-            if _pos_e >= 0:
-                _naskah_tampil_ide = _naskah_tampil_ide[:_pos_e].rstrip()
+            _naskah_tampil_ide = _tampil_tanpa_bagian_e_f(_naskah_ide)
 
             _edit_ide = st.text_area(
                 "Hasil AI dapat diedit langsung di sini",
