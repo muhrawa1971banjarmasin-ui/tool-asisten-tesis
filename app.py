@@ -3297,10 +3297,7 @@ elif menu == "🎓 Tesis S2":
     # Berlaku untuk proyek/sesi Tesis S2 dan menjadi konteks AI.
     # ============================================================
     st.markdown("## 📘 Pedoman Penulisan Tesis")
-    st.caption(
-        "Unggah pedoman resmi kampus Anda. Pedoman tidak ditanam permanen di aplikasi. "
-        "File yang diunggah menjadi acuan penulisan untuk tahapan Tesis S2."
-    )
+    st.caption("Unggah pedoman kampus sebagai acuan Tesis S2.")
 
     _pedoman_file_s2 = st.file_uploader(
         "📤 Unggah Pedoman Penulisan Tesis (PDF/DOCX/TXT)",
@@ -3367,14 +3364,9 @@ DOKUMEN PEDOMAN:
             st.rerun()
 
     if st.session_state.get("pedoman_tesis_s2_aktif"):
-        st.success(
-            f"🟢 Pedoman aktif: {st.session_state.get('pedoman_tesis_s2_nama', 'Pedoman Tesis')}. "
-            "Pedoman ini menjadi acuan AI pada proyek Tesis S2."
-        )
-        with st.expander("📋 Lihat Hasil Analisis Pedoman", expanded=False):
-            st.markdown(st.session_state.get("pedoman_tesis_s2_analisis", ""))
+        st.success(f"🟢 Pedoman aktif: {st.session_state.get('pedoman_tesis_s2_nama', 'Pedoman Tesis')}")
     else:
-        st.info("Belum ada pedoman aktif. Anda tetap dapat menggunakan aplikasi, tetapi AI belum memakai pedoman institusi khusus.")
+        st.caption("📘 Unggah pedoman kampus jika ingin menjadikannya acuan.")
 
     # Konteks ringkas pedoman untuk dipakai prompt Tesis S2.
     pedoman_aktif_s2 = ""
@@ -3646,41 +3638,42 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             if _u:
                 _uploads_ide.extend(_u)
 
-        if st.button("➕ Masukkan Semua Unggahan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2", type="primary"):
-            if not _uploads_ide:
-                st.warning("Pilih minimal satu file pada Unggahan 1-4.")
-            else:
-                _tambah = 0
-                for _fb in _uploads_ide:
-                    _nama = getattr(_fb, "name", "Bahan")
-                    _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
-                    if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
-                        continue
+        if mode_bank_bahan_ide_s2 in ["📂 Gunakan Dokumen Saya", "🔄 Gabungkan AI + Dokumen Saya"]:
+            if st.button("➕ Masukkan Semua Unggahan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2", type="primary"):
+                if not _uploads_ide:
+                    st.warning("Pilih minimal satu file pada Unggahan 1-4.")
+                else:
+                    _tambah = 0
+                    for _fb in _uploads_ide:
+                        _nama = getattr(_fb, "name", "Bahan")
+                        _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
+                        if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
+                            continue
 
-                    _teks_bahan = ""
-                    try:
-                        # Gunakan mesin ekstraksi Akademia AI yang sudah ada.
-                        _teks_bahan = ekstrak_teks(_fb)
-                    except Exception as _e:
-                        _teks_bahan = f"ERROR: {_e}"
+                        _teks_bahan = ""
+                        try:
+                            # Gunakan mesin ekstraksi Akademia AI yang sudah ada.
+                            _teks_bahan = ekstrak_teks(_fb)
+                        except Exception as _e:
+                            _teks_bahan = f"ERROR: {_e}"
 
-                    if not str(_teks_bahan).startswith("ERROR:") and str(_teks_bahan).strip():
-                        st.session_state["bank_bahan_ide_s2"].append({
-                            "id": _identitas,
-                            "nama": _nama,
-                            "jenis": jenis_bahan_ide,
-                            "keterangan": ket_bahan_ide.strip(),
-                            "teks": str(_teks_bahan),
-                            "status": "✅ Siap dianalisis AI",
-                        })
-                        _tambah += 1
-                    else:
-                        st.warning(
-                            f"{_nama}: teks belum dapat diekstrak otomatis. "
-                            "Jika ini bahan video/audio, gunakan transkrip dari modul Analisis Karya Akademik lalu unggah transkripnya."
-                        )
-                if _tambah:
-                    st.success(f"✅ {_tambah} bahan ditambahkan ke Bank Bahan Ide.")
+                        if not str(_teks_bahan).startswith("ERROR:") and str(_teks_bahan).strip():
+                            st.session_state["bank_bahan_ide_s2"].append({
+                                "id": _identitas,
+                                "nama": _nama,
+                                "jenis": jenis_bahan_ide,
+                                "keterangan": ket_bahan_ide.strip(),
+                                "teks": str(_teks_bahan),
+                                "status": "✅ Siap dianalisis AI",
+                            })
+                            _tambah += 1
+                        else:
+                            st.warning(
+                                f"{_nama}: teks belum dapat diekstrak otomatis. "
+                                "Jika ini bahan video/audio, gunakan transkrip dari modul Analisis Karya Akademik lalu unggah transkripnya."
+                            )
+                    if _tambah:
+                        st.success(f"✅ {_tambah} bahan ditambahkan ke Bank Bahan Ide.")
 
         # Bahan teks/manual sangat penting untuk data persentase, hasil observasi, atau transkrip pendek.
         with st.expander("✍️ Tambahkan bahan dalam bentuk teks / transkrip manual"):
