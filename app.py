@@ -73,6 +73,39 @@ if "sumber_online_user" not in st.session_state:
 if "gaya_sitasi" not in st.session_state:
     st.session_state.gaya_sitasi = "Chicago Notes & Bibliography"
 
+# ============================================================
+# PERSISTENSI RINGAN PROYEK TESIS S2
+# Menjaga judul final dan konteks inti tetap terbaca setelah refresh.
+# ============================================================
+_S2_STATE_FILE = Path(".akademia_tesis_s2_state.json")
+
+def _simpan_state_tesis_s2():
+    keys = [
+        "judul_tesis_s2_terpilih", "proposal_judul", "proposal_masalah",
+        "proposal_metode", "proposal_arah", "proyek_tesis_s2",
+        "dasar_proposal_tesis_s2"
+    ]
+    data = {k: st.session_state.get(k) for k in keys if st.session_state.get(k) not in (None, "")}
+    try:
+        _S2_STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+def _pulihkan_state_tesis_s2():
+    try:
+        if not _S2_STATE_FILE.exists():
+            return
+        data = json.loads(_S2_STATE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        for k, v in data.items():
+            if k not in st.session_state or st.session_state.get(k) in (None, "", {}):
+                st.session_state[k] = v
+    except Exception:
+        pass
+
+_pulihkan_state_tesis_s2()
+
 
 # ============================================================
 # FUNGSI DASAR
@@ -4145,6 +4178,7 @@ Jangan membuat data atau referensi palsu."""
                     st.session_state["masalah_proposal_s2"] = masalah_ide_s2
                     st.session_state["_judul_proposal_s2_sumber"] = judul_pilihan_s2
                     st.session_state["_masalah_proposal_s2_sumber"] = masalah_ide_s2
+                    _simpan_state_tesis_s2()
                     st.success(
                         "Judul utama sudah ditetapkan sebagai dasar Proposal Tesis. "
                         "Permasalahan dan arah penelitian ikut disimpan."
@@ -4230,13 +4264,14 @@ Jangan membuat data atau referensi palsu."""
                 "metode": _metode_prop,
             })
             st.session_state["proyek_tesis_s2"] = _proyek_baru
+            st.session_state["judul_tesis_s2_terpilih"] = _judul_prop
+            st.session_state["proposal_judul"] = _judul_prop
+            _simpan_state_tesis_s2()
 
             # TAMPILAN SAJA:
             # Jangan tampilkan hasil analisis AI A-F sebagai "Judul aktif".
             # Ambil hanya judul yang benar-benar telah ditetapkan pengguna.
-            _judul_final_tampil = str(
-                st.session_state.get("judul_tesis_s2_terpilih", "") or ""
-            ).strip()
+            _judul_final_tampil = str(_judul_prop or "").strip()
 
             if _judul_final_tampil:
                 st.markdown("#### 🎓 Judul Tesis Terpilih")
