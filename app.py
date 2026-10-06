@@ -4173,87 +4173,30 @@ Jangan membuat data atau referensi palsu."""
 
         # Pulihkan data lama tanpa meminta pengguna mengulang Submenu 1.
         # Prioritas: data proyek -> dasar proposal -> judul final -> pilihan judul yang tersimpan.
-        # Ambil langsung nilai widget Submenu 1 jika jalur transfer belum terisi.
-        _judul_widget_s1 = ""
-        for _k in [
-            "judul_pilihan_final_s2",
-            "judul_pilihan_s2",
-            "pilihan_judul_s2",
-            "judul_utama_pilihan_s2",
-            "dropdown_pilih_judul_final",
-        ]:
-            if st.session_state.get(_k):
-                _judul_widget_s1 = st.session_state.get(_k)
-                break
-
-        # Fallback terakhir: cari state widget yang namanya mengandung judul + s2,
-        # tetapi abaikan editor Proposal sendiri.
-        if not _judul_widget_s1:
-            for _k, _v in list(st.session_state.items()):
-                _kl = str(_k).lower()
-                if (
-                    "judul" in _kl
-                    and "s2" in _kl
-                    and "proposal_s2_edit" not in _kl
-                    and isinstance(_v, str)
-                    and _v.strip()
-                ):
-                    _judul_widget_s1 = _v.strip()
-
+        # Proposal hanya memakai SATU judul yang benar-benar ditetapkan di Submenu 1.
+        # Jangan mengambil hasil analisis AI, catatan rekomendasi, masalah, atau 5 alternatif judul.
         _judul_prop = (
             st.session_state.get("proposal_judul", "")
-            or _proyek.get("judul")
-            or _dasar.get("judul")
             or st.session_state.get("judul_tesis_s2_terpilih", "")
-            or st.session_state.get("judul_utama_pilihan_s2", "")
-            or _judul_widget_s1
+            or _proyek.get("judul", "")
+            or _dasar.get("judul", "")
         )
         _masalah_prop = (
             st.session_state.get("proposal_masalah", "")
-            or _proyek.get("masalah")
+            or _proyek.get("masalah", "")
             or _dasar.get("masalah", "")
-            or st.session_state.get("masalah_ide_s2", "")
         )
-        # Dukungan untuk widget masalah yang memakai nonce versi.
-        if not _masalah_prop:
-            _versi_masalah = st.session_state.get("versi_input_masalah_ide_s2", 0)
-            _masalah_prop = st.session_state.get(f"masalah_ide_s2_{_versi_masalah}", "")
-
-        if not _masalah_prop:
-            # Cari input masalah Submenu 1 yang memakai key dinamis/versi.
-            for _k, _v in list(st.session_state.items()):
-                _kl = str(_k).lower()
-                if (
-                    "masalah" in _kl
-                    and "s2" in _kl
-                    and "proposal_s2_edit" not in _kl
-                    and isinstance(_v, str)
-                    and _v.strip()
-                ):
-                    _masalah_prop = _v.strip()
-                    break
-
         _arah_prop = (
             st.session_state.get("proposal_arah", "")
-            or _proyek.get("arah")
+            or _proyek.get("arah", "")
             or _dasar.get("arah", "")
-            or st.session_state.get("arah_ide_s2", "")
         )
         _metode_prop = (
             st.session_state.get("proposal_metode", "")
-            or _proyek.get("metode")
+            or _proyek.get("metode", "")
             or st.session_state.get("metode_ide_s2", "Belum ditentukan")
         )
 
-        # Migrasikan otomatis data lama ke format proyek baru agar submenu berikutnya stabil.
-        if str(_judul_prop).strip() and not _proyek.get("judul"):
-            st.session_state["proyek_tesis_s2"] = {
-                "judul": _judul_prop,
-                "masalah": _masalah_prop,
-                "arah": _arah_prop,
-                "mode": _dasar.get("mode", st.session_state.get("mode_ide_s2", "")),
-                "metode": _metode_prop,
-            }
         _pedoman_prop = st.session_state.get("pedoman_tesis_s2_analisis", "") if st.session_state.get("pedoman_tesis_s2_aktif") else ""
         _bank_prop = st.session_state.get("bank_bahan_ide_s2", [])
         _refs_prop = st.session_state.get("bank_referensi", [])
@@ -4265,21 +4208,10 @@ Jangan membuat data atau referensi palsu."""
         elif _judul_prop and not st.session_state.get("judul_proposal_s2_edit"):
             st.session_state["judul_proposal_s2_edit"] = str(_judul_prop)
 
-        if "masalah_proposal_s2_edit" not in st.session_state:
-            st.session_state["masalah_proposal_s2_edit"] = str(_masalah_prop or "")
-        elif _masalah_prop and not st.session_state.get("masalah_proposal_s2_edit"):
-            st.session_state["masalah_proposal_s2_edit"] = str(_masalah_prop)
-
         _judul_prop = st.text_input(
             "Judul Tesis",
             key="judul_proposal_s2_edit",
-            placeholder="Otomatis dari Submenu 1, atau dapat diketik di sini",
-        )
-        _masalah_prop = st.text_area(
-            "Permasalahan / konteks awal",
-            key="masalah_proposal_s2_edit",
-            height=120,
-            placeholder="Otomatis dari Submenu 1, atau dapat diketik di sini",
+            placeholder="Judul terpilih dari Submenu 1",
         )
 
         if str(_judul_prop).strip():
@@ -4300,7 +4232,7 @@ Jangan membuat data atau referensi palsu."""
             st.session_state["proyek_tesis_s2"] = _proyek_baru
             st.success(f"🎓 Judul aktif: {_judul_prop}")
         else:
-            st.info("Judul dari Submenu 1 belum terbaca. Kolom tetap dapat diketik tanpa kembali ke Submenu 1.")
+            st.warning("Judul final belum ditetapkan di Submenu 1.")
 
         if str(_judul_prop).strip():
             _nama_pedoman_prop = st.session_state.get("pedoman_tesis_s2_nama", "")
@@ -4413,6 +4345,10 @@ ATURAN:
 """
                 try:
                     _hasil=panggil_gemini(_prompt)
+                    if isinstance(_hasil, dict):
+                        if _hasil.get("sukses") is False:
+                            raise RuntimeError(_hasil.get("error") or "AI belum menghasilkan draf.")
+                        _hasil = _hasil.get("hasil") or _hasil.get("text") or _hasil.get("content") or ""
                     if _hasil:
                         st.session_state["proposal_s2_draf_otomatis"]=str(_hasil)
                         st.session_state["proposal_s2_editor_otomatis"]=str(_hasil)
@@ -4453,6 +4389,10 @@ DRAF:
 """
                         try:
                             _k=panggil_gemini(_prompt_k)
+                            if isinstance(_k, dict):
+                                if _k.get("sukses") is False:
+                                    raise RuntimeError(_k.get("error") or "AI belum menghasilkan koreksi.")
+                                _k = _k.get("hasil") or _k.get("text") or _k.get("content") or ""
                             if _k:
                                 st.session_state["proposal_s2_draf_otomatis"]=str(_k)
                                 st.session_state["proposal_s2_editor_otomatis"]=str(_k)
