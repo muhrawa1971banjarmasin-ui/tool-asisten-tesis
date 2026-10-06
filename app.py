@@ -4709,7 +4709,20 @@ Jangan membuat referensi. Jangan membuat ayat. Ini hanya peta kebutuhan sumber."
             st.markdown(st.session_state["kebutuhan_literatur_tesis_s2"])
 
         st.markdown("### 🔍 Pencarian Referensi Terverifikasi")
-        _kw=st.text_input("Kata kunci pencarian", value=_judul_lit, key="kw_literatur_tesis_s2")
+
+        # Sinkronkan kata kunci Literatur setiap kali judul final dari Submenu 1 berubah.
+        # Streamlit mempertahankan nilai widget berdasarkan key, sehingga parameter value=
+        # saja tidak cukup untuk mengganti judul lama yang sudah tersimpan.
+        _judul_lit_norm = str(_judul_lit or "").strip()
+        _judul_lit_sumber_lama = str(st.session_state.get("_judul_literatur_s2_sumber", "") or "").strip()
+        if _judul_lit_norm and _judul_lit_norm != _judul_lit_sumber_lama:
+            st.session_state["kw_literatur_tesis_s2"] = _judul_lit_norm
+            st.session_state["_judul_literatur_s2_sumber"] = _judul_lit_norm
+            # Hasil pencarian judul lama tidak boleh terbawa ke judul baru.
+            st.session_state.pop("kandidat_literatur_tesis_s2", None)
+            st.session_state.pop("kebutuhan_literatur_tesis_s2", None)
+
+        _kw=st.text_input("Kata kunci pencarian", key="kw_literatur_tesis_s2")
         _tahun_min=st.number_input("Prioritas tahun minimal", min_value=1900, max_value=datetime.now().year, value=2020, key="tahun_min_lit_s2")
         if st.button("🔎 Cari Referensi", use_container_width=True, key="cari_lit_tesis_s2"):
             _hasil_cari=cari_multi_sumber(_kw,12)
