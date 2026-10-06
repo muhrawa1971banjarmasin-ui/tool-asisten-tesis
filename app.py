@@ -3504,7 +3504,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             for _key in list(st.session_state.keys()):
                 _ks = str(_key)
                 if _key in _hapus_reset_topik or any(_frag in _ks for _frag in _frag_reset_topik):
-                    if mode_bank_bahan_ide_s2 != "🤖 Otomatis dengan AI" and (_ks not in ("bank_referensi", "library_referensi")):
+                    if mode_bank_bahan_ide_s2 != "🤖 Otomatis Rekomendasi AI" and (_ks not in ("bank_referensi", "library_referensi")):
                         del st.session_state[_key]
             st.session_state["versi_input_masalah_ide_s2"] = int(
                 st.session_state.get("versi_input_masalah_ide_s2", 0)
@@ -3564,175 +3564,154 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         # BANK BAHAN PENGUAT PERMASALAHAN - dapat ditambah berkali-kali
         # ============================================================
         st.markdown("### 🧠 Cara Menyiapkan Bahan Penguat")
-        mode_bank_bahan_ide_s2 = st.radio(
-            "Pilih cara menyiapkan bahan penguat permasalahan:",
-            [
-                "🤖 Otomatis dengan AI",
-                "📂 Gunakan Dokumen Saya",
-                "🔄 Gabungkan AI + Dokumen Saya",
-            ],
-            key="mode_bank_bahan_ide_s2",
-            help=(
-                "Otomatis dengan AI: tidak wajib unggah dokumen. "
-                "Dokumen Saya: gunakan bahan yang Anda miliki. "
-                "Gabungkan: AI melengkapi dokumen Anda."
-            ),
+        mode_bank_bahan_ide_s2 = st.selectbox(
+            "Cara menyiapkan Bank Bahan",
+            ["🤖 Otomatis Rekomendasi AI", "⚙️ Manual / Lanjutan"],
+            index=0, key="mode_bank_bahan_ide_s2",
+            help="Mode AI adalah jalur utama. Pengaturan manual baru tampil jika dipilih.",
         )
-
-        if mode_bank_bahan_ide_s2 == "🤖 Otomatis dengan AI":
-            st.caption("✅ Unggahan 1-4 bersifat opsional pada mode Otomatis dengan AI.")
-            st.info(
-                "Anda tidak wajib mengunggah dokumen. AI akan membantu memetakan kebutuhan bahan, "
-                "kata kunci, teori, penelitian terdahulu, regulasi, dan data yang perlu diperkuat. "
-                "Referensi akademik tetap dicari dari sumber nyata dan tidak boleh dibuat-buat."
-            )
-        elif mode_bank_bahan_ide_s2 == "📂 Gunakan Dokumen Saya":
-            st.info(
-                "Unggah bahan yang Anda miliki pada Bank Bahan di bawah. "
-                "AI akan memprioritaskan isi dokumen tersebut sebagai penguat permasalahan."
-            )
+        if mode_bank_bahan_ide_s2 == "🤖 Otomatis Rekomendasi AI":
+            st.info("AI menyiapkan bahan, kata kunci, teori, penelitian terdahulu, regulasi, gap, novelty, dan referensi penguat otomatis. Tidak perlu upload atau centang satu per satu.")
         else:
-            st.info(
-                "AI akan menggunakan dokumen Anda terlebih dahulu, lalu membantu mencari dan "
-                "memetakan bahan tambahan yang masih kurang."
+            st.info("Mode Manual / Lanjutan aktif. Pilihan unggah dan pengaturan rinci ditampilkan.")
+
+        if mode_bank_bahan_ide_s2 == "⚙️ Manual / Lanjutan":
+            st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
+            st.caption(
+                "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
+                "dan digunakan AI untuk menguatkan masalah, gap, novelty, serta alternatif judul."
             )
 
-        st.markdown("### 📂 Bank Bahan Penguat Permasalahan")
-        st.caption(
-            "Tambahkan bahan secara bertahap. Bahan yang sudah dimasukkan tetap tersimpan selama sesi "
-            "dan digunakan AI untuk menguatkan masalah, gap, novelty, serta alternatif judul."
-        )
+            if "bank_bahan_ide_s2" not in st.session_state:
+                st.session_state["bank_bahan_ide_s2"] = []
 
-        if "bank_bahan_ide_s2" not in st.session_state:
-            st.session_state["bank_bahan_ide_s2"] = []
-
-        jenis_bahan_ide = st.selectbox(
-            "Jenis bahan yang akan ditambahkan",
-            [
-                "📚 Teori & Literatur",
-                "🔎 Penelitian Terdahulu / Tesis / Disertasi",
-                "📊 Data, Persentase & Fakta Lapangan",
-                "📑 Regulasi & Dokumen Resmi",
-                "🖥️ Presentasi / Materi Seminar / Bimtek",
-                "📝 Observasi / Wawancara / Catatan Pengawas",
-                "🎥 Transkrip Video / Audio",
-                "📎 Dokumen Pendukung Lainnya",
-            ],
-            key="jenis_bahan_ide_s2",
-        )
-        ket_bahan_ide = st.text_input(
-            "Keterangan bahan (opsional)",
-            placeholder="Contoh: hasil supervisi MTs 2026, teori kokurikuler, transkrip bimtek, data persentase...",
-            key="ket_bahan_ide_s2",
-        )
-        st.markdown("#### 📥 Unggahan Pendukung (boleh banyak dan bertahap)")
-        st.caption("Gunakan beberapa slot di bawah. Setiap slot dapat memuat banyak file sekaligus.")
-        _uploads_ide = []
-        for _slot in range(1, 5):
-            _u = st.file_uploader(
-                f"Unggahan {_slot}",
-                type=["pdf", "docx", "txt", "xlsx", "xls", "csv", "pptx"],
-                accept_multiple_files=True,
-                key=f"unggah_bahan_ide_s2_slot_{_slot}",
-            )
-            if _u:
-                _uploads_ide.extend(_u)
-
-        if mode_bank_bahan_ide_s2 in ["📂 Gunakan Dokumen Saya", "🔄 Gabungkan AI + Dokumen Saya"]:
-            if st.button("➕ Masukkan Semua Unggahan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2", type="primary"):
-                if not _uploads_ide:
-                    st.warning("Pilih minimal satu file pada Unggahan 1-4.")
-                else:
-                    _tambah = 0
-                    for _fb in _uploads_ide:
-                        _nama = getattr(_fb, "name", "Bahan")
-                        _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
-                        if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
-                            continue
-
-                        _teks_bahan = ""
-                        try:
-                            # Gunakan mesin ekstraksi Akademia AI yang sudah ada.
-                            _teks_bahan = ekstrak_teks(_fb)
-                        except Exception as _e:
-                            _teks_bahan = f"ERROR: {_e}"
-
-                        if not str(_teks_bahan).startswith("ERROR:") and str(_teks_bahan).strip():
-                            st.session_state["bank_bahan_ide_s2"].append({
-                                "id": _identitas,
-                                "nama": _nama,
-                                "jenis": jenis_bahan_ide,
-                                "keterangan": ket_bahan_ide.strip(),
-                                "teks": str(_teks_bahan),
-                                "status": "✅ Siap dianalisis AI",
-                            })
-                            _tambah += 1
-                        else:
-                            st.warning(
-                                f"{_nama}: teks belum dapat diekstrak otomatis. "
-                                "Jika ini bahan video/audio, gunakan transkrip dari modul Analisis Karya Akademik lalu unggah transkripnya."
-                            )
-                    if _tambah:
-                        st.success(f"✅ {_tambah} bahan ditambahkan ke Bank Bahan Ide.")
-
-        # Bahan teks/manual sangat penting untuk data persentase, hasil observasi, atau transkrip pendek.
-        with st.expander("✍️ Tambahkan bahan dalam bentuk teks / transkrip manual"):
-            jenis_teks_ide = st.selectbox(
-                "Jenis bahan teks",
+            jenis_bahan_ide = st.selectbox(
+                "Jenis bahan yang akan ditambahkan",
                 [
+                    "📚 Teori & Literatur",
+                    "🔎 Penelitian Terdahulu / Tesis / Disertasi",
                     "📊 Data, Persentase & Fakta Lapangan",
+                    "📑 Regulasi & Dokumen Resmi",
+                    "🖥️ Presentasi / Materi Seminar / Bimtek",
                     "📝 Observasi / Wawancara / Catatan Pengawas",
                     "🎥 Transkrip Video / Audio",
-                    "📚 Teori & Literatur",
-                    "📑 Regulasi & Dokumen Resmi",
-                    "📎 Catatan Lainnya",
+                    "📎 Dokumen Pendukung Lainnya",
                 ],
-                key="jenis_teks_ide_s2",
+                key="jenis_bahan_ide_s2",
             )
-            judul_teks_ide = st.text_input(
-                "Nama/Judul bahan",
-                placeholder="Contoh: Transkrip presentasi kokurikuler 2026",
-                key="judul_teks_ide_s2",
+            ket_bahan_ide = st.text_input(
+                "Keterangan bahan (opsional)",
+                placeholder="Contoh: hasil supervisi MTs 2026, teori kokurikuler, transkrip bimtek, data persentase...",
+                key="ket_bahan_ide_s2",
             )
-            isi_teks_ide = st.text_area(
-                "Tempel isi bahan / transkrip / data",
-                height=180,
-                key="isi_teks_ide_s2",
-            )
-            if st.button("➕ Simpan Teks ke Bank Bahan", key="simpan_teks_bank_ide_s2"):
-                if not isi_teks_ide.strip():
-                    st.warning("Isi bahan teks masih kosong.")
-                else:
-                    _nama_manual = judul_teks_ide.strip() or "Bahan teks manual"
-                    _id_manual = f"manual|{jenis_teks_ide}|{_nama_manual}|{len(isi_teks_ide)}"
-                    st.session_state["bank_bahan_ide_s2"].append({
-                        "id": _id_manual,
-                        "nama": _nama_manual,
-                        "jenis": jenis_teks_ide,
-                        "keterangan": "Input teks/transkrip manual",
-                        "teks": isi_teks_ide.strip(),
-                        "status": "✅ Siap dianalisis AI",
-                    })
-                    st.success("✅ Bahan teks/transkrip ditambahkan.")
+            st.markdown("#### 📥 Unggahan Pendukung (boleh banyak dan bertahap)")
+            st.caption("Gunakan beberapa slot di bawah. Setiap slot dapat memuat banyak file sekaligus.")
+            _uploads_ide = []
+            for _slot in range(1, 5):
+                _u = st.file_uploader(
+                    f"Unggahan {_slot}",
+                    type=["pdf", "docx", "txt", "xlsx", "xls", "csv", "pptx"],
+                    accept_multiple_files=True,
+                    key=f"unggah_bahan_ide_s2_slot_{_slot}",
+                )
+                if _u:
+                    _uploads_ide.extend(_u)
 
-        if st.session_state["bank_bahan_ide_s2"]:
-            st.markdown("#### 📚 Bahan yang Sudah Terkumpul")
-            for _idx, _b in enumerate(st.session_state["bank_bahan_ide_s2"]):
-                _c1, _c2 = st.columns([8, 1])
-                with _c1:
-                    st.markdown(
-                        f"**{_idx + 1}. {_b['nama']}**  \n"
-                        f"{_b['jenis']} · {_b.get('status', '✅ Siap')}  \n"
-                        f"{_b.get('keterangan', '')}"
-                    )
-                with _c2:
-                    if st.button("🗑️", key=f"hapus_bahan_ide_s2_{_idx}", help="Hapus bahan ini"):
-                        st.session_state["bank_bahan_ide_s2"].pop(_idx)
-                        st.rerun()
+            if mode_bank_bahan_ide_s2 == "⚙️ Manual / Lanjutan":
+                if st.button("➕ Masukkan Semua Unggahan ke Bank Bahan Ide", key="tambah_bank_bahan_ide_s2", type="primary"):
+                    if not _uploads_ide:
+                        st.warning("Pilih minimal satu file pada Unggahan 1-4.")
+                    else:
+                        _tambah = 0
+                        for _fb in _uploads_ide:
+                            _nama = getattr(_fb, "name", "Bahan")
+                            _identitas = f"{jenis_bahan_ide}|{_nama}|{getattr(_fb, 'size', 0)}"
+                            if any(x.get("id") == _identitas for x in st.session_state["bank_bahan_ide_s2"]):
+                                continue
 
-            if st.button("🗑️ Kosongkan Bank Bahan Ide", key="kosongkan_bank_bahan_ide_s2"):
-                st.session_state["bank_bahan_ide_s2"] = []
-                st.rerun()
+                            _teks_bahan = ""
+                            try:
+                                # Gunakan mesin ekstraksi Akademia AI yang sudah ada.
+                                _teks_bahan = ekstrak_teks(_fb)
+                            except Exception as _e:
+                                _teks_bahan = f"ERROR: {_e}"
+
+                            if not str(_teks_bahan).startswith("ERROR:") and str(_teks_bahan).strip():
+                                st.session_state["bank_bahan_ide_s2"].append({
+                                    "id": _identitas,
+                                    "nama": _nama,
+                                    "jenis": jenis_bahan_ide,
+                                    "keterangan": ket_bahan_ide.strip(),
+                                    "teks": str(_teks_bahan),
+                                    "status": "✅ Siap dianalisis AI",
+                                })
+                                _tambah += 1
+                            else:
+                                st.warning(
+                                    f"{_nama}: teks belum dapat diekstrak otomatis. "
+                                    "Jika ini bahan video/audio, gunakan transkrip dari modul Analisis Karya Akademik lalu unggah transkripnya."
+                                )
+                        if _tambah:
+                            st.success(f"✅ {_tambah} bahan ditambahkan ke Bank Bahan Ide.")
+
+            # Bahan teks/manual sangat penting untuk data persentase, hasil observasi, atau transkrip pendek.
+            with st.expander("✍️ Tambahkan bahan dalam bentuk teks / transkrip manual"):
+                jenis_teks_ide = st.selectbox(
+                    "Jenis bahan teks",
+                    [
+                        "📊 Data, Persentase & Fakta Lapangan",
+                        "📝 Observasi / Wawancara / Catatan Pengawas",
+                        "🎥 Transkrip Video / Audio",
+                        "📚 Teori & Literatur",
+                        "📑 Regulasi & Dokumen Resmi",
+                        "📎 Catatan Lainnya",
+                    ],
+                    key="jenis_teks_ide_s2",
+                )
+                judul_teks_ide = st.text_input(
+                    "Nama/Judul bahan",
+                    placeholder="Contoh: Transkrip presentasi kokurikuler 2026",
+                    key="judul_teks_ide_s2",
+                )
+                isi_teks_ide = st.text_area(
+                    "Tempel isi bahan / transkrip / data",
+                    height=180,
+                    key="isi_teks_ide_s2",
+                )
+                if st.button("➕ Simpan Teks ke Bank Bahan", key="simpan_teks_bank_ide_s2"):
+                    if not isi_teks_ide.strip():
+                        st.warning("Isi bahan teks masih kosong.")
+                    else:
+                        _nama_manual = judul_teks_ide.strip() or "Bahan teks manual"
+                        _id_manual = f"manual|{jenis_teks_ide}|{_nama_manual}|{len(isi_teks_ide)}"
+                        st.session_state["bank_bahan_ide_s2"].append({
+                            "id": _id_manual,
+                            "nama": _nama_manual,
+                            "jenis": jenis_teks_ide,
+                            "keterangan": "Input teks/transkrip manual",
+                            "teks": isi_teks_ide.strip(),
+                            "status": "✅ Siap dianalisis AI",
+                        })
+                        st.success("✅ Bahan teks/transkrip ditambahkan.")
+
+            if st.session_state["bank_bahan_ide_s2"]:
+                st.markdown("#### 📚 Bahan yang Sudah Terkumpul")
+                for _idx, _b in enumerate(st.session_state["bank_bahan_ide_s2"]):
+                    _c1, _c2 = st.columns([8, 1])
+                    with _c1:
+                        st.markdown(
+                            f"**{_idx + 1}. {_b['nama']}**  \n"
+                            f"{_b['jenis']} · {_b.get('status', '✅ Siap')}  \n"
+                            f"{_b.get('keterangan', '')}"
+                        )
+                    with _c2:
+                        if st.button("🗑️", key=f"hapus_bahan_ide_s2_{_idx}", help="Hapus bahan ini"):
+                            st.session_state["bank_bahan_ide_s2"].pop(_idx)
+                            st.rerun()
+
+                if st.button("🗑️ Kosongkan Bank Bahan Ide", key="kosongkan_bank_bahan_ide_s2"):
+                    st.session_state["bank_bahan_ide_s2"] = []
+                    st.rerun()
 
         # No.1 memakai state KHUSUS. Tidak memakai naskah_aktif/hasil_penulisan_ai
         # agar hasil Proposal atau modul lain tidak dapat muncul di ruang Ide/Judul.
@@ -3751,6 +3730,9 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
                     _kw, _refs = cari_referensi_penguat_ide_s2(masalah_ide_s2, arah_ide_s2)
                 st.session_state["kata_kunci_ref_ide_s2"] = _kw
                 st.session_state["referensi_penguat_ide_s2"] = _refs
+                if mode_bank_bahan_ide_s2 == "🤖 Otomatis Rekomendasi AI":
+                    for _r_auto in _refs:
+                        tambah_bank_referensi(_r_auto)
         if st.session_state.get("kata_kunci_ref_ide_s2"):
             with st.expander("🔑 Kata kunci pencarian yang digunakan", expanded=False):
                 for _q in st.session_state["kata_kunci_ref_ide_s2"]:
@@ -3758,16 +3740,19 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         _refs_penguat = st.session_state.get("referensi_penguat_ide_s2", [])
         if _refs_penguat:
             st.success(f"{len(_refs_penguat)} kandidat referensi ditemukan dari pencarian nyata.")
-            _ops_ref = list(range(len(_refs_penguat)))
-            _pilih_ref = st.multiselect(
-                "Pilih referensi yang akan dimasukkan ke Library", _ops_ref,
-                format_func=lambda i: f"{_refs_penguat[i].get('Tahun','')} | {_refs_penguat[i].get('Judul','')} | {_refs_penguat[i].get('Sumber','')}",
-                key="pilih_ref_penguat_ide_s2")
-            if st.button("➕ Masukkan Referensi Terpilih ke Library", key="masuk_library_ref_ide_s2"):
-                _baru=0
-                for _i in _pilih_ref:
-                    if tambah_bank_referensi(_refs_penguat[_i]): _baru+=1
-                st.success(f"{_baru} referensi baru masuk ke Library. Duplikat dilewati.")
+            if mode_bank_bahan_ide_s2 == "⚙️ Manual / Lanjutan":
+                _ops_ref = list(range(len(_refs_penguat)))
+                _pilih_ref = st.multiselect(
+                    "Pilih referensi yang akan dimasukkan ke Library", _ops_ref,
+                    format_func=lambda i: f"{_refs_penguat[i].get('Tahun','')} | {_refs_penguat[i].get('Judul','')} | {_refs_penguat[i].get('Sumber','')}",
+                    key="pilih_ref_penguat_ide_s2")
+                if st.button("➕ Masukkan Referensi Terpilih ke Library", key="masuk_library_ref_ide_s2"):
+                    _baru=0
+                    for _i in _pilih_ref:
+                        if tambah_bank_referensi(_refs_penguat[_i]): _baru+=1
+                    st.success(f"{_baru} referensi baru masuk ke Library. Duplikat dilewati.")
+            else:
+                st.success("Rekomendasi referensi otomatis dimasukkan ke Library tanpa perlu dipilih satu per satu.")
 
         if st.button("🤖 Analisis Ide, Gap, Novelty & 5 Judul", key="gen_ide_s2", type="primary"):
             if not masalah_ide_s2.strip():
@@ -4217,13 +4202,13 @@ Jangan membuat data atau referensi palsu."""
 
             st.caption(f"Metode: {_metode_prop} • Judul, masalah, pedoman, Bank Bahan, dan referensi digunakan otomatis.")
 
-            with st.expander("➕ Tambah bahan khusus Proposal (opsional)", expanded=False):
-                _tambahan_prop = st.file_uploader(
-                    "PDF, DOCX, TXT",
-                    type=["pdf","docx","txt"],
-                    accept_multiple_files=True,
-                    key="tambahan_bahan_proposal_s2",
-                )
+            _mode_proposal_s2 = st.selectbox("Mode penyusunan Proposal", ["🤖 Otomatis Rekomendasi AI", "⚙️ Manual / Lanjutan"], index=0, key="mode_proposal_s2")
+            _tambahan_prop = []
+            if _mode_proposal_s2 == "⚙️ Manual / Lanjutan":
+                with st.expander("➕ Tambah bahan khusus Proposal (opsional)", expanded=False):
+                    _tambahan_prop = st.file_uploader("PDF, DOCX, TXT", type=["pdf","docx","txt"], accept_multiple_files=True, key="tambahan_bahan_proposal_s2")
+            else:
+                st.caption("Mode AI aktif. Bahan proyek dan pedoman digunakan otomatis; unggahan manual disembunyikan.")
 
             _tahap_prop = [
                 "I. Pendahuluan Penelitian",
@@ -4545,190 +4530,279 @@ DRAF:
         _c3.metric("Terverifikasi/teridentifikasi", _terverifikasi_ref)
         _c4.metric("Pedoman IAID", "Memenuhi" if (_total_ref >= 50 and _asing_ref >= 15) else "Belum")
 
-        st.markdown("#### 🤖 Pencarian Referensi Otomatis")
-        _tahun_min_lit = st.selectbox(
-            "Tahun referensi minimal",
-            [2020, 2021, 2022, 2023, 2024, 2025, 2026, "Tanpa batas tahun"],
-            index=0, key="tahun_min_referensi_s2",
-            help="Default 2020. Sumber klasik, sumber primer, teori seminal, regulasi, atau sumber yang belum memiliki revisi/edisi lebih baru tetap dapat digunakan dengan keterangan khusus."
-        )
-        st.caption("Sumber sebelum tahun minimal tidak otomatis ditolak. Sistem memberi pengecualian untuk kitab klasik, sumber primer, teori asli/seminal, regulasi, atau karya yang belum ditemukan revisi lebih baru.")
-        _kata_default = _judul_lit
-        _kata_lit = st.text_input("Kata kunci pencarian", value=_kata_default, key="kata_kunci_literatur_s2")
-        _col_cari1,_col_cari2 = st.columns(2)
-        with _col_cari1:
-            if st.button("🤖 Cari & Lengkapi Referensi Otomatis", type="primary", use_container_width=True, key="cari_lit_s2"):
-                if not _kata_lit.strip():
-                    st.warning("Judul/kata kunci belum tersedia.")
+        _mode_lit_s2 = st.selectbox("Mode Literatur & Penelitian Terdahulu", ["🤖 Otomatis Rekomendasi AI", "⚙️ Manual / Lanjutan"], index=0, key="mode_literatur_s2")
+        if _mode_lit_s2 == "🤖 Otomatis Rekomendasi AI":
+            st.info("AI mencari dan memasukkan kandidat referensi nyata otomatis. Upload kitab/ebook, filter rinci, dan pemilihan satu per satu disembunyikan.")
+            if st.button("🤖 Lengkapi Literatur Otomatis dengan Rekomendasi AI", type="primary", use_container_width=True, key="auto_lit_rekomendasi_s2"):
+                if not _judul_lit:
+                    st.warning("Judul final belum tersedia.")
                 else:
-                    _queries = [
-                        _kata_lit,
-                        f"{_kata_lit} teacher training",
-                        f"{_kata_lit} generative AI education",
-                        f"{_kata_lit} curriculum development",
-                    ]
-                    _hasil_semua=[]; _seen=set()
-                    with st.spinner("Mencari metadata referensi nyata dari beberapa basis data..."):
-                        for _q in _queries:
-                            for _r in cari_multi_sumber(_q, 15):
-                                _k=kunci_ref(_r)
-                                if _k and _k not in _seen:
-                                    _seen.add(_k); _hasil_semua.append(_r)
-                    st.session_state["hasil_literatur_s2"]=_hasil_semua
+                    _queries_auto=[_judul_lit, f"{_judul_lit} teacher training", f"{_judul_lit} generative AI education", f"{_judul_lit} curriculum development"]
+                    _hasil_auto=[]; _seen_auto=set()
+                    with st.spinner("Mencari dan memeriksa metadata referensi nyata..."):
+                        for _q_auto in _queries_auto:
+                            for _r_auto in cari_multi_sumber(_q_auto,15):
+                                _k_auto=kunci_ref(_r_auto)
+                                if _k_auto and _k_auto not in _seen_auto:
+                                    _seen_auto.add(_k_auto); _hasil_auto.append(_r_auto)
+                        _masuk_auto=0
+                        for _r_auto in _hasil_auto:
+                            try: _th_auto=int(str(_r_auto.get("Tahun", ""))[:4])
+                            except Exception: _th_auto=None
+                            if _th_auto is None or _th_auto >= 2020:
+                                if tambah_bank_referensi(_r_auto): _masuk_auto += 1
+                    st.session_state["hasil_literatur_s2"]=_hasil_auto
+                    st.success(f"{_masuk_auto} referensi baru otomatis masuk ke Bank Referensi. Duplikat dilewati.")
                     st.rerun()
-        with _col_cari2:
-            if st.button("🧹 Bersihkan Hasil Pencarian", use_container_width=True, key="bersih_hasil_lit_s2"):
-                st.session_state["hasil_literatur_s2"]=[]
-                st.rerun()
-
-        _hasil_lit = st.session_state.get("hasil_literatur_s2", [])
-        if _hasil_lit:
-            st.caption(f"Ditemukan {len(_hasil_lit)} kandidat unik. Pilih hanya sumber yang relevan. Metadata yang belum lengkap tetap ditandai untuk verifikasi.")
-            _ops=list(range(len(_hasil_lit)))
-            _pilih=st.multiselect(
-                "Pilih referensi yang akan dimasukkan ke Bank Referensi",
-                _ops,
-                format_func=lambda i: f"{_hasil_lit[i].get('Tahun','')} | {_hasil_lit[i].get('Judul','')} | {_hasil_lit[i].get('Sumber','')} | {_hasil_lit[i].get('Status','')}",
-                key="pilih_literatur_s2"
-            )
-            if st.button("➕ Masukkan Referensi Terpilih", key="masuk_lit_s2", use_container_width=True):
-                _baru=0
-                for _i in _pilih:
-                    if tambah_bank_referensi(_hasil_lit[_i]):
-                        _baru+=1
-                st.success(f"{_baru} referensi baru masuk ke Bank Referensi. Duplikat dilewati.")
-                st.rerun()
-
-        st.markdown("#### 🌐 Verifikasi Kelayakan Referensi")
-        st.caption("Verifikasi dilakukan berlapis dari metadata yang tersedia pada Crossref, OpenAlex, Semantic Scholar, Library of Congress, DOI, dan dokumen asli unggahan. Tidak ada satu layanan yang mencakup seluruh perpustakaan dunia, sehingga status hanya diberikan berdasarkan bukti yang benar-benar ditemukan.")
-
-        def _tahun_int_s2(_r):
-            try:
-                return int(str(_r.get("Tahun", "")).strip()[:4])
-            except Exception:
-                return None
-
-        def _jenis_lama_dikecualikan_s2(_r):
-            _j = str(_r.get("Jenis", "")).lower()
-            _src = str(_r.get("Sumber", "")).lower()
-            _ttl = str(_r.get("Judul", "")).lower()
-            _gab = " ".join([_j,_src,_ttl])
-            return any(x in _gab for x in ["kitab", "tafsir", "hadis", "hadith", "sumber primer", "klasik", "qur", "regulasi", "undang-undang", "peraturan"])
-
-        def _nilai_kelayakan_s2(_r):
-            _tahun=_tahun_int_s2(_r)
-            _judul=bool(str(_r.get("Judul","")).strip())
-            _penulis=bool(str(_r.get("Penulis","")).strip())
-            _status=str(_r.get("Status", ""))
-            _id_ok=bool(str(_r.get("DOI","")).strip() or str(_r.get("ISBN","")).strip() or str(_r.get("URL","")).strip() or "terverifikasi" in _status.lower() or "🏛️" in _status or "🔵" in _status)
-            _fresh=True
-            _ket=[]
-            if _tahun_min_lit != "Tanpa batas tahun" and _tahun is not None and _tahun < int(_tahun_min_lit):
-                _fresh=False
-                if _jenis_lama_dikecualikan_s2(_r):
-                    _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}, tetapi termasuk sumber primer/klasik/regulasi sehingga tidak otomatis gugur.")
-                else:
-                    _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}. Periksa apakah ada revisi/edisi/penelitian yang lebih baru.")
-            if _judul and _penulis and _id_ok and (_fresh or _jenis_lama_dikecualikan_s2(_r)):
-                return "🟢 Layak", " ".join(_ket) or "Identitas dasar dan jejak sumber tersedia."
-            if _judul and (_penulis or _id_ok):
-                return "🟡 Layak dengan verifikasi", " ".join(_ket) or "Sumber teridentifikasi, tetapi metadata/edisi/jejak bibliografis belum cukup lengkap."
-            return "🔴 Tidak layak sementara", "Metadata belum cukup untuk digunakan sebagai referensi final."
-
-        _bank_ver=st.session_state.get("bank_referensi", [])
-        if _bank_ver:
-            _layak=_perlu=_tidak=0
-            for _rv in _bank_ver:
-                _sv,_kv=_nilai_kelayakan_s2(_rv)
-                _rv["Kelayakan"]=_sv; _rv["Keterangan_Kelayakan"]=_kv
-                if _sv.startswith("🟢"): _layak+=1
-                elif _sv.startswith("🟡"): _perlu+=1
-                else: _tidak+=1
-            _v1,_v2,_v3=st.columns(3)
-            _v1.metric("🟢 Layak",_layak); _v2.metric("🟡 Perlu verifikasi",_perlu); _v3.metric("🔴 Belum layak",_tidak)
-            with st.expander("Lihat hasil verifikasi seluruh referensi"):
-                for _iv,_rv in enumerate(_bank_ver,1):
-                    st.markdown(f"**{_iv}. {_rv.get('Judul','Tanpa judul')}**  \n{_rv.get('Kelayakan','')} • {_rv.get('Keterangan_Kelayakan','')}")
         else:
-            st.caption("Belum ada referensi untuk diverifikasi.")
+            st.markdown("#### 🤖 Pencarian Referensi Otomatis")
+            _tahun_min_lit = st.selectbox(
+                "Tahun referensi minimal",
+                [2020, 2021, 2022, 2023, 2024, 2025, 2026, "Tanpa batas tahun"],
+                index=0, key="tahun_min_referensi_s2",
+                help="Default 2020. Sumber klasik, sumber primer, teori seminal, regulasi, atau sumber yang belum memiliki revisi/edisi lebih baru tetap dapat digunakan dengan keterangan khusus."
+            )
+            st.caption("Sumber sebelum tahun minimal tidak otomatis ditolak. Sistem memberi pengecualian untuk kitab klasik, sumber primer, teori asli/seminal, regulasi, atau karya yang belum ditemukan revisi lebih baru.")
+            _kata_default = _judul_lit
+            _kata_lit = st.text_input("Kata kunci pencarian", value=_kata_default, key="kata_kunci_literatur_s2")
+            _col_cari1,_col_cari2 = st.columns(2)
+            with _col_cari1:
+                if st.button("🤖 Cari & Lengkapi Referensi Otomatis", type="primary", use_container_width=True, key="cari_lit_s2"):
+                    if not _kata_lit.strip():
+                        st.warning("Judul/kata kunci belum tersedia.")
+                    else:
+                        _queries = [
+                            _kata_lit,
+                            f"{_kata_lit} teacher training",
+                            f"{_kata_lit} generative AI education",
+                            f"{_kata_lit} curriculum development",
+                        ]
+                        _hasil_semua=[]; _seen=set()
+                        with st.spinner("Mencari metadata referensi nyata dari beberapa basis data..."):
+                            for _q in _queries:
+                                for _r in cari_multi_sumber(_q, 15):
+                                    _k=kunci_ref(_r)
+                                    if _k and _k not in _seen:
+                                        _seen.add(_k); _hasil_semua.append(_r)
+                        st.session_state["hasil_literatur_s2"]=_hasil_semua
+                        st.rerun()
+            with _col_cari2:
+                if st.button("🧹 Bersihkan Hasil Pencarian", use_container_width=True, key="bersih_hasil_lit_s2"):
+                    st.session_state["hasil_literatur_s2"]=[]
+                    st.rerun()
 
-        st.markdown("#### 📜 Kitab, Tafsir, Hadis & Sumber Primer")
-        st.caption("Cari sumber asli terlebih dahulu. Jika edisi, jilid, penerbit, tahun, atau halaman tidak dapat dipastikan, unggah PDF/DOCX/TXT sumber yang benar-benar digunakan. Sistem tidak boleh mengarang metadata atau halaman.")
-        _kitab_query=st.text_input("Cari kitab/tafsir/sumber primer", key="cari_kitab_s2", placeholder="Contoh: Tafsir Al-Misbah Quraish Shihab")
-        if st.button("🔎 Cari Sumber Asli", key="btn_cari_kitab_s2"):
-            if _kitab_query.strip():
-                st.session_state["hasil_kitab_s2"] = cari_multi_sumber(_kitab_query, 12)
+            _hasil_lit = st.session_state.get("hasil_literatur_s2", [])
+            if _hasil_lit:
+                st.caption(f"Ditemukan {len(_hasil_lit)} kandidat unik. Pilih hanya sumber yang relevan. Metadata yang belum lengkap tetap ditandai untuk verifikasi.")
+                _ops=list(range(len(_hasil_lit)))
+                _pilih=st.multiselect(
+                    "Pilih referensi yang akan dimasukkan ke Bank Referensi",
+                    _ops,
+                    format_func=lambda i: f"{_hasil_lit[i].get('Tahun','')} | {_hasil_lit[i].get('Judul','')} | {_hasil_lit[i].get('Sumber','')} | {_hasil_lit[i].get('Status','')}",
+                    key="pilih_literatur_s2"
+                )
+                if st.button("➕ Masukkan Referensi Terpilih", key="masuk_lit_s2", use_container_width=True):
+                    _baru=0
+                    for _i in _pilih:
+                        if tambah_bank_referensi(_hasil_lit[_i]):
+                            _baru+=1
+                    st.success(f"{_baru} referensi baru masuk ke Bank Referensi. Duplikat dilewati.")
+                    st.rerun()
+
+            st.markdown("#### 🌐 Verifikasi Kelayakan Referensi")
+            st.caption("Verifikasi dilakukan berlapis dari metadata yang tersedia pada Crossref, OpenAlex, Semantic Scholar, Library of Congress, DOI, dan dokumen asli unggahan. Tidak ada satu layanan yang mencakup seluruh perpustakaan dunia, sehingga status hanya diberikan berdasarkan bukti yang benar-benar ditemukan.")
+
+            def _tahun_int_s2(_r):
+                try:
+                    return int(str(_r.get("Tahun", "")).strip()[:4])
+                except Exception:
+                    return None
+
+            def _jenis_lama_dikecualikan_s2(_r):
+                _j = str(_r.get("Jenis", "")).lower()
+                _src = str(_r.get("Sumber", "")).lower()
+                _ttl = str(_r.get("Judul", "")).lower()
+                _gab = " ".join([_j,_src,_ttl])
+                return any(x in _gab for x in ["kitab", "tafsir", "hadis", "hadith", "sumber primer", "klasik", "qur", "regulasi", "undang-undang", "peraturan"])
+
+            def _nilai_kelayakan_s2(_r):
+                _tahun=_tahun_int_s2(_r)
+                _judul=bool(str(_r.get("Judul","")).strip())
+                _penulis=bool(str(_r.get("Penulis","")).strip())
+                _status=str(_r.get("Status", ""))
+                _id_ok=bool(str(_r.get("DOI","")).strip() or str(_r.get("ISBN","")).strip() or str(_r.get("URL","")).strip() or "terverifikasi" in _status.lower() or "🏛️" in _status or "🔵" in _status)
+                _fresh=True
+                _ket=[]
+                if _tahun_min_lit != "Tanpa batas tahun" and _tahun is not None and _tahun < int(_tahun_min_lit):
+                    _fresh=False
+                    if _jenis_lama_dikecualikan_s2(_r):
+                        _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}, tetapi termasuk sumber primer/klasik/regulasi sehingga tidak otomatis gugur.")
+                    else:
+                        _ket.append(f"Sumber {_tahun} berada sebelum batas {_tahun_min_lit}. Periksa apakah ada revisi/edisi/penelitian yang lebih baru.")
+                if _judul and _penulis and _id_ok and (_fresh or _jenis_lama_dikecualikan_s2(_r)):
+                    return "🟢 Layak", " ".join(_ket) or "Identitas dasar dan jejak sumber tersedia."
+                if _judul and (_penulis or _id_ok):
+                    return "🟡 Layak dengan verifikasi", " ".join(_ket) or "Sumber teridentifikasi, tetapi metadata/edisi/jejak bibliografis belum cukup lengkap."
+                return "🔴 Tidak layak sementara", "Metadata belum cukup untuk digunakan sebagai referensi final."
+
+            _bank_ver=st.session_state.get("bank_referensi", [])
+            if _bank_ver:
+                _layak=_perlu=_tidak=0
+                for _rv in _bank_ver:
+                    _sv,_kv=_nilai_kelayakan_s2(_rv)
+                    _rv["Kelayakan"]=_sv; _rv["Keterangan_Kelayakan"]=_kv
+                    if _sv.startswith("🟢"): _layak+=1
+                    elif _sv.startswith("🟡"): _perlu+=1
+                    else: _tidak+=1
+                _v1,_v2,_v3=st.columns(3)
+                _v1.metric("🟢 Layak",_layak); _v2.metric("🟡 Perlu verifikasi",_perlu); _v3.metric("🔴 Belum layak",_tidak)
+                with st.expander("Lihat hasil verifikasi seluruh referensi"):
+                    for _iv,_rv in enumerate(_bank_ver,1):
+                        st.markdown(f"**{_iv}. {_rv.get('Judul','Tanpa judul')}**  \n{_rv.get('Kelayakan','')} • {_rv.get('Keterangan_Kelayakan','')}")
             else:
-                st.warning("Masukkan nama kitab/tafsir/sumber terlebih dahulu.")
-        _hk=st.session_state.get("hasil_kitab_s2", [])
-        if _hk:
-            _opk=list(range(len(_hk)))
-            _pk=st.multiselect("Pilih sumber katalog yang sesuai", _opk,
-                format_func=lambda i:f"{_hk[i].get('Tahun','')} | {_hk[i].get('Judul','')} | {_hk[i].get('Penulis','')} | {_hk[i].get('Sumber','')}",
-                key="pilih_kitab_s2")
-            if st.button("➕ Simpan Sumber Kitab/Tafsir Terpilih", key="simpan_kitab_s2"):
-                _n=0
-                for _i in _pk:
-                    _r=dict(_hk[_i]); _r["Jenis"]="Kitab/Tafsir/Sumber Primer"
-                    if tambah_bank_referensi(_r): _n+=1
-                st.success(f"{_n} sumber ditambahkan. Pastikan edisi dan halaman sebelum dipakai untuk kutipan final.")
-                st.rerun()
+                st.caption("Belum ada referensi untuk diverifikasi.")
 
-        st.markdown("##### 📤 Unggah Kitab sebagai Referensi")
-        st.info("🕌 Format Arab mengikuti pedoman aktif. Untuk Pedoman IAID 2026: Traditional Arabic 16 untuk teks Arab dan 18 bold untuk judul Arab; teks Latin Times New Roman 12. Teks Arab sumber asli tidak boleh diubah isinya oleh AI.")
-        st.caption(
-            "Unggah kitab klasik/modern, tafsir, syarah hadis, atau buku sumber yang benar-benar Anda gunakan. "
-            "Dokumen dianalisis satu kali lalu dicatat di Perpustakaan Kitab agar dapat dipakai kembali untuk pencarian teks, halaman, kutipan, dan footnote."
-        )
+            st.markdown("#### 📜 Kitab, Tafsir, Hadis & Sumber Primer")
+            st.caption("Cari sumber asli terlebih dahulu. Jika edisi, jilid, penerbit, tahun, atau halaman tidak dapat dipastikan, unggah PDF/DOCX/TXT sumber yang benar-benar digunakan. Sistem tidak boleh mengarang metadata atau halaman.")
+            _kitab_query=st.text_input("Cari kitab/tafsir/sumber primer", key="cari_kitab_s2", placeholder="Contoh: Tafsir Al-Misbah Quraish Shihab")
+            if st.button("🔎 Cari Sumber Asli", key="btn_cari_kitab_s2"):
+                if _kitab_query.strip():
+                    st.session_state["hasil_kitab_s2"] = cari_multi_sumber(_kitab_query, 12)
+                else:
+                    st.warning("Masukkan nama kitab/tafsir/sumber terlebih dahulu.")
+            _hk=st.session_state.get("hasil_kitab_s2", [])
+            if _hk:
+                _opk=list(range(len(_hk)))
+                _pk=st.multiselect("Pilih sumber katalog yang sesuai", _opk,
+                    format_func=lambda i:f"{_hk[i].get('Tahun','')} | {_hk[i].get('Judul','')} | {_hk[i].get('Penulis','')} | {_hk[i].get('Sumber','')}",
+                    key="pilih_kitab_s2")
+                if st.button("➕ Simpan Sumber Kitab/Tafsir Terpilih", key="simpan_kitab_s2"):
+                    _n=0
+                    for _i in _pk:
+                        _r=dict(_hk[_i]); _r["Jenis"]="Kitab/Tafsir/Sumber Primer"
+                        if tambah_bank_referensi(_r): _n+=1
+                    st.success(f"{_n} sumber ditambahkan. Pastikan edisi dan halaman sebelum dipakai untuk kutipan final.")
+                    st.rerun()
 
-        if "perpustakaan_kitab_s2" not in st.session_state:
-            st.session_state["perpustakaan_kitab_s2"] = []
+            st.markdown("##### 📤 Unggah Kitab sebagai Referensi")
+            st.info("🕌 Format Arab mengikuti pedoman aktif. Untuk Pedoman IAID 2026: Traditional Arabic 16 untuk teks Arab dan 18 bold untuk judul Arab; teks Latin Times New Roman 12. Teks Arab sumber asli tidak boleh diubah isinya oleh AI.")
+            st.caption(
+                "Unggah kitab klasik/modern, tafsir, syarah hadis, atau buku sumber yang benar-benar Anda gunakan. "
+                "Dokumen dianalisis satu kali lalu dicatat di Perpustakaan Kitab agar dapat dipakai kembali untuk pencarian teks, halaman, kutipan, dan footnote."
+            )
 
-        _jenis_kitab = st.selectbox(
-            "Jenis sumber",
-            ["Kitab Klasik", "Kitab Modern", "Tafsir", "Hadis", "Syarah Hadis", "Fikih", "Ushul Fikih", "Akidah", "Tasawuf", "Pendidikan Islam", "Buku Modern", "Sumber Primer Lainnya"],
-            key="jenis_unggah_kitab_s2",
-        )
-        _bahasa_kitab = st.selectbox(
-            "Bahasa utama sumber",
-            ["Arab", "Indonesia", "Inggris", "Melayu", "Lainnya"],
-            key="bahasa_unggah_kitab_s2",
-        )
-        _unggah_kitab=st.file_uploader(
-            "📚 Pilih file kitab/buku referensi",
-            type=["pdf","docx","txt"], accept_multiple_files=True, key="unggah_kitab_tafsir_s2",
-            help="Boleh mengunggah beberapa kitab sekaligus. Gunakan file/edisi yang benar-benar akan dijadikan sumber tesis."
-        )
+            if "perpustakaan_kitab_s2" not in st.session_state:
+                st.session_state["perpustakaan_kitab_s2"] = []
 
-        if _unggah_kitab:
-            st.caption(f"{len(_unggah_kitab)} file siap dianalisis. File baru masuk koleksi setelah tombol Simpan ditekan.")
-            if st.button("📥 Analisis & Simpan ke Perpustakaan Kitab", key="verif_dok_kitab_s2", type="primary", use_container_width=True):
-                _n=0; _gagal=[]
-                _koleksi=st.session_state.get("perpustakaan_kitab_s2", [])
-                if not isinstance(_koleksi,list): _koleksi=[]
-                _nama_sudah={str(x.get("File_Asli","")).strip().lower() for x in _koleksi if isinstance(x,dict)}
-                with st.spinner("Membaca sumber dan menyiapkan indeks referensi..."):
-                    for _f in _unggah_kitab:
+            _jenis_kitab = st.selectbox(
+                "Jenis sumber",
+                ["Kitab Klasik", "Kitab Modern", "Tafsir", "Hadis", "Syarah Hadis", "Fikih", "Ushul Fikih", "Akidah", "Tasawuf", "Pendidikan Islam", "Buku Modern", "Sumber Primer Lainnya"],
+                key="jenis_unggah_kitab_s2",
+            )
+            _bahasa_kitab = st.selectbox(
+                "Bahasa utama sumber",
+                ["Arab", "Indonesia", "Inggris", "Melayu", "Lainnya"],
+                key="bahasa_unggah_kitab_s2",
+            )
+            _unggah_kitab=st.file_uploader(
+                "📚 Pilih file kitab/buku referensi",
+                type=["pdf","docx","txt"], accept_multiple_files=True, key="unggah_kitab_tafsir_s2",
+                help="Boleh mengunggah beberapa kitab sekaligus. Gunakan file/edisi yang benar-benar akan dijadikan sumber tesis."
+            )
+
+            if _unggah_kitab:
+                st.caption(f"{len(_unggah_kitab)} file siap dianalisis. File baru masuk koleksi setelah tombol Simpan ditekan.")
+                if st.button("📥 Analisis & Simpan ke Perpustakaan Kitab", key="verif_dok_kitab_s2", type="primary", use_container_width=True):
+                    _n=0; _gagal=[]
+                    _koleksi=st.session_state.get("perpustakaan_kitab_s2", [])
+                    if not isinstance(_koleksi,list): _koleksi=[]
+                    _nama_sudah={str(x.get("File_Asli","")).strip().lower() for x in _koleksi if isinstance(x,dict)}
+                    with st.spinner("Membaca sumber dan menyiapkan indeks referensi..."):
+                        for _f in _unggah_kitab:
+                            try:
+                                _nama=getattr(_f,"name","Dokumen sumber")
+                                _teks=ekstrak_teks(_f)
+                                if not _teks or str(_teks).startswith("ERROR:"):
+                                    _gagal.append(_nama); continue
+                                _meta=ekstrak_metadata_gemini(_teks[:30000], _nama) or {}
+                                if not isinstance(_meta,dict): _meta={}
+                                if not str(_meta.get("Judul","")).strip(): _meta["Judul"]=_nama
+                                _meta["Sumber"]="Dokumen asli unggahan pengguna"
+                                _meta["Status"]="🔵 Terverifikasi dari Dokumen Unggahan"
+                                _meta["Jenis"]=_jenis_kitab
+                                _meta["Bahasa"]=_bahasa_kitab
+                                _meta["File_Asli"]=_nama
+                                _meta["Teks_Sumber"]=_teks
+                                _meta["Panjang_Teks"]=len(_teks)
+                                _meta["Siap_Pencarian_Kutipan"]=True
+                                _meta["Catatan_Verifikasi"]=(
+                                    "Teks berasal dari dokumen yang diunggah pengguna. Identitas edisi/jilid/penerbit/halaman "
+                                    "tetap harus mengikuti yang terbaca pada dokumen; sistem dilarang menebak data yang tidak tersedia."
+                                )
+                                _doi=ekstrak_doi(_teks[:50000])
+                                if _doi:
+                                    _meta["DOI"]=_doi
+                                    _vr=cari_crossref_doi(_doi)
+                                    if _vr:
+                                        for _k,_v in _vr.items():
+                                            if _v and not _meta.get(_k): _meta[_k]=_v
+                                        _meta["Status"]="✅ Metadata terverifikasi + dokumen asli pengguna"
+                                if _nama.strip().lower() not in _nama_sudah:
+                                    _koleksi.append(dict(_meta))
+                                    _nama_sudah.add(_nama.strip().lower())
+                                if tambah_bank_referensi(dict(_meta)):
+                                    _n+=1
+                            except Exception:
+                                _gagal.append(getattr(_f,"name","Dokumen"))
+                    st.session_state["perpustakaan_kitab_s2"]=_koleksi
+                    if _n:
+                        st.success(f"{_n} kitab/buku baru masuk ke Bank Referensi dan Perpustakaan Kitab.")
+                    else:
+                        st.info("Tidak ada referensi baru yang ditambahkan. File yang sama mungkin sudah tersimpan.")
+                    if _gagal:
+                        st.warning("Belum dapat dibaca: " + ", ".join(_gagal))
+                    st.rerun()
+
+            _koleksi_kitab=st.session_state.get("perpustakaan_kitab_s2", [])
+            if _koleksi_kitab:
+                st.markdown("##### 📚 Perpustakaan Kitab Referensi")
+                st.caption(f"Tersimpan {len(_koleksi_kitab)} sumber. Koleksi ini menjadi dasar pencarian teks asli, halaman, kutipan dan footnote pada tahap berikutnya.")
+                for _ik,_rk in enumerate(_koleksi_kitab,1):
+                    if not isinstance(_rk,dict): continue
+                    _jdl=_rk.get("Judul") or _rk.get("File_Asli") or "Tanpa judul"
+                    _ident=" • ".join(str(x) for x in [_rk.get("Penulis",""), _rk.get("Tahun",""), _rk.get("Jenis",""), _rk.get("Bahasa","")] if str(x).strip())
+                    with st.expander(f"{_ik}. {_jdl}"):
+                        st.write(_ident if _ident else "Identitas bibliografis belum lengkap.")
+                        st.caption(f"Status: {_rk.get('Status','⚠️ Perlu verifikasi')} | File: {_rk.get('File_Asli','')}")
+                        if _rk.get("Penerbit"): st.write(f"Penerbit: {_rk.get('Penerbit')}")
+                        if _rk.get("DOI"): st.write(f"DOI: {_rk.get('DOI')}")
+                        st.info("Sumber siap dipakai untuk pencarian kutipan. Nomor halaman hanya boleh digunakan jika dapat dibuktikan dari dokumen/edisi ini.")
+
+            st.markdown("#### 📘 Unggah Ebook / Buku Umum")
+            st.caption("Untuk buku pendidikan, metodologi, teknologi, manajemen, psikologi, dan buku umum lainnya. File yang diunggah menjadi referensi lokal yang dapat dicari dan diverifikasi seperti kitab.")
+            if "perpustakaan_ebook_s2" not in st.session_state:
+                st.session_state["perpustakaan_ebook_s2"]=[]
+            _ebook_files=st.file_uploader("📤 Pilih ebook/buku umum",type=["pdf","docx","txt"],accept_multiple_files=True,key="unggah_ebook_umum_s2")
+            if _ebook_files and st.button("📥 Analisis & Simpan Ebook ke Referensi",key="simpan_ebook_umum_s2",use_container_width=True):
+                _kole=st.session_state.get("perpustakaan_ebook_s2",[])
+                _known={str(x.get("File_Asli","")).lower() for x in _kole if isinstance(x,dict)}
+                _n=0; _fail=[]
+                with st.spinner("Membaca ebook dan memeriksa metadata..."):
+                    for _f in _ebook_files:
                         try:
-                            _nama=getattr(_f,"name","Dokumen sumber")
+                            _nama=getattr(_f,"name","Ebook")
                             _teks=ekstrak_teks(_f)
                             if not _teks or str(_teks).startswith("ERROR:"):
-                                _gagal.append(_nama); continue
-                            _meta=ekstrak_metadata_gemini(_teks[:30000], _nama) or {}
+                                _fail.append(_nama); continue
+                            _meta=ekstrak_metadata_gemini(_teks[:30000],_nama) or {}
                             if not isinstance(_meta,dict): _meta={}
-                            if not str(_meta.get("Judul","")).strip(): _meta["Judul"]=_nama
+                            _meta["Judul"]=_meta.get("Judul") or _nama
+                            _meta["Jenis"]="Ebook/Buku Umum"
                             _meta["Sumber"]="Dokumen asli unggahan pengguna"
-                            _meta["Status"]="🔵 Terverifikasi dari Dokumen Unggahan"
-                            _meta["Jenis"]=_jenis_kitab
-                            _meta["Bahasa"]=_bahasa_kitab
                             _meta["File_Asli"]=_nama
                             _meta["Teks_Sumber"]=_teks
-                            _meta["Panjang_Teks"]=len(_teks)
-                            _meta["Siap_Pencarian_Kutipan"]=True
-                            _meta["Catatan_Verifikasi"]=(
-                                "Teks berasal dari dokumen yang diunggah pengguna. Identitas edisi/jilid/penerbit/halaman "
-                                "tetap harus mengikuti yang terbaca pada dokumen; sistem dilarang menebak data yang tidak tersedia."
-                            )
+                            _meta["Status"]="🔵 Terverifikasi dari Dokumen Unggahan"
+                            _meta["Catatan_Verifikasi"]="Keberadaan dokumen terverifikasi dari file pengguna; metadata bibliografis yang tidak terbaca tetap harus diverifikasi dan tidak boleh ditebak."
                             _doi=ekstrak_doi(_teks[:50000])
                             if _doi:
                                 _meta["DOI"]=_doi
@@ -4737,117 +4811,53 @@ DRAF:
                                     for _k,_v in _vr.items():
                                         if _v and not _meta.get(_k): _meta[_k]=_v
                                     _meta["Status"]="✅ Metadata terverifikasi + dokumen asli pengguna"
-                            if _nama.strip().lower() not in _nama_sudah:
-                                _koleksi.append(dict(_meta))
-                                _nama_sudah.add(_nama.strip().lower())
-                            if tambah_bank_referensi(dict(_meta)):
-                                _n+=1
+                            if _nama.lower() not in _known:
+                                _kole.append(dict(_meta)); _known.add(_nama.lower())
+                            if tambah_bank_referensi(dict(_meta)): _n+=1
                         except Exception:
-                            _gagal.append(getattr(_f,"name","Dokumen"))
-                st.session_state["perpustakaan_kitab_s2"]=_koleksi
-                if _n:
-                    st.success(f"{_n} kitab/buku baru masuk ke Bank Referensi dan Perpustakaan Kitab.")
-                else:
-                    st.info("Tidak ada referensi baru yang ditambahkan. File yang sama mungkin sudah tersimpan.")
-                if _gagal:
-                    st.warning("Belum dapat dibaca: " + ", ".join(_gagal))
+                            _fail.append(getattr(_f,"name","Ebook"))
+                st.session_state["perpustakaan_ebook_s2"]=_kole
+                st.success(f"{_n} ebook/buku baru masuk ke Bank Referensi.")
+                if _fail: st.warning("Belum dapat dibaca: "+", ".join(_fail))
                 st.rerun()
+            if st.session_state.get("perpustakaan_ebook_s2"):
+                st.caption(f"📚 Ebook tersimpan: {len(st.session_state['perpustakaan_ebook_s2'])}")
 
-        _koleksi_kitab=st.session_state.get("perpustakaan_kitab_s2", [])
-        if _koleksi_kitab:
-            st.markdown("##### 📚 Perpustakaan Kitab Referensi")
-            st.caption(f"Tersimpan {len(_koleksi_kitab)} sumber. Koleksi ini menjadi dasar pencarian teks asli, halaman, kutipan dan footnote pada tahap berikutnya.")
-            for _ik,_rk in enumerate(_koleksi_kitab,1):
-                if not isinstance(_rk,dict): continue
-                _jdl=_rk.get("Judul") or _rk.get("File_Asli") or "Tanpa judul"
-                _ident=" • ".join(str(x) for x in [_rk.get("Penulis",""), _rk.get("Tahun",""), _rk.get("Jenis",""), _rk.get("Bahasa","")] if str(x).strip())
-                with st.expander(f"{_ik}. {_jdl}"):
-                    st.write(_ident if _ident else "Identitas bibliografis belum lengkap.")
-                    st.caption(f"Status: {_rk.get('Status','⚠️ Perlu verifikasi')} | File: {_rk.get('File_Asli','')}")
-                    if _rk.get("Penerbit"): st.write(f"Penerbit: {_rk.get('Penerbit')}")
-                    if _rk.get("DOI"): st.write(f"DOI: {_rk.get('DOI')}")
-                    st.info("Sumber siap dipakai untuk pencarian kutipan. Nomor halaman hanya boleh digunakan jika dapat dibuktikan dari dokumen/edisi ini.")
-
-        st.markdown("#### 📘 Unggah Ebook / Buku Umum")
-        st.caption("Untuk buku pendidikan, metodologi, teknologi, manajemen, psikologi, dan buku umum lainnya. File yang diunggah menjadi referensi lokal yang dapat dicari dan diverifikasi seperti kitab.")
-        if "perpustakaan_ebook_s2" not in st.session_state:
-            st.session_state["perpustakaan_ebook_s2"]=[]
-        _ebook_files=st.file_uploader("📤 Pilih ebook/buku umum",type=["pdf","docx","txt"],accept_multiple_files=True,key="unggah_ebook_umum_s2")
-        if _ebook_files and st.button("📥 Analisis & Simpan Ebook ke Referensi",key="simpan_ebook_umum_s2",use_container_width=True):
-            _kole=st.session_state.get("perpustakaan_ebook_s2",[])
-            _known={str(x.get("File_Asli","")).lower() for x in _kole if isinstance(x,dict)}
-            _n=0; _fail=[]
-            with st.spinner("Membaca ebook dan memeriksa metadata..."):
-                for _f in _ebook_files:
-                    try:
-                        _nama=getattr(_f,"name","Ebook")
-                        _teks=ekstrak_teks(_f)
-                        if not _teks or str(_teks).startswith("ERROR:"):
-                            _fail.append(_nama); continue
-                        _meta=ekstrak_metadata_gemini(_teks[:30000],_nama) or {}
-                        if not isinstance(_meta,dict): _meta={}
-                        _meta["Judul"]=_meta.get("Judul") or _nama
-                        _meta["Jenis"]="Ebook/Buku Umum"
-                        _meta["Sumber"]="Dokumen asli unggahan pengguna"
-                        _meta["File_Asli"]=_nama
-                        _meta["Teks_Sumber"]=_teks
-                        _meta["Status"]="🔵 Terverifikasi dari Dokumen Unggahan"
-                        _meta["Catatan_Verifikasi"]="Keberadaan dokumen terverifikasi dari file pengguna; metadata bibliografis yang tidak terbaca tetap harus diverifikasi dan tidak boleh ditebak."
-                        _doi=ekstrak_doi(_teks[:50000])
-                        if _doi:
-                            _meta["DOI"]=_doi
-                            _vr=cari_crossref_doi(_doi)
-                            if _vr:
-                                for _k,_v in _vr.items():
-                                    if _v and not _meta.get(_k): _meta[_k]=_v
-                                _meta["Status"]="✅ Metadata terverifikasi + dokumen asli pengguna"
-                        if _nama.lower() not in _known:
-                            _kole.append(dict(_meta)); _known.add(_nama.lower())
-                        if tambah_bank_referensi(dict(_meta)): _n+=1
-                    except Exception:
-                        _fail.append(getattr(_f,"name","Ebook"))
-            st.session_state["perpustakaan_ebook_s2"]=_kole
-            st.success(f"{_n} ebook/buku baru masuk ke Bank Referensi.")
-            if _fail: st.warning("Belum dapat dibaca: "+", ".join(_fail))
-            st.rerun()
-        if st.session_state.get("perpustakaan_ebook_s2"):
-            st.caption(f"📚 Ebook tersimpan: {len(st.session_state['perpustakaan_ebook_s2'])}")
-
-        st.markdown("#### 📚 Bank Referensi Submenu 3")
-        _bank_lit = st.session_state.get("bank_referensi", [])
-        if _bank_lit:
-            for _i,_r in enumerate(_bank_lit,1):
-                st.markdown(f"**{_i}. {_r.get('Judul','Tanpa judul')}**  \n{_r.get('Penulis','')} ({_r.get('Tahun','')}) • {_r.get('Sumber','')} • {_r.get('Status','⚠️ Perlu verifikasi')} • {_r.get('Kelayakan','Belum dinilai')}")
-        else:
-            st.caption("Bank Referensi masih kosong.")
-
-        st.markdown("#### 🧠 Penelitian Terdahulu, Gap & Novelty")
-        if st.button("📚 Buat Matriks Penelitian Terdahulu + Gap", key="matriks_lit_s2", use_container_width=True):
-            _refs=st.session_state.get("bank_referensi", [])
-            if not _refs:
-                st.warning("Masukkan referensi nyata terlebih dahulu.")
+            st.markdown("#### 📚 Bank Referensi Submenu 3")
+            _bank_lit = st.session_state.get("bank_referensi", [])
+            if _bank_lit:
+                for _i,_r in enumerate(_bank_lit,1):
+                    st.markdown(f"**{_i}. {_r.get('Judul','Tanpa judul')}**  \n{_r.get('Penulis','')} ({_r.get('Tahun','')}) • {_r.get('Sumber','')} • {_r.get('Status','⚠️ Perlu verifikasi')} • {_r.get('Kelayakan','Belum dinilai')}")
             else:
-                _paket="\n".join(f"[{i}] {format_referensi(r)} | STATUS: {r.get('Status','')}" for i,r in enumerate(_refs[:80],1))
-                _prompt=f"""Anda adalah asisten riset tesis S2. Buat matriks penelitian terdahulu dan sintesis gap berdasarkan REFERENSI yang diberikan saja.
-JUDUL TESIS: {_judul_lit}
-PEDOMAN AKTIF: {_pedoman_lit[:10000] if _pedoman_lit else 'Tidak tersedia'}
-REFERENSI NYATA/TERCATAT:\n{_paket}
+                st.caption("Bank Referensi masih kosong.")
 
-ATURAN KETAT:
-- Jangan membuat penulis, tahun, judul, DOI, halaman, metode, temuan, atau isi artikel yang tidak tersedia.
-- Jika metode/temuan tidak tersedia dari metadata, tulis: 'Tidak tersedia pada metadata/sumber; perlu membaca teks penuh'.
-- Pisahkan: teori utama, penelitian terdahulu, metode/R&D, AI dalam pendidikan, kokurikuler/madrasah/pengawasan bila relevan.
-- Buat matriks: No | Penulis/Tahun | Judul | Sumber | Metode | Temuan | Relevansi | Perbedaan | Status bukti.
-- Setelah matriks, tulis sintesis research gap dan novelty secara hati-hati hanya dari bukti yang tersedia.
-"""
-                _h=panggil_gemini(_prompt)
-                if isinstance(_h,dict) and _h.get("sukses"):
-                    st.session_state["matriks_penelitian_terdahulu_s2"]=_h.get("hasil","")
-                    st.rerun()
+            st.markdown("#### 🧠 Penelitian Terdahulu, Gap & Novelty")
+            if st.button("📚 Buat Matriks Penelitian Terdahulu + Gap", key="matriks_lit_s2", use_container_width=True):
+                _refs=st.session_state.get("bank_referensi", [])
+                if not _refs:
+                    st.warning("Masukkan referensi nyata terlebih dahulu.")
                 else:
-                    st.error("AI belum berhasil menyusun matriks.")
-        if st.session_state.get("matriks_penelitian_terdahulu_s2"):
-            st.text_area("Matriks & Analisis Literatur", key="matriks_penelitian_terdahulu_s2", height=520)
+                    _paket="\n".join(f"[{i}] {format_referensi(r)} | STATUS: {r.get('Status','')}" for i,r in enumerate(_refs[:80],1))
+                    _prompt=f"""Anda adalah asisten riset tesis S2. Buat matriks penelitian terdahulu dan sintesis gap berdasarkan REFERENSI yang diberikan saja.
+    JUDUL TESIS: {_judul_lit}
+    PEDOMAN AKTIF: {_pedoman_lit[:10000] if _pedoman_lit else 'Tidak tersedia'}
+    REFERENSI NYATA/TERCATAT:\n{_paket}
+
+    ATURAN KETAT:
+    - Jangan membuat penulis, tahun, judul, DOI, halaman, metode, temuan, atau isi artikel yang tidak tersedia.
+    - Jika metode/temuan tidak tersedia dari metadata, tulis: 'Tidak tersedia pada metadata/sumber; perlu membaca teks penuh'.
+    - Pisahkan: teori utama, penelitian terdahulu, metode/R&D, AI dalam pendidikan, kokurikuler/madrasah/pengawasan bila relevan.
+    - Buat matriks: No | Penulis/Tahun | Judul | Sumber | Metode | Temuan | Relevansi | Perbedaan | Status bukti.
+    - Setelah matriks, tulis sintesis research gap dan novelty secara hati-hati hanya dari bukti yang tersedia.
+    """
+                    _h=panggil_gemini(_prompt)
+                    if isinstance(_h,dict) and _h.get("sukses"):
+                        st.session_state["matriks_penelitian_terdahulu_s2"]=_h.get("hasil","")
+                        st.rerun()
+                    else:
+                        st.error("AI belum berhasil menyusun matriks.")
+            if st.session_state.get("matriks_penelitian_terdahulu_s2"):
+                st.text_area("Matriks & Analisis Literatur", key="matriks_penelitian_terdahulu_s2", height=520)
 
         st.markdown("#### 📊 Saran Otomatis Kecukupan Referensi Proposal")
         _prop_for_audit=str(st.session_state.get("proposal_s2_dengan_referensi") or _proposal_lit or "")
