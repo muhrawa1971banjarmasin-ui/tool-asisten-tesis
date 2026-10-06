@@ -4230,7 +4230,17 @@ Jangan membuat data atau referensi palsu."""
                 "metode": _metode_prop,
             })
             st.session_state["proyek_tesis_s2"] = _proyek_baru
-            st.success(f"🎓 Judul aktif: {_judul_prop}")
+
+            # TAMPILAN SAJA:
+            # Jangan tampilkan hasil analisis AI A-F sebagai "Judul aktif".
+            # Ambil hanya judul yang benar-benar telah ditetapkan pengguna.
+            _judul_final_tampil = str(
+                st.session_state.get("judul_tesis_s2_terpilih", "") or ""
+            ).strip()
+
+            if _judul_final_tampil:
+                st.markdown("#### 🎓 Judul Tesis Terpilih")
+                st.info(_judul_final_tampil)
         else:
             st.warning("Judul final belum ditetapkan di Submenu 1.")
 
