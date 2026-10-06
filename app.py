@@ -3234,8 +3234,8 @@ elif menu == "🎓 Tesis S2":
         "Menu Tesis S2",
         [
             "💡 Pencarian Ide & Pengajuan Judul 🌟",
-            "📑 Proposal Tesis",
             "🔎 Literatur & Penelitian Terdahulu",
+            "📑 Proposal Tesis",
             "🎯 Metodologi Penelitian",
             "📋 Instrumen Penelitian",
             "📊 Statistik & SPSS",
@@ -4202,7 +4202,7 @@ Jangan membuat data atau referensi palsu."""
             }
         _pedoman_prop = st.session_state.get("pedoman_tesis_s2_analisis", "") if st.session_state.get("pedoman_tesis_s2_aktif") else ""
         _bank_prop = st.session_state.get("bank_bahan_ide_s2", [])
-        _refs_prop = st.session_state.get("bank_referensi", [])
+        _refs_prop = st.session_state.get("referensi_final_proposal_s2", []) or st.session_state.get("bank_referensi", [])
 
         if not str(_judul_prop).strip():
             st.warning("Tetapkan judul terlebih dahulu pada Submenu 1.")
@@ -4226,10 +4226,9 @@ Jangan membuat data atau referensi palsu."""
                 st.caption("Mode AI aktif. Bahan proyek dan pedoman digunakan otomatis; unggahan manual disembunyikan.")
 
             _tahap_prop = [
-                "I. Pendahuluan Penelitian",
-                "II. Kajian Pustaka & Kerangka Pikir",
-                "III. Metode Penelitian & Sistematika",
-                "IV. Simulasi Seminar Proposal",
+                "I. Struktur awal sesuai Pedoman aktif",
+                "II. Isi Proposal sesuai sistematika Pedoman aktif",
+                "III. Referensi, footnote, dan daftar pustaka sesuai Pedoman aktif",
             ]
             st.markdown("#### Tahapan Proposal")
             for _i,_nama in enumerate(_tahap_prop,1):
@@ -4276,53 +4275,30 @@ REFERENSI TERSEDIA:
 BAHAN TAMBAHAN:
 {chr(10).join(_tambahan_teks) if _tambahan_teks else "Tidak ada."}
 
-Susun satu draf Proposal Tesis yang utuh dan saling konsisten dengan struktur:
+Susun satu draf Proposal Tesis yang utuh dan saling konsisten.
 
-I. PENDAHULUAN PENELITIAN
-- Latar Belakang Masalah
-- Rumusan Masalah/Fokus Penelitian
-- Tujuan Penelitian
-- Signifikansi/Manfaat Penelitian
-- Definisi Operasional/Istilah bila relevan
-
-II. KAJIAN PUSTAKA & KERANGKA PIKIR
-- Penelitian Terdahulu
-- Kajian Teori
-- Research Gap
-- Novelty
-- Kerangka Pikir/Kerangka Konseptual sesuai metode
-
-III. METODE PENELITIAN & SISTEMATIKA
-- Pendekatan dan jenis penelitian
-- Subjek/objek atau populasi/sampel sesuai metode
-- Data/sumber data atau variabel sesuai metode
-- Teknik pengumpulan data
-- Instrumen bila relevan
-- Teknik analisis data
-- Keabsahan data/uji instrumen sesuai metode
-- Sistematika penulisan
-
-IV. PERSIAPAN SIMULASI SEMINAR PROPOSAL
-- Ringkasan proposal
-- Alasan pemilihan judul
-- Gap dan novelty
-- Alasan pemilihan metode
-- 10 prediksi pertanyaan penguji dan poin jawaban
-
-ATURAN:
-- Ikuti pedoman institusi yang diunggah bila tersedia.
-- Sesuaikan metodologi dengan metode yang sudah dipilih.
-- Jangan mengarang data lapangan, persentase, hasil penelitian, DOI, halaman, kutipan, atau referensi.
-- Gunakan referensi nyata yang tersedia. Bila bukti kurang, beri tanda bahwa bagian perlu diperkuat.
-- Jangan membuat BAB IV hasil penelitian atau BAB V kesimpulan penelitian.
-- Hasil harus dapat diedit pengguna.
+ATURAN STRUKTUR DAN GAYA WAJIB:
+- PEDOMAN INSTITUSI AKTIF adalah sumber aturan utama. Struktur bagian, urutan isi, nama bagian/BAB/subbab, jenis penelitian, gaya akademik, kutipan, footnote, daftar pustaka, transliterasi, penulisan Arab/Latin, Al-Qur'an/Hadis, tabel/gambar, dan ketentuan lain HARUS mengikuti Pedoman aktif.
+- Jangan memakai template struktur generik bila Pedoman aktif menetapkan struktur yang berbeda.
+- Jika suatu ketentuan tidak ditemukan dalam Pedoman, jangan mengatasnamakannya sebagai aturan institusi. Tandai seperlunya untuk audit.
+- Sesuaikan metodologi dengan metode yang sudah dipilih DAN ketentuan metode tersebut dalam Pedoman aktif.
+- Gunakan hanya REFERENSI TERSEDIA/FINAL yang diberikan. Jangan menciptakan referensi baru di dalam proposal.
+- Setiap klaim ilmiah yang memakai sumber harus dapat ditelusuri ke referensi yang tersedia. Jangan mengarang DOI, ISBN, nomor halaman, kutipan, data, persentase, atau hasil penelitian.
+- Nomor halaman footnote hanya boleh ditulis jika tersedia/terverifikasi dari sumber.
+- Penelitian terdahulu, gap, novelty, teori, dan metode harus dibangun dari literatur yang tersedia, bukan dari asumsi AI.
+- Jangan memasukkan Persiapan Seminar Proposal, prediksi pertanyaan penguji, simulasi sidang, atau materi latihan ke dalam naskah Proposal kecuali Pedoman secara eksplisit mewajibkannya sebagai bagian naskah.
+- Jangan membuat BAB/Bagian yang tidak diminta Pedoman.
+- Hasil akhir harus berupa NASKAH PROPOSAL saja. Jangan tampilkan objek Python/JSON, status API, kata 'sukses', 'hasil', atau metadata sistem.
+- Usahakan hasil sedekat mungkin dengan naskah siap diajukan sehingga pengguna tidak perlu banyak mengedit.
 """
                 try:
                     _hasil=panggil_gemini(_prompt)
-                    if _hasil:
-                        st.session_state["proposal_s2_draf_otomatis"]=str(_hasil)
-                        st.session_state["proposal_s2_editor_otomatis"]=str(_hasil)
-                        for _i in range(1,5):
+                    _teks_hasil = (_hasil.get("hasil", "") if isinstance(_hasil, dict) else str(_hasil or "")).strip()
+                    _sukses_hasil = (_hasil.get("sukses", False) if isinstance(_hasil, dict) else bool(_teks_hasil))
+                    if _sukses_hasil and _teks_hasil:
+                        st.session_state["proposal_s2_draf_otomatis"]=_teks_hasil
+                        st.session_state["proposal_s2_editor_otomatis"]=_teks_hasil
+                        for _i in range(1,4):
                             st.session_state[f"proposal_s2_tahap_{_i}"]=True
                         st.rerun()
                     else:
@@ -4518,10 +4494,14 @@ DRAF:
 
         if _pedoman_lit:
             st.success(f"🟢 Pedoman aktif otomatis: {st.session_state.get('pedoman_tesis_s2_nama','Pedoman Tesis')}")
+            st.markdown("#### 📐 Gaya Penulisan, Footnote & Literatur dari Pedoman Aktif")
+            st.info("Gaya penulisan tidak ditentukan penulis. Struktur akademik, footnote/sitasi, daftar pustaka, kutipan, transliterasi, sumber Arab, Al-Qur'an/Hadis, serta aturan teknis lain mengikuti Pedoman aktif secara otomatis.")
+            with st.expander("👁️ Lihat aturan Pedoman yang akan dipakai", expanded=False):
+                st.write(_pedoman_lit)
         else:
-            st.warning("Pedoman tesis belum aktif. Sistem tetap dapat mencari referensi, tetapi ketentuan institusi tidak dapat dipastikan otomatis.")
+            st.warning("Pedoman tesis belum aktif. Aktifkan Pedoman terlebih dahulu agar gaya penulisan, footnote, daftar pustaka, dan struktur proposal tidak ditentukan oleh template umum.")
 
-        st.info("Pedoman IAID yang aktif menetapkan minimal 50 buku/jurnal dan minimal 15 sumber berbahasa asing. Target kerja Akademia AI dibuat lebih tinggi: 60 sumber dengan sekurang-kurangnya 20 sumber asing sebagai cadangan akademik.")
+        st.caption("Target jumlah dan komposisi referensi mengikuti Pedoman aktif. Akademia AI dapat mencari sumber cadangan lebih banyak, tetapi tidak mengubah ketentuan institusi.")
 
         _bank_lit = st.session_state.get("bank_referensi", [])
         if not isinstance(_bank_lit, list):
@@ -4881,32 +4861,35 @@ DRAF:
             if st.session_state.get("matriks_penelitian_terdahulu_s2"):
                 st.text_area("Matriks & Analisis Literatur", key="matriks_penelitian_terdahulu_s2", height=520)
 
-        st.markdown("#### 🎯 Rekomendasi AI Sesuai Kebutuhan Kutipan Proposal")
-        st.caption("AI membaca proposal dan Bank Referensi untuk menunjukkan bagian yang membutuhkan dukungan sumber. Rekomendasi ini tetap terlihat pada mode otomatis; yang disembunyikan hanya fasilitas upload tambahan.")
+        st.markdown("#### 🎯 Rekomendasi AI untuk Kebutuhan Literatur Proposal")
+        st.caption("Tahap ini dikerjakan SEBELUM Proposal. AI membaca judul, masalah, metode, Pedoman aktif, dan Bank Referensi untuk menentukan literatur yang dibutuhkan agar Proposal nanti ditulis dengan sumber yang sudah tersedia.")
 
         if st.button("🤖 Analisis Kebutuhan Kutipan + Rekomendasi Ayat", key="analisis_kebutuhan_kutipan_s2", type="primary", use_container_width=True):
             _refs_need = st.session_state.get("bank_referensi", [])
-            if not _proposal_lit:
-                st.warning("Proposal belum tersedia. Selesaikan Generate Proposal pada Submenu 2 terlebih dahulu.")
+            if not _judul_lit:
+                st.warning("Judul final belum tersedia. Tetapkan judul pada Submenu 1 terlebih dahulu.")
             else:
                 _paket_need = "\n".join(
                     f"[{i}] {format_referensi(r)} | STATUS: {r.get('Status','')} | KELAYAKAN: {r.get('Kelayakan','Belum dinilai')}"
                     for i, r in enumerate(_refs_need[:100], 1)
                 ) or "BANK REFERENSI MASIH KOSONG"
                 _prompt_need = f"""Anda adalah auditor referensi Proposal Tesis S2.
-Baca proposal dan petakan KEBUTUHAN KUTIPAN secara spesifik. Gunakan referensi dari BANK REFERENSI saja untuk rekomendasi bibliografis.
+Petakan KEBUTUHAN LITERATUR DAN KUTIPAN yang harus tersedia sebelum Proposal ditulis. Gunakan referensi dari BANK REFERENSI saja untuk rekomendasi bibliografis.
 
 JUDUL: {_judul_lit}
 PEDOMAN AKTIF: {_pedoman_lit[:8000] if _pedoman_lit else 'Tidak tersedia'}
 
-PROPOSAL:
-{_proposal_lit}
+MASALAH/KONTEKS PENELITIAN:
+{_proyek_lit.get("masalah", "")}
+
+METODE YANG DIPILIH:
+{_proyek_lit.get("metode", st.session_state.get("metode_ide_s2", "Belum ditentukan"))}
 
 BANK REFERENSI:
 {_paket_need}
 
 TUGAS:
-1. Buat tabel: No | Bagian Proposal | Klaim/kalimat yang perlu sumber | Jenis sumber yang dibutuhkan | Referensi bank yang direkomendasikan | Status verifikasi | Alasan.
+1. Buat tabel: No | Bagian Proposal yang akan didukung | Kebutuhan teori/data/klaim | Jenis sumber yang dibutuhkan | Referensi bank yang direkomendasikan | Status verifikasi | Alasan.
 2. Prioritaskan latar belakang, definisi/konsep, penelitian terdahulu, research gap, teori, metode, data/statistik, regulasi, dan klaim ilmiah.
 3. Jangan mengarang penulis, judul, tahun, DOI, ISBN, halaman, temuan, atau metadata. Jika bank belum memiliki sumber yang cocok, tulis: PERLU DICARIKAN SUMBER.
 4. Buat bagian 'LANDASAN AL-QURAN YANG RELEVAN'. Rekomendasikan hanya nomor surah dan ayat yang secara substantif relevan dengan tema proposal, beserta alasan penempatannya. Jangan membuat teks Arab, terjemahan, tafsir, atau nomor halaman dari ingatan. Beri status: PERLU VERIFIKASI TEKS/TERJEMAH/TAFSIR sampai sumber asli tersedia.
