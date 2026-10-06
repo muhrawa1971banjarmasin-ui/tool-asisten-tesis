@@ -3512,7 +3512,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
             for _key in list(st.session_state.keys()):
                 _ks = str(_key)
                 if _key in _hapus_reset_topik or any(_frag in _ks for _frag in _frag_reset_topik):
-                    if _ks not in ("bank_referensi", "library_referensi"):
+                    if mode_bank_bahan_ide_s2 != "🤖 Otomatis dengan AI" and (_ks not in ("bank_referensi", "library_referensi")):
                         del st.session_state[_key]
             st.session_state["versi_input_masalah_ide_s2"] = int(
                 st.session_state.get("versi_input_masalah_ide_s2", 0)
@@ -3588,6 +3588,7 @@ Jika perlu beri maksimal 5 perbaikan judul. Jangan mengarang referensi/data/DOI.
         )
 
         if mode_bank_bahan_ide_s2 == "🤖 Otomatis dengan AI":
+            st.caption("✅ Unggahan 1-4 bersifat opsional pada mode Otomatis dengan AI.")
             st.info(
                 "Anda tidak wajib mengunggah dokumen. AI akan membantu memetakan kebutuhan bahan, "
                 "kata kunci, teori, penelitian terdahulu, regulasi, dan data yang perlu diperkuat. "
