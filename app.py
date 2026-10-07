@@ -3870,7 +3870,8 @@ elif menu == "✨ Penyunting Akademik AI":
         "Bagian Penyunting Akademik AI",
         [
             "✍️ Sunting & Parafrase",
-            "👨‍🏫 Revisi Dosen Pembimbing",
+            "🤖 Asisten Penulisan BAB",
+            "👨‍🏫 Revisi Dosen/Penguji",
             "🔎 Audit Akademik",
             "📑 Finalisasi Word",
         ],
@@ -3952,6 +3953,72 @@ NASKAH:
             # Hasil Suntingan, perubahan itu ikut masuk ke file unduhan.
             _hasil_sunting_untuk_word = st.session_state.get("hasil_sunting_parafrase_area", _hasil_sunting) or _hasil_sunting
 
+            st.markdown("#### 📚 Perkuat Referensi & Kutipan")
+            st.caption("Untuk proposal sebelum Sempro maupun tesis lengkap. Sistem mempertahankan substansi, memeriksa kecocokan klaim dengan sumber, dan tidak boleh mengarang referensi.")
+            _kata_ref = st.text_input("Kata kunci referensi yang dibutuhkan", key="kata_ref_penyunting", placeholder="Contoh: generative AI teacher competence curriculum planning")
+            _c1, _c2, _c3 = st.columns(3)
+            if _c1.button("🔎 Cari Referensi Terverifikasi", key="btn_cari_ref_penyunting", disabled=not bool(_kata_ref.strip())):
+                with st.spinner("Mencari metadata referensi..."):
+                    _refs = []
+                    _refs.extend(cari_crossref(_kata_ref, 6))
+                    _refs.extend(cari_openalex(_kata_ref, 6))
+                    _refs.extend(cari_semantic_scholar(_kata_ref, 6))
+                # deduplikasi judul
+                _seen, _uniq = set(), []
+                for _r in _refs:
+                    _j = str(_r.get("Judul", "")).strip().lower()
+                    if _j and _j not in _seen:
+                        _seen.add(_j); _uniq.append(_r)
+                st.session_state["refs_penyunting_terverifikasi"] = _uniq[:15]
+                st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.") if _uniq else st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
+
+            _refs_now = st.session_state.get("refs_penyunting_terverifikasi", [])
+            if _refs_now:
+                _opsi_ref = []
+                for _i, _r in enumerate(_refs_now):
+                    _opsi_ref.append(f"{_i+1}. {_r.get('Penulis','')} ({_r.get('Tahun','')}). {_r.get('Judul','')} — {_r.get('Sumber','')}")
+                _pilih_ref = st.multiselect("Pilih referensi yang boleh dipakai AI", _opsi_ref, default=_opsi_ref[:min(5,len(_opsi_ref))], key="pilih_ref_penyunting")
+                _selected = [_refs_now[_opsi_ref.index(x)] for x in _pilih_ref if x in _opsi_ref]
+            else:
+                _selected = []
+
+            if _c2.button("📚 Perkuat Referensi & Kutipan", key="btn_perkuat_ref_kutipan", disabled=not (bool(str(_hasil_sunting_untuk_word).strip()) and bool(_selected))):
+                _meta = "\n".join([f"- Penulis: {r.get('Penulis','')}; Tahun: {r.get('Tahun','')}; Judul: {r.get('Judul','')}; Jurnal/Penerbit: {r.get('Jurnal','')}; DOI: {r.get('DOI','')}; Halaman metadata: {r.get('Halaman','')}; Status: {r.get('Status','')}" for r in _selected])
+                _prompt_ref = f"""Anda adalah penyunting referensi akademik.
+JENIS NASKAH: {jenis_naskah_editor}
+
+NASKAH:
+{str(_hasil_sunting_untuk_word)[:90000]}
+
+REFERENSI METADATA YANG DIIZINKAN:
+{_meta}
+
+TUGAS WAJIB:
+1. Periksa klaim yang membutuhkan sumber. Nilai hubungan klaim-sumber: ✅ SESUAI, ⚠️ KURANG SESUAI, ❌ TIDAK MENDUKUNG, atau ❓ BELUM DAPAT DIVERIFIKASI.
+2. Tambahkan sitasi hanya bila metadata yang tersedia benar-benar relevan. Jangan mengarang isi artikel, DOI, volume, halaman, kutipan langsung, atau hasil penelitian.
+3. Jika isi sumber belum tersedia sehingga dukungan substantif tidak dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER], jangan menyatakan sumber pasti mendukung.
+4. Untuk tafsir: setiap uraian penafsiran harus memiliki sitasi/footnote sumber tafsir. Jangan membuat nomor halaman; bila belum tersedia tulis [halaman perlu verifikasi].
+5. Untuk hadis: sumber/takhrij harus jelas. Jangan membuat nomor hadis atau sanad.
+6. Pertahankan seluruh sumber lama. Jangan menghapus data, angka, hasil, ayat, hadis, tabel, atau substansi penelitian.
+7. Sinkronkan setiap sumber yang benar-benar dikutip ke DAFTAR PUSTAKA. Jangan memasukkan kandidat yang tidak digunakan.
+8. Keluarkan NASKAH DIPERKUAT terlebih dahulu, lalu LAPORAN KESESUAIAN KUTIPAN singkat.
+"""
+                with st.spinner("Memperkuat referensi dan memeriksa kutipan..."):
+                    _hr = panggil_gemini(_prompt_ref, temperature=0.15)
+                if _hr.get("sukses"):
+                    st.session_state["hasil_sunting_parafrase_ai"] = str(_hr.get("hasil", "")).strip()
+                    st.session_state["hasil_sunting_parafrase_area"] = st.session_state["hasil_sunting_parafrase_ai"]
+                    st.success("Referensi dan kutipan selesai diperiksa. Hasil diperbarui.")
+                    st.rerun()
+                else:
+                    st.error(str(_hr.get("error", "Pemeriksaan referensi gagal.")))
+
+            if _c3.button("🗑️ Hapus", key="btn_hapus_penyunting"):
+                for _k in ["hasil_sunting_parafrase_ai", "hasil_sunting_parafrase_area", "model_sunting_parafrase_ai", "refs_penyunting_terverifikasi", "pilih_ref_penyunting", "kata_ref_penyunting"]:
+                    st.session_state.pop(_k, None)
+                st.success("Naskah hasil dan referensi sementara dibersihkan. Pedoman dan bank referensi tetap aman.")
+                st.rerun()
+
             st.markdown("#### 📥 Download Hasil Terakhir")
             st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
             try:
@@ -3970,10 +4037,69 @@ NASKAH:
                 st.error(f"Word belum dapat dibuat: {_e_word_sunting}")
 
     # --------------------------------------------------------
-    # 2. REVISI DOSEN PEMBIMBING
+    # 2. ASISTEN PENULISAN BAB
     # --------------------------------------------------------
-    elif submenu_editor == "👨‍🏫 Revisi Dosen Pembimbing":
-        st.subheader("👨‍🏫 Revisi Dosen Pembimbing")
+    elif submenu_editor == "🤖 Asisten Penulisan BAB":
+        st.subheader("🤖 Asisten Penulisan BAB")
+        st.caption("Membantu mengembangkan uraian akademik dari proposal hingga tesis BAB I–V. Data, angka, hasil penelitian, kutipan, dan sumber asli dilindungi.")
+        _tahap = st.selectbox("Tahap Naskah", ["Proposal sebelum Sempro", "Tesis setelah Sempro / penelitian", "Naskah tesis lengkap"], key="tahap_asisten_bab")
+        _bab = st.selectbox("Pilih BAB", ["BAB I — Pendahuluan", "BAB II — Kajian Pustaka / Landasan Teori", "BAB III — Metode Penelitian", "BAB IV — Hasil Penelitian dan Pembahasan", "BAB V — Penutup"], key="bab_asisten_penulisan")
+        _subbab = st.text_input("Subbab / bagian yang sedang ditulis", key="subbab_asisten_penulisan", placeholder="Contoh: Latar Belakang, Kajian Teori, Pembahasan Hasil Uji Hipotesis")
+        _mode_bab = st.selectbox("Bantuan yang Dibutuhkan", ["Kembangkan paragraf/deskripsi", "Buat paragraf akademik dari poin-poin", "Perkuat hubungan dengan teori", "Buat transisi antarparagraf", "Jelaskan tabel/hasil penelitian tanpa mengubah angka", "Susun pembahasan: temuan → teori → penelitian terdahulu", "Rapikan argumentasi dan alur", "Bantu simpulan/implikasi tanpa membuat temuan baru"], key="mode_asisten_bab")
+        _bahan_bab = st.text_area("Bahan / paragraf / poin / hasil yang akan diolah", height=320, key="bahan_asisten_bab", placeholder="Tempel paragraf kasar, poin-poin, tabel yang sudah diekstrak, atau hasil analisis Anda di sini.")
+        _instruksi_bab = st.text_area("Arahan tambahan (opsional)", height=100, key="instruksi_asisten_bab")
+        st.info("🔒 Asisten tidak boleh menciptakan data, hasil statistik, responden, kutipan, DOI, halaman, teori, atau sumber yang tidak diberikan/terverifikasi.")
+        if st.button("🤖 Bantu Tulis BAB", type="primary", key="btn_asisten_penulisan_bab", disabled=not bool(str(_bahan_bab).strip())):
+            _ped_prompt = (_ped_teks[:45000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:12000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
+            _bank = st.session_state.get("bank_referensi", [])
+            _bank_txt = "\n".join([str(x) for x in _bank[-30:]]) if _bank else "Belum ada bank referensi aktif."
+            _prompt_bab = f"""Anda adalah Asisten Penulisan BAB Akademia AI.
+TAHAP: {_tahap}
+JENIS NASKAH: {jenis_naskah_editor}
+BAB: {_bab}
+SUBBAB: {_subbab}
+TUGAS: {_mode_bab}
+ARAHAN TAMBAHAN: {_instruksi_bab}
+
+PEDOMAN AKTIF:
+{_ped_prompt}
+
+BANK REFERENSI YANG TERSEDIA:
+{_bank_txt[:20000]}
+
+ATURAN:
+1. Kembangkan hanya dari bahan pengguna dan sumber yang tersedia.
+2. Jangan mengubah atau menciptakan angka, data, hasil statistik, populasi, sampel, instrumen, temuan, kutipan, atau kesimpulan penelitian.
+3. Jangan membuat referensi, DOI, halaman, kutipan langsung, tafsir, atau hadis. Jika dukungan sumber diperlukan tetapi belum tersedia, beri [REFERENSI DIPERLUKAN].
+4. Untuk BAB IV, bedakan HASIL (deskriptif objektif) dan PEMBAHASAN (interpretasi dengan teori/penelitian terdahulu). Jangan mengubah angka.
+5. Untuk tafsir, uraian penafsiran wajib memiliki sumber; jika halaman tidak tersedia tandai [halaman perlu verifikasi].
+6. Ikuti pedoman aktif. Jika aturan tidak ditemukan, jangan mengarang aturan institusi.
+7. Hasil harus siap disalin ke naskah akademik, koheren, tidak bertele-tele, dan mempertahankan maksud penulis.
+
+BAHAN PENGGUNA:
+{str(_bahan_bab)[:90000]}"""
+            with st.spinner("Asisten sedang mengolah bagian BAB..."):
+                _hb = panggil_gemini(_prompt_bab, temperature=0.20)
+            if _hb.get("sukses"):
+                st.session_state["hasil_asisten_penulisan_bab"] = str(_hb.get("hasil", "")).strip()
+            else:
+                st.error(str(_hb.get("error", "Asisten BAB belum berhasil.")))
+        if st.session_state.get("hasil_asisten_penulisan_bab"):
+            st.text_area("Hasil Asisten Penulisan BAB", st.session_state["hasil_asisten_penulisan_bab"], height=650, key="hasil_asisten_penulisan_bab_area")
+            _bc1, _bc2 = st.columns(2)
+            if _bc1.button("➡️ Kirim ke Sunting & Parafrase", key="btn_bab_ke_sunting"):
+                st.session_state["hasil_sunting_parafrase_ai"] = st.session_state.get("hasil_asisten_penulisan_bab_area", st.session_state["hasil_asisten_penulisan_bab"])
+                st.success("Hasil disiapkan untuk tahap penyuntingan.")
+            if _bc2.button("🗑️ Hapus Hasil BAB", key="btn_hapus_hasil_bab"):
+                st.session_state.pop("hasil_asisten_penulisan_bab", None)
+                st.session_state.pop("hasil_asisten_penulisan_bab_area", None)
+                st.rerun()
+
+    # --------------------------------------------------------
+    # 3. REVISI DOSEN / PENGUJI
+    # --------------------------------------------------------
+    elif submenu_editor == "👨‍🏫 Revisi Dosen/Penguji":
+        st.subheader("👨‍🏫 Revisi Dosen/Penguji")
         st.caption("AI mencari sendiri BAB, subbab, dan paragraf yang terkait dengan catatan pembimbing. Bagian lain dipertahankan.")
         file_revisi = st.file_uploader("Unggah naskah yang akan direvisi", type=["pdf", "docx", "txt"], key="file_revisi_dosen_ai")
         teks_revisi = st.text_area("Atau tempel naskah", height=250, key="teks_revisi_dosen_ai")
