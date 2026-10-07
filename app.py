@@ -5664,6 +5664,9 @@ ATURAN:
 - Jangan menciptakan data, DOI, halaman, kutipan, atau sumber yang tidak ada.
 - Susun: BAGIAN AWAL; BAB I PENDAHULUAN; BAB II KAJIAN PUSTAKA DAN KERANGKA PIKIR;
   BAB III METODE PENELITIAN; SISTEMATIKA PENULISAN; DAFTAR PUSTAKA.
+- KHUSUS SISTEMATIKA PENULISAN: tampilkan sebagai PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, bukan uraian/deskripsi isi bab. Dasarnya: Pedoman Tesis aktif, proposal aktif, dan jenis penelitian.
+  BAB I mengikuti subbab BAB I proposal. BAB II mengikuti proposal, tetapi bagian KAJIAN TEORI wajib diperinci menjadi anak subbab teori yang akan ditulis sesuai variabel/fokus, konsep judul, rumusan masalah, tujuan, dan hubungan antarkonsep. BAB III mengikuti subbab metode pada proposal dan tidak boleh mencampur jenis metode. BAB IV dibuat sebagai kerangka Hasil Penelitian dan Pembahasan yang adaptif berdasarkan rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis, tanpa mengarang hasil. BAB V dibuat sebagai Penutup sesuai Pedoman aktif dan jenis penelitian.
+  Jangan menulis kalimat seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”. Gunakan hierarki BAB I, A., 1. secara rapi.
 - Pertahankan kutipan/catatan kaki yang dapat ditelusuri dari tesis sumber.
 - Gunakan bahasa akademik tingkat S2.
 Keluarkan proposal lengkap, bukan laporan analisis.
@@ -5857,7 +5860,17 @@ Gunakan HANYA keluarga metode pada JENIS PENELITIAN FINAL.
 JANGAN mencampur metode yang tidak kompatibel.
 
 SETELAH BAB III
-- SISTEMATIKA PENULISAN sesuai Pedoman aktif.
+- SISTEMATIKA PENULISAN harus berupa PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, BUKAN uraian isi bab.
+  Dasar penyusunannya wajib berurutan: PEDOMAN TESIS AKTIF -> ISI PROPOSAL AKTIF -> JENIS PENELITIAN -> RUMUSAN MASALAH/TUJUAN -> VARIABEL atau FOKUS PENELITIAN.
+  Tuliskan secara rapi dan hierarkis BAB I sampai BAB V.
+  * BAB I: salin/ikuti judul subbab yang benar-benar ada pada BAB I proposal aktif. Jangan menambah subbab generik dan jangan mengubahnya menjadi ringkasan.
+  * BAB II: ikuti judul subbab yang benar-benar ada pada BAB II proposal aktif. KHUSUS bagian KAJIAN TEORI, jangan berhenti pada tulisan “Kajian Teori”. Turunkan menjadi anak subbab teori yang nyata dan akan ditulis dalam tesis berdasarkan variabel/fokus, konsep utama pada judul, rumusan masalah, tujuan penelitian, dan hubungan antarkonsep. Jangan menciptakan teori yang tidak relevan. Jika proposal sudah memiliki anak subbab teori, pertahankan dan rapikan; jika belum, susun anak subbab yang paling diperlukan untuk penelitian tersebut.
+  * BAB III: ikuti judul subbab metode yang benar-benar ada pada BAB III proposal aktif dan pertahankan konsistensinya dengan jenis penelitian. Jangan memasukkan struktur metode dari jenis penelitian lain.
+  * BAB IV: karena proposal umumnya belum berisi hasil penelitian, buat KERANGKA HASIL PENELITIAN DAN PEMBAHASAN yang akan dipakai saat tesis selesai. Turunkan subbab secara adaptif dari rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis pada BAB III. Kuantitatif, kualitatif, R&D, PTK/action research, dan library research WAJIB menghasilkan struktur BAB IV yang berbeda sesuai karakter metodenya. Jangan menulis hasil atau angka yang belum diperoleh.
+  * BAB V: susun PENUTUP sesuai Pedoman aktif dan jenis penelitian. Gunakan Kesimpulan dan Saran/Rekomendasi, serta Implikasi hanya bila memang disyaratkan/relevan menurut pedoman dan rancangan penelitian. Jangan mengarang hasil penelitian.
+  * Jangan menulis paragraf penjelasan seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”.
+  * Jangan memakai bullet bintang untuk BAB. Gunakan BAB I, BAB II, dst.; subbab A., B., C., dst.; anak subbab 1., 2., 3. bila diperlukan.
+  * SISTEMATIKA harus menunjukkan dengan jelas apa yang nanti ditulis/dikerjakan dalam tesis, tetapi tetap berupa judul struktur, bukan uraian naratif.
 - DAFTAR PUSTAKA SEMENTARA.
 
 ATURAN SUMBER DAN TAHUN:
@@ -6482,7 +6495,17 @@ Susun SUBBAGIAN BAB III sesuai metode yang benar-benar digunakan.
 JANGAN mencampur struktur metode yang tidak kompatibel.
 
 SETELAH BAB III
-- SISTEMATIKA PENULISAN, sesuai Pedoman aktif.
+- SISTEMATIKA PENULISAN harus berupa PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, BUKAN uraian isi bab.
+  Dasar penyusunannya wajib berurutan: PEDOMAN TESIS AKTIF -> ISI PROPOSAL AKTIF -> JENIS PENELITIAN -> RUMUSAN MASALAH/TUJUAN -> VARIABEL atau FOKUS PENELITIAN.
+  Tuliskan secara rapi dan hierarkis BAB I sampai BAB V.
+  * BAB I: salin/ikuti judul subbab yang benar-benar ada pada BAB I proposal aktif. Jangan menambah subbab generik dan jangan mengubahnya menjadi ringkasan.
+  * BAB II: ikuti judul subbab yang benar-benar ada pada BAB II proposal aktif. KHUSUS bagian KAJIAN TEORI, jangan berhenti pada tulisan “Kajian Teori”. Turunkan menjadi anak subbab teori yang nyata dan akan ditulis dalam tesis berdasarkan variabel/fokus, konsep utama pada judul, rumusan masalah, tujuan penelitian, dan hubungan antarkonsep. Jangan menciptakan teori yang tidak relevan. Jika proposal sudah memiliki anak subbab teori, pertahankan dan rapikan; jika belum, susun anak subbab yang paling diperlukan untuk penelitian tersebut.
+  * BAB III: ikuti judul subbab metode yang benar-benar ada pada BAB III proposal aktif dan pertahankan konsistensinya dengan jenis penelitian. Jangan memasukkan struktur metode dari jenis penelitian lain.
+  * BAB IV: karena proposal umumnya belum berisi hasil penelitian, buat KERANGKA HASIL PENELITIAN DAN PEMBAHASAN yang akan dipakai saat tesis selesai. Turunkan subbab secara adaptif dari rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis pada BAB III. Kuantitatif, kualitatif, R&D, PTK/action research, dan library research WAJIB menghasilkan struktur BAB IV yang berbeda sesuai karakter metodenya. Jangan menulis hasil atau angka yang belum diperoleh.
+  * BAB V: susun PENUTUP sesuai Pedoman aktif dan jenis penelitian. Gunakan Kesimpulan dan Saran/Rekomendasi, serta Implikasi hanya bila memang disyaratkan/relevan menurut pedoman dan rancangan penelitian. Jangan mengarang hasil penelitian.
+  * Jangan menulis paragraf penjelasan seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”.
+  * Jangan memakai bullet bintang untuk BAB. Gunakan BAB I, BAB II, dst.; subbab A., B., C., dst.; anak subbab 1., 2., 3. bila diperlukan.
+  * SISTEMATIKA harus menunjukkan dengan jelas apa yang nanti ditulis/dikerjakan dalam tesis, tetapi tetap berupa judul struktur, bukan uraian naratif.
 - DAFTAR PUSTAKA SEMENTARA.
 
 JANGAN memasukkan Simulasi Seminar Proposal ke dalam naskah.
