@@ -1921,6 +1921,227 @@ if menu in modul_ai_penelitian and menu_utama in ["🎓 Skripsi S1", "🎓 Tesis
 # ============================================================
 # BERANDA
 # ============================================================
+# ============================================================
+# WORD HASIL PENYUNTINGAN - PEDOMAN AKADEMIK AKTIF
+# ============================================================
+def _bersihkan_hasil_sunting_ai(teks):
+    """Ambil naskah hasil suntingan saja dan bersihkan artefak AI/Markdown/LaTeX."""
+    t = str(teks or "").replace("\r\n", "\n")
+    # Buang label pembungkus keluaran AI.
+    t = re.sub(r'(?im)^\s*#{0,6}\s*HASIL\s+SUNTINGAN\s*$', '', t)
+    t = re.split(r'(?im)^\s*#{0,6}\s*CATATAN\s+PERUBAHAN\s+PENTING\s*$', t, maxsplit=1)[0]
+    # Bersihkan code fence dan garis pemisah Markdown.
+    t = re.sub(r'(?m)^\s*```[^\n]*$', '', t)
+    t = re.sub(r'(?m)^\s*---+\s*$', '', t)
+    # Rumus sederhana yang sering lolos dari AI.
+    repl = {
+        '$H_0$':'H₀', '$H_a$':'Hₐ', '$H_1$':'H₁',
+        '$r_{count}$':'r hitung', '$r_{table}$':'r tabel', '$r_{11}$':'r₁₁',
+        '\\(':'', '\\)':'', '\\[':'', '\\]':'',
+    }
+    for a,b in repl.items(): t=t.replace(a,b)
+    # Hapus pembungkus $ yang tersisa tanpa menghapus isi.
+    t = re.sub(r'\$([^$\n]+)\$', r'\1', t)
+    # Koreksi typo yang jelas dan aman.
+    t = re.sub(r'(?i)\bDAFTRA\s+ISI\b', 'DAFTAR ISI', t)
+    t = re.sub(r'(?i)\bpemehaman\b', 'pemahaman', t)
+    # Rapikan spasi tetapi pertahankan pergantian paragraf.
+    t = re.sub(r'[ \t]+\n', '\n', t)
+    t = re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
+
+
+def _judul_dari_hasil_sunting(teks):
+    """Ambil judul proposal/tesis dari blok awal hasil suntingan."""
+    t=_bersihkan_hasil_sunting_ai(teks)
+    lines=[re.sub(r'[*_#]', '', x).strip() for x in t.splitlines() if x.strip()]
+    for i,x in enumerate(lines):
+        if x.upper() in ('PROPOSAL TESIS','TESIS','PROPOSAL SKRIPSI','SKRIPSI','DISERTASI'):
+            acc=[]
+            for y in lines[i+1:i+8]:
+                if re.match(r'(?i)^OLEH\s*:?', y) or re.match(r'(?i)^NPM\s*:', y): break
+                if y.upper() in ('KATA PENGANTAR','PROGRAM PASCASARJANA'): break
+                acc.append(y)
+            if acc: return ' '.join(acc)
+    return 'Naskah Akademik Hasil Penyuntingan'
+
+
+def _add_page_field(paragraph, align=None):
+    """Tambahkan PAGE field Word asli."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    if align is not None: paragraph.alignment = align
+    run=paragraph.add_run()
+    fldChar1=OxmlElement('w:fldChar'); fldChar1.set(qn('w:fldCharType'),'begin')
+    instr=OxmlElement('w:instrText'); instr.set(qn('xml:space'),'preserve'); instr.text=' PAGE '
+    fldChar2=OxmlElement('w:fldChar'); fldChar2.set(qn('w:fldCharType'),'end')
+    run._r.extend([fldChar1,instr,fldChar2])
+
+
+def _set_page_number_format(section, fmt='decimal', start=None):
+    """Atur format nomor halaman pada section Word."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    sectPr=section._sectPr
+    old=sectPr.find(qn('w:pgNumType'))
+    if old is not None: sectPr.remove(old)
+    el=OxmlElement('w:pgNumType'); el.set(qn('w:fmt'),fmt)
+    if start is not None: el.set(qn('w:start'),str(start))
+    sectPr.append(el)
+
+
+def _run_markdown_inline(paragraph, text, font_name='Times New Roman', font_size=12):
+    """Tulis teks dengan *italic* dan **bold** sebagai format Word, bukan marker mentah."""
+    text=str(text or '')
+    pat=re.compile(r'(\*\*[^*]+\*\*|\*[^*]+\*)')
+    pos=0
+    for m in pat.finditer(text):
+        if m.start()>pos:
+            r=paragraph.add_run(text[pos:m.start()]); r.font.name=font_name; r.font.size=Pt(font_size)
+        token=m.group(0)
+        if token.startswith('**'):
+            val=token[2:-2]; r=paragraph.add_run(val); r.bold=True
+        else:
+            val=token[1:-1]; r=paragraph.add_run(val); r.italic=True
+        r.font.name=font_name; r.font.size=Pt(font_size)
+        pos=m.end()
+    if pos<len(text):
+        r=paragraph.add_run(text[pos:]); r.font.name=font_name; r.font.size=Pt(font_size)
+
+
+def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Times New Roman', font_size=12):
+    """DOCX hasil penyuntingan yang rapi mengikuti ketentuan Pedoman Tesis aktif.
+    A4; margin 4-4-3-3 cm; TNR 12; spasi ganda; justify; indent/tab bertingkat;
+    cover tanpa nomor; bagian awal Romawi kecil; BAB angka Latin (1, 2, 3, ...); halaman pertama BAB
+    di tengah bawah dan halaman lanjutan di kanan atas.
+    """
+    if docx is None: return None
+    from docx.enum.section import WD_SECTION
+    from docx.enum.text import WD_BREAK
+    from docx.oxml.ns import qn
+    from docx.shared import Inches
+
+    clean=_bersihkan_hasil_sunting_ai(teks)
+    lines=clean.splitlines()
+    d=docx.Document()
+
+    def setup_section(sec):
+        sec.page_width=Cm(21); sec.page_height=Cm(29.7)
+        sec.top_margin=Cm(4); sec.left_margin=Cm(4); sec.bottom_margin=Cm(3); sec.right_margin=Cm(3)
+        sec.header_distance=Cm(1.5); sec.footer_distance=Cm(1.5)
+
+    setup_section(d.sections[0])
+    normal=d.styles['Normal']
+    normal.font.name=font_name; normal.font.size=Pt(font_size)
+    normal.paragraph_format.line_spacing=2
+    normal.paragraph_format.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY
+    normal.paragraph_format.first_line_indent=Cm(1.27)
+    normal.paragraph_format.space_before=Pt(0); normal.paragraph_format.space_after=Pt(0)
+
+    # Tentukan batas cover/front/body dari isi naskah.
+    idx_kata=next((i for i,x in enumerate(lines) if re.sub(r'[*_#]','',x).strip().upper()=='KATA PENGANTAR'), None)
+    idx_bab1=next((i for i,x in enumerate(lines) if re.match(r'^\s*\**\s*BAB\s+I\b',x,re.I)), None)
+    current_part='cover' if idx_kata is not None else ('front' if idx_bab1 is not None else 'body')
+    bab_count=0
+
+    def configure_front(sec):
+        setup_section(sec); sec.header.is_linked_to_previous=False; sec.footer.is_linked_to_previous=False
+        sec.different_first_page_header_footer=False
+        _set_page_number_format(sec,'lowerRoman',1)
+        # Romawi kecil di tengah bawah.
+        sec.header.paragraphs[0].clear()
+        fp=sec.footer.paragraphs[0]; fp.clear(); _add_page_field(fp,WD_ALIGN_PARAGRAPH.CENTER)
+
+    def configure_body(sec, first=False):
+        setup_section(sec); sec.header.is_linked_to_previous=False; sec.footer.is_linked_to_previous=False
+        sec.different_first_page_header_footer=True
+        if first: _set_page_number_format(sec,'decimal',1)
+        else: _set_page_number_format(sec,'decimal',None)
+        # Halaman pertama BAB: tengah bawah.
+        p=sec.first_page_footer.paragraphs[0]; p.clear(); _add_page_field(p,WD_ALIGN_PARAGRAPH.CENTER)
+        sec.first_page_header.paragraphs[0].clear()
+        # Halaman lanjutan BAB: kanan atas.
+        hp=sec.header.paragraphs[0]; hp.clear(); _add_page_field(hp,WD_ALIGN_PARAGRAPH.RIGHT)
+        sec.footer.paragraphs[0].clear()
+
+    # Cover section: tanpa nomor.
+    d.sections[0].header.is_linked_to_previous=False; d.sections[0].footer.is_linked_to_previous=False
+    d.sections[0].header.paragraphs[0].clear(); d.sections[0].footer.paragraphs[0].clear()
+
+    for i,raw in enumerate(lines):
+        t=raw.strip()
+        if not t: continue
+        plain=re.sub(r'[*_#]','',t).strip()
+        up=plain.upper()
+
+        # Mulai bagian awal pada Kata Pengantar.
+        if idx_kata is not None and i==idx_kata:
+            sec=d.add_section(WD_SECTION.NEW_PAGE); configure_front(sec); current_part='front'
+        # Setiap BAB menjadi section baru agar posisi nomor halaman tepat.
+        if re.match(r'^BAB\s+[IVXLCDM]+\b',up):
+            sec=d.add_section(WD_SECTION.NEW_PAGE); bab_count+=1; configure_body(sec,first=(bab_count==1)); current_part='body'
+
+        # Jangan tampilkan garis pemisah/code marker.
+        if plain in ('```','---'): continue
+
+        # Heading utama.
+        if re.match(r'^BAB\s+[IVXLCDM]+\b',up):
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER; p.paragraph_format.first_line_indent=Cm(0)
+            p.paragraph_format.line_spacing=2; p.paragraph_format.keep_with_next=True
+            r=p.add_run(up); r.bold=True; r.font.name=font_name; r.font.size=Pt(font_size)
+            continue
+        if up in ('PENDAHULUAN','KAJIAN PUSTAKA DAN KERANGKA PIKIR','METODE PENELITIAN','KATA PENGANTAR','DAFTAR ISI','DAFTAR TABEL','DAFTAR GAMBAR','DAFTAR LAMPIRAN','SISTEMATIKA PENULISAN','DAFTAR PUSTAKA','DAFTAR PUSTAKA SEMENTARA'):
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER; p.paragraph_format.first_line_indent=Cm(0)
+            p.paragraph_format.line_spacing=2; p.paragraph_format.keep_with_next=True
+            r=p.add_run(plain.upper()); r.bold=True; r.font.name=font_name; r.font.size=Pt(font_size)
+            continue
+
+        # Cover dibuat rata tengah sampai Kata Pengantar.
+        if current_part=='cover':
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER; p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=2
+            _run_markdown_inline(p,t,font_name,font_size)
+            if up in ('PROPOSAL TESIS','TESIS') or (len(plain)>35 and plain==plain.upper()):
+                for r in p.runs: r.bold=True
+            continue
+
+        # Subjudul A., B., C. memakai tab/hanging indent, bukan spasi manual.
+        mA=re.match(r'^([A-Z])\.\s*(.+)$',plain)
+        if mA:
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.LEFT; p.paragraph_format.first_line_indent=Cm(0)
+            p.paragraph_format.left_indent=Cm(0); p.paragraph_format.line_spacing=2; p.paragraph_format.keep_with_next=True
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(1.0))
+            r=p.add_run(mA.group(1)+'.\t'+mA.group(2)); r.bold=True; r.font.name=font_name; r.font.size=Pt(font_size)
+            continue
+
+        # Nomor 1., 2. dst. dengan hanging indent dan tab.
+        mn=re.match(r'^(\d+)[\.)]\s*(.+)$',plain)
+        if mn:
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY; p.paragraph_format.first_line_indent=Cm(-0.7)
+            p.paragraph_format.left_indent=Cm(0.7); p.paragraph_format.line_spacing=2
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(0.7))
+            _run_markdown_inline(p,mn.group(1)+'.\t'+mn.group(2),font_name,font_size)
+            continue
+
+        # Bullet menjadi daftar menjorok rapi.
+        mb=re.match(r'^[-*•]\s*(.+)$',t)
+        if mb:
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY; p.paragraph_format.left_indent=Cm(0.7); p.paragraph_format.first_line_indent=Cm(-0.4); p.paragraph_format.line_spacing=2
+            _run_markdown_inline(p,'•\t'+mb.group(1),font_name,font_size)
+            continue
+
+        # Ayat Arab: rata kanan, tanpa indent awal.
+        if re.search(r'[\u0600-\u06FF]',plain):
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.RIGHT; p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=1.5
+            r=p.add_run(plain); r.font.name='Traditional Arabic'; r.font.size=Pt(16)
+            continue
+
+        # Paragraf naratif.
+        p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY; p.paragraph_format.first_line_indent=Cm(1.27); p.paragraph_format.line_spacing=2
+        _run_markdown_inline(p,t,font_name,font_size)
+
+    bio=BytesIO(); d.save(bio); return bio.getvalue()
+
+
 if menu == "🏠 Beranda":
 
     st.header("🏠 Pusat Asisten Akademik")
@@ -3681,7 +3902,25 @@ NASKAH:
             _model_sunting = st.session_state.get("model_sunting_parafrase_ai", "")
             if _model_sunting:
                 st.caption(f"Model AI: {_model_sunting}")
-            st.text_area("Hasil Suntingan", st.session_state["hasil_sunting_parafrase_ai"], height=700, key="hasil_sunting_parafrase_area")
+            _hasil_sunting = st.session_state["hasil_sunting_parafrase_ai"]
+            st.text_area("Hasil Suntingan", _hasil_sunting, height=700, key="hasil_sunting_parafrase_area")
+
+            st.markdown("#### 📥 Download Hasil Terakhir")
+            st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
+            try:
+                _word_sunting = buat_docx_hasil_sunting_pedoman(
+                    _hasil_sunting, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
+                )
+                if _word_sunting:
+                    st.download_button(
+                        "📥 Download Word Hasil Suntingan Rapi", data=_word_sunting,
+                        file_name="Hasil_Suntingan_Akademik_Rapi.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary", key="download_word_hasil_sunting_rapi"
+                    )
+                    st.success("✅ Word hasil terakhir siap diunduh. Cover tanpa nomor; bagian awal memakai Romawi kecil; BAB memakai angka Latin (1, 2, 3, ...), halaman pertama BAB di tengah bawah dan halaman berikutnya di kanan atas.")
+            except Exception as _e_word_sunting:
+                st.error(f"Word belum dapat dibuat: {_e_word_sunting}")
 
     # --------------------------------------------------------
     # 2. REVISI DOSEN PEMBIMBING
@@ -3804,7 +4043,7 @@ NASKAH:
 
         if _ped_aktif:
             st.success(f"Format akan mengikuti Pedoman Aktif: {_ped_nama or 'Pedoman Penulisan'}")
-        st.info("Target Word: BAB halaman baru; daftar A./1./a. memakai tab dan hanging indent; tidak ada spasi manual; teks/tabel tidak melewati margin; sampul tanpa nomor; bagian awal Romawi kecil; halaman pertama BAB angka Arab di tengah bawah dan halaman berikutnya di kanan atas; Chicago/Turabian memakai footnote Word dan superscript.")
+        st.info("Target Word: BAB halaman baru; daftar A./1./a. memakai tab dan hanging indent; tidak ada spasi manual; teks/tabel tidak melewati margin; sampul tanpa nomor; bagian awal Romawi kecil; halaman pertama BAB angka Latin (1, 2, 3, ...) di tengah bawah dan halaman berikutnya di kanan atas; Chicago/Turabian memakai footnote Word dan superscript.")
 
         if st.button("✨ Finalisasi Naskah", type="primary", disabled=not bool(str(teks_final).strip()), key="btn_finalisasi_word_ai"):
             _ped_prompt = (_ped_teks[:50000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:15000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
