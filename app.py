@@ -678,43 +678,6 @@ def deteksi_gaya_sitasi_otomatis(teks):
     return {"gaya":best,"keyakinan":conf,"alasan":"; ".join(dict.fromkeys(reasons)) or "pola sitasi terdeteksi"}
 
 
-def deteksi_gaya_sitasi_file_asli(file_obj, teks=""):
-    """Deteksi gaya dari NASKAH ASLI. Untuk DOCX, keberadaan true footnote Word
-    lebih kuat daripada pola author-year yang mungkin hanya muncul di daftar pustaka.
-    File pointer selalu dikembalikan ke posisi awal.
-    """
-    hasil = deteksi_gaya_sitasi_otomatis(teks or "")
-    if file_obj is None:
-        return hasil
-    nama = str(getattr(file_obj, "name", "") or "").lower()
-    if not nama.endswith(".docx"):
-        return hasil
-    try:
-        import io, zipfile
-        from lxml import etree
-        file_obj.seek(0)
-        raw = file_obj.read()
-        file_obj.seek(0)
-        with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
-            if "word/document.xml" not in z.namelist():
-                return hasil
-            W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-            root = etree.fromstring(z.read("word/document.xml"))
-            refs = root.xpath(".//w:footnoteReference", namespaces={"w": W})
-            if refs:
-                return {
-                    "gaya": "Chicago/Turabian Notes (Footnote)",
-                    "keyakinan": "Tinggi",
-                    "alasan": f"Naskah DOCX asli memiliki {len(refs)} true footnote Word; sistem footnote asli dikunci sebagai master."
-                }
-    except Exception:
-        try:
-            file_obj.seek(0)
-        except Exception:
-            pass
-    return hasil
-
-
 def prompt_perbaiki_footnote_kutipan(teks, gaya, refs, mode="Pertahankan gaya bawaan"):
     daftar="\n".join(f"[{i}] {format_referensi(r, gaya if gaya not in ['Gaya bawaan/Custom','Deteksi Otomatis'] else None)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}" for i,r in enumerate(refs[:80],1)) or "LIBRARY KOSONG"
     return f"""Anda adalah editor sitasi akademik yang sangat konservatif.
@@ -1385,124 +1348,6 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             cursor = end
         return False
 
-
-    def format_terjemahan_ayat_hadis_word(doc_root):
-        """Format terjemahan ayat/hadis pada DOCX master tanpa merusak true footnote."""
-        def set_rpr_font_10(run):
-            rpr = run.find(q(W, "rPr"))
-            if rpr is None:
-                rpr = etree.Element(q(W, "rPr")); run.insert(0, rpr)
-            fonts = rpr.find(q(W, "rFonts"))
-            if fonts is None:
-                fonts = etree.SubElement(rpr, q(W, "rFonts"))
-            for a in ("ascii", "hAnsi", "eastAsia", "cs"):
-                fonts.set(q(W, a), "Times New Roman")
-            for tag in ("sz", "szCs"):
-                el = rpr.find(q(W, tag))
-                if el is None: el = etree.SubElement(rpr, q(W, tag))
-                el.set(q(W, "val"), "20")  # 10 pt = 20 half-points
-
-        def strip_prefix_from_text_nodes(p):
-            nodes = p.xpath(".//w:t", namespaces=ns)
-            full = "".join((n.text or "") for n in nodes)
-            m = re.match(r'^\s*(?:[-*•]\s*)?(?:\*{0,2})?Artinya(?:\*{0,2})?\s*:\s*', full, re.I)
-            if not m: return False
-            remove = m.end()
-            left = remove
-            for n in nodes:
-                txt = n.text or ""
-                if left <= 0: break
-                cut = min(left, len(txt))
-                n.text = txt[cut:]
-                left -= cut
-            return True
-
-        paras = doc_root.xpath(".//w:body//w:p", namespaces=ns)
-        changed = 0
-        for p in paras:
-            raw = para_text(p)
-            if not re.match(r'^\s*(?:[-*•]\s*)?(?:\*{0,2})?Artinya(?:\*{0,2})?\s*:', raw, re.I):
-                continue
-            strip_prefix_from_text_nodes(p)
-            # Paragraf terjemahan: TNR 10, spasi 1, baris pertama menjorok 1,27 cm.
-            ppr = p.find(q(W, "pPr"))
-            if ppr is None:
-                ppr = etree.Element(q(W, "pPr")); p.insert(0, ppr)
-            ind = ppr.find(q(W, "ind"))
-            if ind is None: ind = etree.SubElement(ppr, q(W, "ind"))
-            ind.set(q(W, "left"), "0"); ind.set(q(W, "right"), "0"); ind.set(q(W, "firstLine"), "720")
-            spacing = ppr.find(q(W, "spacing"))
-            if spacing is None: spacing = etree.SubElement(ppr, q(W, "spacing"))
-            spacing.set(q(W, "before"), "0"); spacing.set(q(W, "after"), "0")
-            spacing.set(q(W, "line"), "240"); spacing.set(q(W, "lineRule"), "auto")
-            jc = ppr.find(q(W, "jc"))
-            if jc is None: jc = etree.SubElement(ppr, q(W, "jc"))
-            jc.set(q(W, "val"), "both")
-            for run in p.xpath("./w:r", namespaces=ns):
-                set_rpr_font_10(run)
-            changed += 1
-        return changed
-
-    def replace_sistematika_from_ai(doc_root, ai_text):
-        """Ganti HANYA bagian SISTEMATIKA PENULISAN pada DOCX master dengan
-        kerangka dari hasil AI. Footnote dan bagian lain tidak disentuh."""
-        txt = str(ai_text or "")
-        m = re.search(r'(?is)(?:^|\n)\s*(?:#{1,6}\s*)?SISTEMATIKA PENULISAN\s*\n(.*?)(?=\n\s*(?:#{1,6}\s*)?DAFTAR PUSTAKA(?:\s+SEMENTARA)?\b|\Z)', txt)
-        if not m:
-            return 0
-        block = clean_md(m.group(1)).strip()
-        lines = [clean_md(x).strip() for x in block.splitlines() if clean_md(x).strip()]
-        # Hanya terima kerangka nyata, bukan uraian lama.
-        if not any(re.match(r'^BAB\s+[IVX]+\b', x, re.I) for x in lines):
-            return 0
-        body = doc_root.find('.//' + q(W, 'body'))
-        if body is None:
-            return 0
-        children = list(body)
-        start = end = None
-        for i, el in enumerate(children):
-            if el.tag != q(W, 'p'):
-                continue
-            t = clean_md(''.join(el.xpath('.//w:t/text()', namespaces=ns))).strip()
-            if start is None and re.fullmatch(r'SISTEMATIKA PENULISAN', t, re.I):
-                start = i
-                continue
-            if start is not None and re.fullmatch(r'DAFTAR PUSTAKA(?: SEMENTARA)?', t, re.I):
-                end = i
-                break
-        if start is None or end is None or end <= start:
-            return 0
-        # Hapus isi lama setelah heading sampai sebelum Daftar Pustaka.
-        for el in children[start+1:end]:
-            body.remove(el)
-        # Temukan ulang heading agar insertion index aman.
-        children = list(body)
-        heading_el = children[start]
-        insert_at = list(body).index(heading_el) + 1
-        for line in lines:
-            p = etree.Element(q(W, 'p'))
-            ppr = etree.SubElement(p, q(W, 'pPr'))
-            spacing = etree.SubElement(ppr, q(W, 'spacing'))
-            spacing.set(q(W, 'line'), '480')
-            spacing.set(q(W, 'lineRule'), 'auto')
-            ind = etree.SubElement(ppr, q(W, 'ind'))
-            # BAB tanpa indent; subbab dan anak subbab bertingkat.
-            if re.match(r'^[A-Z]\.\s+', line):
-                ind.set(q(W, 'left'), '360')
-            elif re.match(r'^\d+[.)]\s+', line):
-                ind.set(q(W, 'left'), '720')
-            r = etree.SubElement(p, q(W, 'r'))
-            rpr = etree.SubElement(r, q(W, 'rPr'))
-            fonts = etree.SubElement(rpr, q(W, 'rFonts'))
-            fonts.set(q(W, 'ascii'), 'Times New Roman')
-            fonts.set(q(W, 'hAnsi'), 'Times New Roman')
-            sz = etree.SubElement(rpr, q(W, 'sz')); sz.set(q(W, 'val'), '24')
-            if re.match(r'^BAB\s+[IVX]+\b', line, re.I):
-                etree.SubElement(rpr, q(W, 'b'))
-            t = etree.SubElement(r, q(W, 't')); t.text = line
-            body.insert(insert_at, p); insert_at += 1
-        return len(lines)
-
     try:
         file_asli.seek(0)
         original = file_asli.read()
@@ -1546,8 +1391,6 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
 
         parser = etree.XMLParser(remove_blank_text=False, recover=False)
         doc_root = etree.fromstring(files["word/document.xml"], parser)
-        # Terapkan perubahan terarah pada Sistematika Penulisan saja.
-        _jumlah_sistematika = replace_sistematika_from_ai(doc_root, ai)
 
         fn_path = "word/footnotes.xml"
         if fn_path in files:
@@ -1572,18 +1415,12 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             except Exception:
                 pass
 
-        max_existing_id = max([x for x in existing_ids if x > 0], default=0)
-        next_id = max_existing_id + 1
+        next_id = max([x for x in existing_ids if x > 0], default=0) + 1
         inserted, skipped, missing = [], [], []
 
         paragraphs = doc_root.xpath(".//w:body//w:p", namespaces=ns)
 
         for marker_no in sorted(ai_notes):
-            # Footnote lama adalah MASTER. Marker AI yang nomornya sudah ada
-            # tidak boleh dibuat ulang, dipindah, atau ditukar sumbernya.
-            if marker_no <= max_existing_id:
-                skipped.append(marker_no)
-                continue
             ctx = contexts.get(marker_no, "")
             note_text = ai_notes[marker_no]
             if not ctx:
@@ -1676,10 +1513,6 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
         if not inserted and not skipped:
             return None, "Tidak ada marker yang dapat dicocokkan secara aman dengan naskah Word asli."
 
-        # Format khusus terjemahan ayat/hadis pada DOCX master asli.
-        # Ini tidak mengubah paragraf naskah biasa dan tidak menghapus true footnote.
-        _jumlah_terjemahan_diformat = format_terjemahan_ayat_hadis_word(doc_root)
-
         # Pastikan SEMUA nomor footnote, lama maupun baru, benar-benar superscript.
         # Di badan naskah: w:footnoteReference
         for ref_el in doc_root.xpath(".//w:footnoteReference", namespaces=ns):
@@ -1750,8 +1583,6 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
                 return None, "Validasi footnote gagal: ada reference tanpa footnote."
 
         msg = f"Berhasil menambahkan {len(inserted)} footnote Word pada posisi kutipan."
-        if _jumlah_terjemahan_diformat:
-            msg += f" {_jumlah_terjemahan_diformat} paragraf terjemahan ayat/hadis diformat TNR 10, spasi 1, dan menjorok 1,27 cm."
         if skipped:
             msg += f" {len(skipped)} footnote identik tidak digandakan."
         if missing:
@@ -2323,11 +2154,10 @@ def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Ti
         _is_terjemah=bool(re.match(r'^["“]', _kutip) and (re.search(r'\(Q\.S\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]*[.!?]?["”]?\s*$', _kutip, re.I) or re.search(r'\(HR\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]+[.!?]?["”]?\s*$', _kutip, re.I)))
         if _is_terjemah:
             p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY
-            # Kutipan terjemahan mengikuti pedoman: TNR 10 pt, spasi 1, awal paragraf menjorok.
-            p.paragraph_format.left_indent=Cm(0); p.paragraph_format.right_indent=Cm(0)
-            p.paragraph_format.first_line_indent=Cm(1.27); p.paragraph_format.line_spacing=1
+            p.paragraph_format.left_indent=Cm(1.27); p.paragraph_format.right_indent=Cm(1.27)
+            p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=1
             p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(0)
-            _run_markdown_inline(p,_kutip,'Times New Roman',10)
+            _run_markdown_inline(p,_kutip,font_name,font_size)
             continue
 
         # Bullet menjadi daftar menjorok rapi.
@@ -4088,6 +3918,7 @@ elif menu == "✨ Penyunting Akademik AI":
                 "Parafrasa Ringan",
                 "Parafrasa Akademik",
                 "Parafrasa Mendalam",
+                "✨ Penyuntingan Akademik Lengkap (Mode Aman)",
                 "Sunting Naskah Lengkap",
             ],
             key="mode_sunting_parafrase_ai"
@@ -4099,18 +3930,28 @@ elif menu == "✨ Penyunting Akademik AI":
             if not _t.startswith("ERROR:"):
                 teks_edit = _t
 
-        # Gaya sitasi SELALU ditentukan dari naskah asli, bukan dari hasil AI.
-        _gaya_asli_info = deteksi_gaya_sitasi_file_asli(file_edit, teks_edit)
-        _gaya_asli = _gaya_asli_info.get("gaya", "Gaya bawaan/Custom")
-        st.session_state["gaya_sitasi_asli_penyunting"] = _gaya_asli
-        st.info(f"🔒 Gaya kutipan naskah asli dikunci: **{_gaya_asli}**. Semua kutipan baru wajib mengikuti gaya ini; AI tidak boleh menggantinya dengan APA/Chicago/gaya lain.")
-        st.caption(_gaya_asli_info.get("alasan", ""))
         st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
-        _siap_sunting = bool(str(teks_edit or "").strip())
+
+        # Naskah aktif memungkinkan penyuntingan berulang tanpa download-upload.
+        _naskah_aktif_editor = str(st.session_state.get("naskah_aktif_penyunting_ai", "") or "").strip()
+        if _naskah_aktif_editor:
+            st.success("✅ Naskah Aktif Terbaru tersedia. Penyuntingan berikutnya otomatis memakai versi aktif ini.")
+            _sumber_sunting = _naskah_aktif_editor
+        else:
+            _sumber_sunting = str(teks_edit or "").strip()
+
+        _siap_sunting = bool(_sumber_sunting)
         if not _siap_sunting:
             st.caption("Unggah naskah atau tempel teks terlebih dahulu agar tombol Sunting aktif.")
 
         if st.button("✨ Sunting dengan AI", type="primary", disabled=not _siap_sunting, key="btn_sunting_parafrase_ai"):
+            # Simpan naskah pertama sebagai versi asli. Tidak pernah ditimpa otomatis.
+            if not st.session_state.get("naskah_asli_penyunting_ai"):
+                st.session_state["naskah_asli_penyunting_ai"] = _sumber_sunting
+            if not st.session_state.get("riwayat_naskah_penyunting_ai"):
+                st.session_state["riwayat_naskah_penyunting_ai"] = [
+                    {"versi": "Versi Asli", "teks": _sumber_sunting}
+                ]
             _ped_prompt = (_ped_teks[:45000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:12000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
             _prompt = f"""Anda adalah Penyunting Akademik AI.
 JENIS NASKAH: {jenis_naskah_editor}
@@ -4127,12 +3968,13 @@ ATURAN WAJIB:
 5. Sitasi yang sudah ada harus tetap melekat pada klaim yang sama.
 6. Bila ada bagian meragukan, tandai [PERLU VERIFIKASI], jangan menebak.
 7. Ikuti pedoman aktif bila tersedia. Jika pedoman tidak mengatur sesuatu, jangan membuat aturan institusi sendiri.
-8. GAYA SITASI NASKAH ASLI TERDETEKSI: {_gaya_asli}. GAYA INI DIKUNCI. Dilarang mengubahnya menjadi APA, Chicago, atau gaya lain yang berbeda. Kutipan lama harus tetap ada dan semua kutipan baru wajib mengikuti gaya asli ini.
-9. Jika gaya asli memakai footnote, jangan mengubah footnote menjadi author-date. Untuk catatan baru gunakan marker [^N] pada posisi klaim dan definisi [^N]: isi catatan agar dapat dipasang sebagai true footnote Word. Jangan membuat nomor ganda.
-10. Keluarkan dua bagian: HASIL SUNTINGAN dan CATATAN PERUBAHAN PENTING. Jangan menambah pembahasan di luar naskah.
+8. Keluarkan dua bagian: HASIL SUNTINGAN dan CATATAN PERUBAHAN PENTING. Jangan menambah pembahasan di luar naskah.
+9. Jika MODE adalah "✨ Penyuntingan Akademik Lengkap (Mode Aman)", lakukan sekaligus: koreksi ejaan/typo, rapikan kalimat, bahasa akademik, perkuat paragraf, dan koherensi antarparagraf. DILARANG melakukan parafrasa mendalam atau mengubah substansi.
+10. Dalam Mode Aman, rumusan masalah, tujuan, hipotesis, nama variabel, istilah metodologis, angka/data, kutipan langsung, sitasi/footnote, daftar pustaka, ayat/hadis, nama tokoh/lembaga, dan temuan penelitian harus dipertahankan.
+11. Jangan menghapus bagian naskah hanya karena dianggap berulang. Perbaiki bahasanya tanpa mengurangi informasi substantif.
 
 NASKAH:
-{str(teks_edit)[:90000]}"""
+{_sumber_sunting[:90000]}"""
             with st.spinner("AI sedang menyunting naskah. Mohon tunggu sampai hasil tampil..."):
                 _h = panggil_gemini(_prompt, temperature=0.20)
             if _h.get("sukses"):
@@ -4149,6 +3991,23 @@ NASKAH:
             if _model_sunting:
                 st.caption(f"Model AI: {_model_sunting}")
             _hasil_sunting = st.session_state["hasil_sunting_parafrase_ai"]
+
+            # Pisahkan isi naskah dari catatan AI agar versi aktif berikutnya tetap bersih.
+            _hasil_bersih_aktif = str(_hasil_sunting or "").strip()
+            _m_hasil = re.search(r"(?is)HASIL\s+SUNTINGAN\s*:?\s*(.*?)(?=\n\s*CATATAN\s+PERUBAHAN\s+PENTING\s*:?|$)", _hasil_bersih_aktif)
+            if _m_hasil:
+                _hasil_bersih_aktif = _m_hasil.group(1).strip()
+            _hasil_bersih_aktif = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", _hasil_bersih_aktif, flags=re.I|re.S).strip()
+
+            st.markdown("#### 👀 Perbandingan Naskah")
+            _kol_asli, _kol_hasil = st.columns(2)
+            with _kol_asli:
+                with st.expander("📄 Naskah Sebelum Disunting", expanded=False):
+                    st.text_area("Sebelum", value=str(st.session_state.get("naskah_aktif_penyunting_ai") or st.session_state.get("naskah_asli_penyunting_ai") or teks_edit or ""), height=350, disabled=True, key="lihat_naskah_sebelum_sunting")
+            with _kol_hasil:
+                with st.expander("✨ Hasil Penyuntingan", expanded=True):
+                    st.text_area("Sesudah", value=_hasil_bersih_aktif, height=350, disabled=True, key="lihat_naskah_sesudah_sunting")
+
             # Terapkan pembaruan hasil referensi SEBELUM widget text_area dibuat.
             # Streamlit melarang perubahan session_state sebuah widget setelah widget
             # dengan key yang sama sudah diinstansiasi pada run yang sama.
@@ -4161,6 +4020,41 @@ NASKAH:
             # Gunakan isi editor TERKINI untuk Word. Jika pengguna memperbaiki teks di kotak
             # Hasil Suntingan, perubahan itu ikut masuk ke file unduhan.
             _hasil_sunting_untuk_word = st.session_state.get("hasil_sunting_parafrase_area", _hasil_sunting) or _hasil_sunting
+
+            st.markdown("#### ✅ Tetapkan Hasil")
+            _a1, _a2 = st.columns(2)
+            if _a1.button("✅ Jadikan Naskah Aktif Terbaru", key="btn_jadikan_naskah_aktif_penyunting", type="primary", use_container_width=True):
+                _teks_aktif_baru = str(st.session_state.get("hasil_sunting_parafrase_area", _hasil_bersih_aktif) or _hasil_bersih_aktif).strip()
+                _m_aktif = re.search(r"(?is)HASIL\s+SUNTINGAN\s*:?\s*(.*?)(?=\n\s*CATATAN\s+PERUBAHAN\s+PENTING\s*:?|$)", _teks_aktif_baru)
+                if _m_aktif:
+                    _teks_aktif_baru = _m_aktif.group(1).strip()
+                if _teks_aktif_baru:
+                    _riwayat = list(st.session_state.get("riwayat_naskah_penyunting_ai", []))
+                    _nomor = 1 + sum(1 for _v in _riwayat if str(_v.get("versi", "")).startswith("Suntingan"))
+                    _riwayat.append({"versi": f"Suntingan {_nomor}", "teks": _teks_aktif_baru})
+                    st.session_state["riwayat_naskah_penyunting_ai"] = _riwayat
+                    st.session_state["naskah_aktif_penyunting_ai"] = _teks_aktif_baru
+                    st.session_state["hasil_sunting_parafrase_ai"] = ""
+                    st.session_state.pop("hasil_sunting_parafrase_area", None)
+                    st.success(f"✅ Suntingan {_nomor} sekarang menjadi Naskah Aktif Terbaru. Tidak perlu unggah ulang.")
+                    st.rerun()
+            if _a2.button("↩️ Batalkan Hasil Ini", key="btn_batalkan_hasil_penyunting", use_container_width=True):
+                st.session_state["hasil_sunting_parafrase_ai"] = ""
+                st.session_state.pop("hasil_sunting_parafrase_area", None)
+                st.info("Hasil suntingan dibatalkan. Naskah aktif sebelumnya tetap aman.")
+                st.rerun()
+
+            _riwayat_now = st.session_state.get("riwayat_naskah_penyunting_ai", [])
+            if _riwayat_now:
+                with st.expander("📜 Riwayat Versi Naskah", expanded=False):
+                    _nama_versi = [str(_v.get("versi", f"Versi {i+1}")) for i, _v in enumerate(_riwayat_now)]
+                    _pilih_versi = st.selectbox("Lihat versi", _nama_versi, index=len(_nama_versi)-1, key="pilih_riwayat_naskah_penyunting")
+                    _idx_versi = _nama_versi.index(_pilih_versi)
+                    st.text_area("Isi versi", value=str(_riwayat_now[_idx_versi].get("teks", "")), height=300, disabled=True, key="lihat_riwayat_naskah_penyunting")
+                    if st.button("♻️ Jadikan Versi Ini Naskah Aktif", key="btn_pulihkan_versi_penyunting"):
+                        st.session_state["naskah_aktif_penyunting_ai"] = str(_riwayat_now[_idx_versi].get("teks", ""))
+                        st.success(f"{_pilih_versi} dipulihkan sebagai Naskah Aktif Terbaru.")
+                        st.rerun()
 
             st.markdown("#### 📚 Perkuat Referensi & Kutipan")
             st.caption("Akademia AI membaca isi naskah untuk menentukan kata kunci dan menyaring referensi yang relevan. Kata kunci tambahan bersifat opsional.")
@@ -4344,7 +4238,6 @@ KANDIDAT:
                     _meta = "\n".join([f"- Penulis: {r.get('Penulis','')}; Tahun: {r.get('Tahun','')}; Judul: {r.get('Judul','')}; Jurnal/Penerbit: {r.get('Jurnal','')}; DOI: {r.get('DOI','')}; Halaman metadata: {r.get('Halaman','')}; Status: {r.get('Status','')}" for r in _selected])
                     _prompt_ref = f"""Anda adalah penyunting referensi akademik.
     JENIS NASKAH: {jenis_naskah_editor}
-    GAYA SITASI ASLI YANG DIKUNCI: {st.session_state.get("gaya_sitasi_asli_penyunting", _gaya_asli)}
 
     NASKAH:
     {str(_hasil_sunting_untuk_word)[:90000]}
@@ -4355,11 +4248,10 @@ KANDIDAT:
     TUGAS WAJIB - MODE AMAN PENYUNTING AKADEMIK AI:
     1. NASKAH ASLI ADALAH MASTER. Jangan menulis ulang, meringkas, menghapus, memindahkan, atau mengganti paragraf yang tidak perlu. Pertahankan urutan BAB, subbab, tabel, ayat, hadis, data, angka, istilah, dan substansi.
     2. PERTAHANKAN 100% SEMUA SUMBER DAN KUTIPAN/FOOTNOTE ASLI. Dilarang menghapus nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
-    3. JANGAN MENDETEKSI ULANG DARI HASIL AI. Gunakan persis GAYA SITASI ASLI YANG DIKUNCI di atas. Jika gaya terkunci adalah footnote/notes, DILARANG menghasilkan sitasi author-date seperti (Nama, 2024). Sitasi tambahan wajib berupa marker [^N] di lokasi klaim dan definisi [^N]: catatan lengkap. Jika gaya terkunci APA/author-date, pertahankan author-date. Gaya lain mengikuti gaya asli.
-    4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. KUNCI nomor, posisi, dan isi footnote lama PERSIS seperti dokumen asli: jangan dipindah, jangan ditukar sumbernya, jangan diberi nomor baru, dan jangan ditulis ulang. Footnote BARU saja yang boleh ditambahkan, dimulai setelah nomor footnote terbesar yang sudah ada. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
+    3. DETEKSI DAN KUNCI GAYA SITASI NASKAH ASLI. Proposal/naskah unggahan adalah master. Jika gaya asli Chicago footnote, semua sitasi tambahan atau sitasi yang terlanjur berbentuk APA/author-date harus dirapikan menjadi Chicago footnote dengan sumber yang sama. Jika gaya asli APA, tetap APA. Jika gaya lain, ikuti gaya asli. DILARANG mengubah naskah ke gaya pilihan AI.
+    4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. Pertahankan catatan lama, rapikan formatnya, dan sisipkan footnote baru sesuai posisi kutipan sehingga penomoran akhir unik, berurutan, dan tidak ganda. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
     4a. AYAT AL-QURAN: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1, lalu akhiri dengan identitas ayat seperti (Q.S. Al-Hasyr/59: 18). Identitas ayat tersebut TIDAK diberi footnote baru. Tafsir/penjelasan setelah ayat kembali menjadi paragraf biasa dan menggunakan sitasi sesuai gaya asli naskah.
     4b. HADIS: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1. Pada akhir terjemahan tulis (HR. Nama Perawi) lalu nomor footnote sesuai urutan gaya asli. Footnote hadis memuat sumber/takhrij yang benar-benar tersedia. Jangan mengarang nomor hadis, halaman, sanad, atau data yang belum terverifikasi.
-    4c. SISTEMATIKA PENULISAN WAJIB DIGANTI dari bentuk uraian menjadi PETA/KERANGKA tesis BAB I sampai BAB V. Jangan mempertahankan sistematika lama yang berbentuk kalimat “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”. BAB I mengikuti subbab BAB I naskah aktif; BAB II mengikuti subbab BAB II dan bagian Kajian Teori diperinci menjadi anak subbab teori sesuai variabel/fokus penelitian; BAB III mengikuti subbab metode pada proposal; BAB IV dibuat sebagai kerangka Hasil Penelitian dan Pembahasan sesuai jenis penelitian, rumusan masalah, tujuan, variabel/fokus, hipotesis/instrumen/analisis bila relevan tanpa mengarang hasil; BAB V dibuat sebagai Penutup sesuai jenis penelitian dan pedoman. Gunakan hierarki BAB I, A., 1. tanpa paragraf uraian.
     5. Rapikan footnote lama dan baru secara konsisten tanpa mengubah identitas sumber. Jika metadata kurang, pertahankan sumber dan tandai [PERLU VERIFIKASI] atau [halaman perlu verifikasi], jangan mengarang.
     6. Tambahkan sumber baru HANYA pada klaim yang benar-benar relevan dengan metadata referensi yang DIIZINKAN. Jangan memaksakan semua referensi masuk ke naskah.
     7. Jangan mengarang isi artikel, DOI, volume, nomor, halaman, kutipan langsung, hasil penelitian, nomor hadis, sanad, atau halaman kitab/tafsir. Jika dukungan substantif belum dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER].
@@ -4389,26 +4281,13 @@ KANDIDAT:
             st.markdown("#### 📥 Download Hasil Terakhir")
             st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
             try:
-                _gaya_word_asli = st.session_state.get("gaya_sitasi_asli_penyunting", _gaya_asli)
-                _word_sunting = None
-                _pesan_word_asli = ""
-                # Untuk DOCX dengan gaya footnote, JANGAN bangun ulang dokumen dari teks.
-                # Gunakan file asli sebagai master agar seluruh true footnote lama tetap utuh,
-                # lalu tambahkan footnote baru ke package Word asli.
-                if file_edit is not None and str(getattr(file_edit, "name", "")).lower().endswith(".docx") and ("footnote" in _gaya_word_asli.lower() or "notes" in _gaya_word_asli.lower() or "chicago" in _gaya_word_asli.lower() or "turabian" in _gaya_word_asli.lower()):
-                    _word_sunting, _pesan_word_asli = buat_word_hasil_revisi(file_edit, _hasil_sunting_untuk_word)
-                    if _word_sunting is None:
-                        st.warning("Word asli tetap dilindungi. Footnote baru belum dipasang karena marker/konteks belum aman: " + str(_pesan_word_asli))
-                else:
-                    _word_sunting = buat_docx_hasil_sunting_pedoman(
-                        _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
-                    )
+                _word_sunting = buat_docx_hasil_sunting_pedoman(
+                    _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
+                )
                 if _word_sunting:
-                    if _pesan_word_asli:
-                        st.success(_pesan_word_asli)
                     st.download_button(
                         "📥 Download Word Hasil Suntingan Rapi", data=_word_sunting,
-                        file_name="Hasil_Suntingan_Akademik_Gaya_Asli.docx",
+                        file_name="Hasil_Suntingan_Akademik_Rapi.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary", key="download_word_hasil_sunting_rapi"
                     )
