@@ -1592,76 +1592,121 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
         return None, f"Gagal membuat salinan Word: {e}"
 
 
-def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Agama Islam", tahun=None):
-    """Membuat DOCX proposal final yang rapi untuk dicetak dari naskah final."""
+def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Agama Islam", tahun=None,
+                              gaya_sitasi="Chicago Notes & Bibliography (Footnote)",
+                              font_naskah="Times New Roman", ukuran_naskah="12 pt"):
+    """Membuat DOCX proposal yang rapi; true footnote dipakai untuk Chicago/Turabian."""
     if docx is None:
         return None
-    import re
+    import re, io, zipfile
+    from lxml import etree
+
+    def _pt_size(v, default=12):
+        m = re.search(r'(\d+)', str(v or ''))
+        return int(m.group(1)) if m else default
+
+    font_body = str(font_naskah or 'Times New Roman')
+    size_body = _pt_size(ukuran_naskah, 12)
+    is_notes_style = ('chicago' in str(gaya_sitasi).lower() or 'turabian' in str(gaya_sitasi).lower())
+
     bio = BytesIO()
     d = docx.Document()
     sec = d.sections[0]
-    sec.top_margin = Cm(4)
-    sec.left_margin = Cm(4)
-    sec.bottom_margin = Cm(3)
-    sec.right_margin = Cm(3)
+    sec.top_margin = Cm(4); sec.left_margin = Cm(4); sec.bottom_margin = Cm(3); sec.right_margin = Cm(3)
 
     normal = d.styles['Normal']
-    normal.font.name = 'Times New Roman'
-    normal.font.size = Pt(12)
+    normal.font.name = font_body; normal.font.size = Pt(size_body)
     normal.paragraph_format.line_spacing = 2
     normal.paragraph_format.first_line_indent = Cm(1.27)
     normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    # Sampul proposal.
-    p0 = d.add_paragraph()
-    p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p0.paragraph_format.first_line_indent = Cm(0)
-    r = p0.add_run('PROPOSAL TESIS')
-    r.bold = True; r.font.name = 'Times New Roman'; r.font.size = Pt(14)
+    # Sampul dibuat oleh Word exporter agar tidak bercampur dengan badan proposal.
+    p0 = d.add_paragraph(); p0.alignment = WD_ALIGN_PARAGRAPH.CENTER; p0.paragraph_format.first_line_indent = Cm(0)
+    r = p0.add_run('PROPOSAL TESIS'); r.bold = True; r.font.name = font_body; r.font.size = Pt(14)
     for _ in range(2): d.add_paragraph('')
     pj = d.add_paragraph(); pj.alignment = WD_ALIGN_PARAGRAPH.CENTER; pj.paragraph_format.first_line_indent = Cm(0)
-    rr = pj.add_run(str(judul or '').upper()); rr.bold=True; rr.font.name='Times New Roman'; rr.font.size=Pt(14)
+    rr = pj.add_run(str(judul or '').upper()); rr.bold = True; rr.font.name = font_body; rr.font.size = Pt(14)
     for _ in range(5): d.add_paragraph('')
-    for line in [f'Oleh: {nama}' if nama else 'Oleh:', f'NPM: {npm}' if npm else 'NPM:', '', 'PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}', 'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA', 'MARTAPURA', str(tahun or datetime.now().year)]:
-        pp=d.add_paragraph(); pp.alignment=WD_ALIGN_PARAGRAPH.CENTER; pp.paragraph_format.first_line_indent=Cm(0)
-        run=pp.add_run(line); run.font.name='Times New Roman'; run.font.size=Pt(12); run.bold = line in ['PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}', 'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA']
+    cover_lines = [
+        f'Oleh: {nama}' if nama else 'Oleh:', f'NPM: {npm}' if npm else 'NPM:', '',
+        'PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}',
+        'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA', 'MARTAPURA', str(tahun or datetime.now().year)
+    ]
+    for line in cover_lines:
+        pp = d.add_paragraph(); pp.alignment = WD_ALIGN_PARAGRAPH.CENTER; pp.paragraph_format.first_line_indent = Cm(0)
+        run = pp.add_run(line); run.font.name = font_body; run.font.size = Pt(size_body)
+        run.bold = line in ['PROGRAM PASCASARJANA', f'PROGRAM STUDI {prodi.upper()}', 'INSTITUT AGAMA ISLAM DARUSSALAM MARTAPURA']
     d.add_page_break()
 
     raw = str(teks or '').strip()
-    # Catatan kaki model markdown dipisahkan dari badan agar tidak tercetak dua kali.
-    note_pat = re.compile(r'(?m)^\[\^(\d+)\]\s*:?[ \t]*(.+)$')
-    notes = {int(m.group(1)): m.group(2).strip() for m in note_pat.finditer(raw)}
-    body = note_pat.sub('', raw)
-    body = re.sub(r'(?im)^\s*(CATATAN KAKI|FOOTNOTES?)\s*$','',body)
+    # Format marker yang diwajibkan untuk Chicago/Turabian: [^1] pada narasi dan [^1]: isi catatan.
+    note_pat = re.compile(r'(?m)^\s*\[\^(\d+)\]\s*:?[ \t]*(.+)$')
+    notes = {int(m.group(1)): m.group(2).strip() for m in note_pat.finditer(raw)} if is_notes_style else {}
+    body = note_pat.sub('', raw) if is_notes_style else raw
+    body = re.sub(r'(?im)^\s*(CATATAN KAKI|FOOTNOTES?)\s*$', '', body)
+    body = re.sub(r'(?m)^\s*---+\s*$', '', body)
 
-    heading_re = re.compile(r'^(BAB\s+[IVXLCDM]+\b.*|[A-Z]\.\s+.+|\d+\.\s+.+)$', re.I)
-    for line in body.splitlines():
-        t=line.strip()
-        if not t: continue
-        # bersihkan markdown heading/bold tanpa mengubah substansi
-        t=re.sub(r'^#{1,6}\s*','',t)
-        t=t.replace('**','').replace('__','')
-        pp=d.add_paragraph()
-        pp.paragraph_format.line_spacing=2
-        if re.match(r'^BAB\s+[IVXLCDM]+\b', t, re.I):
-            pp.alignment=WD_ALIGN_PARAGRAPH.CENTER; pp.paragraph_format.first_line_indent=Cm(0)
-            run=pp.add_run(t); run.bold=True; run.font.name='Times New Roman'; run.font.size=Pt(12)
-        elif heading_re.match(t) and len(t) < 180:
-            pp.alignment=WD_ALIGN_PARAGRAPH.LEFT; pp.paragraph_format.first_line_indent=Cm(0)
-            run=pp.add_run(t); run.bold=True; run.font.name='Times New Roman'; run.font.size=Pt(12)
+    # Hindari sampul ganda bila AI ikut menulis blok sampul.
+    lines = body.splitlines()
+    first_bab = next((i for i,x in enumerate(lines) if re.match(r'^\s*#{0,6}\s*BAB\s+[IVXLCDM]+\b', x, re.I)), None)
+    first_kata = next((i for i,x in enumerate(lines) if re.match(r'^\s*#{0,6}\s*KATA\s+PENGANTAR\b', x, re.I)), None)
+    if first_kata is not None:
+        lines = lines[first_kata:]
+    elif first_bab is not None:
+        lines = lines[first_bab:]
+
+    bab_seen = 0
+    for raw_line in lines:
+        t = raw_line.strip()
+        if not t:
+            continue
+        t = re.sub(r'^#{1,6}\s*', '', t)
+        t = t.replace('**', '').replace('__', '')
+        t = re.sub(r'^>\s*', '', t)
+
+        is_bab = bool(re.match(r'^BAB\s+[IVXLCDM]+\b', t, re.I))
+        is_front_heading = bool(re.match(r'^(KATA PENGANTAR|DAFTAR ISI|DAFTAR TABEL|DAFTAR PUSTAKA(?: SEMENTARA)?|SISTEMATIKA PENULISAN(?: TESIS)?(?: \(RENCANA\))?)\s*$', t, re.I))
+        is_sub = bool(re.match(r'^[A-Z]\.\s+\S', t))
+        is_numbered_item = bool(re.match(r'^\d+[\.)]\s+\S', t))
+        is_bullet = bool(re.match(r'^[-*•]\s+\S', t))
+
+        if is_bab:
+            if bab_seen > 0:
+                d.add_page_break()
+            bab_seen += 1
+            pp = d.add_paragraph(); pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pp.paragraph_format.first_line_indent = Cm(0); pp.paragraph_format.line_spacing = 2
+            run = pp.add_run(t.upper()); run.bold = True; run.font.name = font_body; run.font.size = Pt(size_body)
+            continue
+
+        if is_front_heading:
+            # Bagian utama non-BAB dibuat tegas dan tidak dianggap paragraf naratif.
+            pp = d.add_paragraph(); pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pp.paragraph_format.first_line_indent = Cm(0); pp.paragraph_format.line_spacing = 2
+            run = pp.add_run(t.upper()); run.bold = True; run.font.name = font_body; run.font.size = Pt(size_body)
+            continue
+
+        if is_sub:
+            pp = d.add_paragraph(); pp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            pp.paragraph_format.first_line_indent = Cm(0); pp.paragraph_format.line_spacing = 2
+            run = pp.add_run(t); run.bold = True; run.font.name = font_body; run.font.size = Pt(size_body)
+            continue
+
+        pp = d.add_paragraph(); pp.paragraph_format.line_spacing = 2
+        if is_numbered_item or is_bullet:
+            pp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY; pp.paragraph_format.first_line_indent = Cm(0)
+            pp.paragraph_format.left_indent = Cm(0.75); pp.paragraph_format.hanging_indent = Cm(0.5)
         else:
-            pp.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY; pp.paragraph_format.first_line_indent=Cm(1.27)
-            run=pp.add_run(t); run.font.name='Times New Roman'; run.font.size=Pt(12)
+            pp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY; pp.paragraph_format.first_line_indent = Cm(1.27)
+        run = pp.add_run(t); run.font.name = font_body; run.font.size = Pt(size_body)
 
     d.save(bio)
-    data=bio.getvalue()
-    if not notes:
+    data = bio.getvalue()
+    if not (is_notes_style and notes):
         return data
 
-    # Ubah marker [^n] menjadi true Word footnote.
+    # Marker [^n] -> true Word footnote. Footnote: Times New Roman 10 pt, spasi 1.
     try:
-        import io, zipfile
-        from lxml import etree
         W='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
         REL='http://schemas.openxmlformats.org/package/2006/relationships'
         CT='http://schemas.openxmlformats.org/package/2006/content-types'
@@ -1688,7 +1733,8 @@ def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Aga
                     if before.startswith(' ') or before.endswith(' '): nt.set(q(XML,'space'),'preserve')
                     additions.append(nr)
                 n=int(m.group(1)); used.add(n)
-                rr=etree.Element(q(W,'r')); rpr=etree.SubElement(rr,q(W,'rPr')); va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript')
+                rr=etree.Element(q(W,'r')); rpr=etree.SubElement(rr,q(W,'rPr'))
+                va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript')
                 ref=etree.SubElement(rr,q(W,'footnoteReference')); ref.set(q(W,'id'),str(n)); additions.append(rr)
                 pos=m.end()
             after=txt[pos:]
@@ -1700,20 +1746,33 @@ def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Aga
                 additions.append(nr)
             parent.remove(run)
             for off,nr in enumerate(additions): parent.insert(idx+off,nr)
+
         fnroot=etree.Element(q(W,'footnotes'),nsmap={'w':W})
         for fid,tag in [(-1,'separator'),(0,'continuationSeparator')]:
-            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(fid)); p1=etree.SubElement(fn,q(W,'p')); r1=etree.SubElement(p1,q(W,'r')); etree.SubElement(r1,q(W,tag))
+            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(fid))
+            p1=etree.SubElement(fn,q(W,'p')); r1=etree.SubElement(p1,q(W,'r')); etree.SubElement(r1,q(W,tag))
         for n in sorted(used):
             if n not in notes: continue
-            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(n)); p1=etree.SubElement(fn,q(W,'p'))
-            rnum=etree.SubElement(p1,q(W,'r')); rpr=etree.SubElement(rnum,q(W,'rPr')); va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript'); etree.SubElement(rnum,q(W,'footnoteRef'))
-            rt=etree.SubElement(p1,q(W,'r')); rp=etree.SubElement(rt,q(W,'rPr')); fonts=etree.SubElement(rp,q(W,'rFonts')); fonts.set(q(W,'ascii'),'Times New Roman'); fonts.set(q(W,'hAnsi'),'Times New Roman'); sz=etree.SubElement(rp,q(W,'sz')); sz.set(q(W,'val'),'20'); tt=etree.SubElement(rt,q(W,'t')); tt.set(q(XML,'space'),'preserve'); tt.text=' '+notes[n]
+            fn=etree.SubElement(fnroot,q(W,'footnote')); fn.set(q(W,'id'),str(n))
+            p1=etree.SubElement(fn,q(W,'p'))
+            ppr=etree.SubElement(p1,q(W,'pPr'))
+            spacing=etree.SubElement(ppr,q(W,'spacing')); spacing.set(q(W,'line'),'240'); spacing.set(q(W,'lineRule'),'auto'); spacing.set(q(W,'before'),'0'); spacing.set(q(W,'after'),'0')
+            rnum=etree.SubElement(p1,q(W,'r')); rpr=etree.SubElement(rnum,q(W,'rPr'))
+            fonts0=etree.SubElement(rpr,q(W,'rFonts')); fonts0.set(q(W,'ascii'),'Times New Roman'); fonts0.set(q(W,'hAnsi'),'Times New Roman')
+            sz0=etree.SubElement(rpr,q(W,'sz')); sz0.set(q(W,'val'),'20')
+            va=etree.SubElement(rpr,q(W,'vertAlign')); va.set(q(W,'val'),'superscript'); etree.SubElement(rnum,q(W,'footnoteRef'))
+            rt=etree.SubElement(p1,q(W,'r')); rp=etree.SubElement(rt,q(W,'rPr'))
+            fonts=etree.SubElement(rp,q(W,'rFonts')); fonts.set(q(W,'ascii'),'Times New Roman'); fonts.set(q(W,'hAnsi'),'Times New Roman')
+            sz=etree.SubElement(rp,q(W,'sz')); sz.set(q(W,'val'),'20')
+            tt=etree.SubElement(rt,q(W,'t')); tt.set(q(XML,'space'),'preserve'); tt.text=' '+notes[n]
+
         files['word/document.xml']=etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone='yes')
         files['word/footnotes.xml']=etree.tostring(fnroot,xml_declaration=True,encoding='UTF-8',standalone='yes')
-        relp='word/_rels/document.xml.rels'; relroot=etree.fromstring(files[relp],parser); reltype='http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes'
+        relp='word/_rels/document.xml.rels'; relroot=etree.fromstring(files[relp],parser)
+        reltype='http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes'
         if not any(x.get('Type')==reltype for x in relroot):
             ids={x.get('Id') for x in relroot}; i=1
-            while f'rId{i}' in ids:i+=1
+            while f'rId{i}' in ids: i+=1
             rel=etree.SubElement(relroot,q(REL,'Relationship')); rel.set('Id',f'rId{i}'); rel.set('Type',reltype); rel.set('Target','footnotes.xml')
         files[relp]=etree.tostring(relroot,xml_declaration=True,encoding='UTF-8',standalone='yes')
         ctp='[Content_Types].xml'; ctroot=etree.fromstring(files[ctp],parser)
@@ -1724,7 +1783,8 @@ def buat_docx_proposal_final(teks, judul, nama="", npm="", prodi="Pendidikan Aga
         with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as zout:
             written=set()
             for info in infos:
-                if info.filename in files and info.filename not in written: zout.writestr(info,files[info.filename]); written.add(info.filename)
+                if info.filename in files and info.filename not in written:
+                    zout.writestr(info,files[info.filename]); written.add(info.filename)
             for name,b in files.items():
                 if name not in written: zout.writestr(name,b)
         return out.getvalue()
@@ -4839,21 +4899,32 @@ ATURAN SUMBER DAN TAHUN:
    Catat sebagai kandidat yang memerlukan verifikasi di luar naskah final.
 8. Regulasi harus disebut dengan identitas yang benar dan jangan mengarang nomor regulasi.
 
-ATURAN KUTIPAN / FOOTNOTE:
-1. HASIL WAJIB MEMILIKI KUTIPAN SUMBER di dalam pembahasan. Jangan menghasilkan paragraf
-   teori, definisi, regulasi, penelitian terdahulu, atau klaim ilmiah tanpa sumber ketika rujukan diperlukan.
-2. Jika gaya yang dipilih adalah Chicago Notes & Bibliography atau Turabian:
-   gunakan penanda catatan kaki bernomor pada teks dan sediakan CATATAN KAKI yang sesuai,
-   kemudian sinkronkan dengan Daftar Pustaka.
-3. Jika APA 7 dipilih, gunakan author-date in-text citation dan Daftar Pustaka APA 7.
-4. Jika IEEE dipilih, gunakan nomor sitasi [1], [2], dst. dan daftar referensi IEEE.
-5. Kutipan langsung hanya boleh digunakan jika teks dan halaman benar-benar diketahui.
-   Jika halaman tidak diketahui, PARAFRASE dan jangan mengarang nomor halaman.
-6. Semua sumber yang dikutip harus terdapat di Daftar Pustaka, kecuali jenis sumber yang menurut
-   Pedoman aktif diperlakukan secara khusus.
-7. Jangan memasukkan sumber ke Daftar Pustaka jika tidak benar-benar digunakan, kecuali secara jelas
-   diberi status bibliografi pendukung yang memang diminta.
-8. Dalil Al-Qur'an, hadis, dan tafsir harus dapat ditelusuri dan dirujuk sesuai Pedoman.
+ATURAN KUTIPAN, CATATAN KAKI, DAN JENIS SUMBER:
+1. Terapkan SATU gaya sitasi secara konsisten sesuai GAYA SITASI FINAL. Jangan mencampur Chicago, Turabian, APA, dan IEEE.
+2. Jika Chicago Notes & Bibliography atau Turabian dipilih:
+   - Pada narasi gunakan marker [^1], [^2], [^3], dst. tepat setelah klaim/kutipan yang dirujuk.
+   - Setelah naskah, tulis definisi catatan: [^1]: isi catatan kaki lengkap. Marker ini akan diubah aplikasi menjadi nomor superscript dan true Word footnote.
+   - Catatan pertama suatu sumber ditulis lengkap; pengulangan berikutnya gunakan bentuk singkat yang sesuai gaya, tanpa mengarang halaman.
+3. Jika APA 7 dipilih: gunakan author-date dalam teks, misalnya (Nama, 2024) atau (Nama, 2024, p. 25) hanya jika halaman benar-benar diketahui. Jangan membuat footnote bibliografis Chicago.
+4. Jika IEEE dipilih: gunakan [1], [2], dst. menurut urutan kemunculan dan daftar referensi IEEE. Jangan membuat footnote Chicago.
+5. BEDAKAN FORMAT MENURUT JENIS SUMBER:
+   a. BUKU: penulis, judul buku, data penerbitan, dan halaman bila halaman benar-benar diketahui.
+   b. ARTIKEL JURNAL: penulis, judul artikel, nama jurnal, volume, nomor, tahun, rentang/halaman yang terverifikasi, DOI bila benar-benar ada.
+   c. TESIS/DISERTASI: penulis, judul, jenis karya, institusi, tahun, dan halaman bila diketahui.
+   d. WEBSITE: penulis/lembaga, judul halaman, nama situs, tanggal publikasi/pembaruan bila tersedia, URL yang benar, serta tanggal akses hanya jika diwajibkan gaya/pedoman.
+   e. VIDEO YOUTUBE: pembuat/nama kanal, judul video, YouTube, tanggal publikasi, URL; gunakan timestamp bila mengutip bagian tertentu dan timestamp benar-benar diketahui.
+   f. PERATURAN: nama resmi, nomor dan tahun peraturan, serta pasal/bagian bila relevan dan terverifikasi.
+   g. AL-QUR'AN: jangan diperlakukan sebagai jurnal/buku biasa. Tulis nama surah dan nomor ayat pada kutipan sesuai Pedoman aktif; tampilkan teks Arab/terjemah hanya bila relevan. Sumber terjemahan mengikuti pedoman institusi.
+   h. KITAB TAFSIR: nama mufasir, judul kitab tafsir, jilid/volume, data edisi/penerbitan, halaman yang benar-benar digunakan. Tafsir adalah sumber berbeda dari ayat Al-Qur'an.
+   i. HADIS: sebutkan sumber hadis/riwayat, kitab/bab/nomor hadis hanya jika terverifikasi. Jangan mengarang sanad, nomor, derajat, atau lokasi hadis.
+   j. KITAB HADIS/SYARAH HADIS: penyusun/pensyarah, judul kitab, jilid, data edisi/penerbitan, halaman yang digunakan bila terverifikasi.
+   k. KITAB KLASIK: nama ulama, judul kitab, jilid, data edisi/penerbitan dan halaman berdasarkan edisi yang benar-benar digunakan.
+   l. WAWANCARA: nama narasumber, jenis wawancara, tempat/media dan tanggal; perlakuan dalam Daftar Pustaka mengikuti Pedoman aktif.
+6. Semua klaim teori, definisi, regulasi, penelitian terdahulu, tafsir, hadis, dan fakta ilmiah yang memerlukan rujukan harus memiliki sumber.
+7. Kutipan langsung hanya jika teks dan halaman benar-benar diketahui. Jika halaman tidak diketahui, lakukan parafrase dan JANGAN mengarang halaman.
+8. Semua sumber yang dikutip harus sinkron dengan Daftar Pustaka, kecuali jenis sumber yang oleh Pedoman aktif diperlakukan khusus.
+9. Jangan membuat sumber, DOI, URL, halaman, nomor hadis, volume, penerbit, atau metadata palsu. Bila belum terverifikasi, jangan menyamarkannya sebagai sumber final.
+10. PEDOMAN TESIS AKTIF mengalahkan aturan umum gaya sitasi apabila terdapat perbedaan format institusional.
 
 KUALITAS AKADEMIK:
 - Tulis sebagai proposal tesis S2, bukan ringkasan atau outline.
@@ -4925,6 +4996,36 @@ FORMAT:
                     st.success("🟢 Indikator awal: naskah sudah memuat unsur rujukan dan daftar pustaka. Tetap verifikasi sumber di Literatur & Referensi.")
                 else:
                     st.warning("🟡 Perlu penyempurnaan: unsur kutipan/rujukan atau daftar pustaka belum terdeteksi lengkap.")
+
+                # Satu tombol unduh Word untuk hasil Mesin 2. Format mengikuti pilihan pengguna.
+                try:
+                    _docx_m2 = buat_docx_proposal_final(
+                        st.session_state["mesin2_hasil_proposal_tesis"],
+                        _judul_kunci,
+                        nama="",
+                        npm="",
+                        prodi="Pendidikan Agama Islam",
+                        tahun=datetime.now().year,
+                        gaya_sitasi=_gaya_kunci,
+                        font_naskah=_font_kunci or "Times New Roman",
+                        ukuran_naskah=_ukuran_kunci or "12 pt",
+                    )
+                    if _docx_m2:
+                        _safe_title = re.sub(r"[^A-Za-z0-9_-]+", "_", str(_judul_kunci or "Proposal_Tesis"))[:80].strip("_")
+                        st.download_button(
+                            "📥 Download Proposal Word (.docx)",
+                            data=_docx_m2,
+                            file_name=f"{_safe_title or 'Proposal_Tesis'}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="download_word_mesin2_proposal_tesis",
+                            use_container_width=True,
+                        )
+                        if "chicago" in str(_gaya_kunci).lower() or "turabian" in str(_gaya_kunci).lower():
+                            st.caption("Word: nomor kutipan superscript + footnote asli di bawah halaman, Times New Roman 10 pt, spasi 1.")
+                        else:
+                            st.caption("Word mengikuti gaya sitasi yang dipilih; footnote Chicago tidak dipaksakan pada APA/IEEE.")
+                except Exception as _e_word:
+                    st.warning(f"Word belum dapat dibuat: {_e_word}")
 
         st.divider()
         st.caption("Ruang kerja proposal lama tetap tersedia di bawah untuk menjaga fungsi aplikasi yang sudah berjalan.")
