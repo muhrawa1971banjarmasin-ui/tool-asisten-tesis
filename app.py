@@ -1925,27 +1925,49 @@ if menu in modul_ai_penelitian and menu_utama in ["🎓 Skripsi S1", "🎓 Tesis
 # WORD HASIL PENYUNTINGAN - PEDOMAN AKADEMIK AKTIF
 # ============================================================
 def _bersihkan_hasil_sunting_ai(teks):
-    """Ambil naskah hasil suntingan saja dan bersihkan artefak AI/Markdown/LaTeX."""
-    t = str(teks or "").replace("\r\n", "\n")
-    # Buang label pembungkus keluaran AI.
-    t = re.sub(r'(?im)^\s*#{0,6}\s*HASIL\s+SUNTINGAN\s*$', '', t)
-    t = re.split(r'(?im)^\s*#{0,6}\s*CATATAN\s+PERUBAHAN\s+PENTING\s*$', t, maxsplit=1)[0]
-    # Bersihkan code fence dan garis pemisah Markdown.
+    """Bersihkan marker teknis tanpa membuang substansi naskah."""
+    import html as _html
+    t = _html.unescape(str(teks or ""))
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+    t = t.replace("\u00a0", " ").replace("\ufeff", "")
+    t = t.replace("\u00ad", "").replace("\ufffe", "-").replace("\ufffd", "")
+
+    # Hapus LABEL AI saja. Isi sesudah label tetap dipertahankan.
+    t = re.sub(r'(?im)^\s*#{0,6}\s*HASIL\s+SUNTINGAN\s*:?\s*$', '', t)
+    t = re.sub(r'(?im)^\s*#{0,6}\s*CATATAN\s+PERUBAHAN\s+PENTING\s*:?\s*$', '', t)
     t = re.sub(r'(?m)^\s*```[^\n]*$', '', t)
     t = re.sub(r'(?m)^\s*---+\s*$', '', t)
-    # Rumus sederhana yang sering lolos dari AI.
-    repl = {
-        '$H_0$':'H₀', '$H_a$':'Hₐ', '$H_1$':'H₁',
-        '$r_{count}$':'r hitung', '$r_{table}$':'r tabel', '$r_{11}$':'r₁₁',
-        '\\(':'', '\\)':'', '\\[':'', '\\]':'',
-    }
-    for a,b in repl.items(): t=t.replace(a,b)
-    # Hapus pembungkus $ yang tersisa tanpa menghapus isi.
+    t = re.sub(r'(?m)^\s*#{1,6}\s+', '', t)
+
+    # Bersihkan pembungkus LaTeX/AI tanpa menghapus isi.
+    t = t.replace('\\(', '').replace('\\)', '').replace('\\[', '').replace('\\]', '')
     t = re.sub(r'\$([^$\n]+)\$', r'\1', t)
-    # Koreksi typo yang jelas dan aman.
+    t = t.replace('$', '')
+    replacements = {
+        'H_0':'H₀', 'H_{0}':'H₀', 'H_a':'Hₐ', 'H_{a}':'Hₐ', 'H_1':'H₁', 'H_{1}':'H₁',
+        'r_{count}':'r_count', 'r{count}':'r_count', 'r_{hitung}':'r_hitung', 'r{hitung}':'r_hitung',
+        'r_{table}':'r_table', 'r{table}':'r_table', 'r_{tabel}':'r_tabel', 'r{tabel}':'r_tabel',
+        'r_{11}':'r₁₁', 'r{11}':'r₁₁',
+    }
+    for x,y in replacements.items(): t=t.replace(x,y)
+    t = re.sub(r'\\text\s*\{([^{}]*)\}', r'\1', t)
+    t = re.sub(r'\\mathrm\s*\{([^{}]*)\}', r'\1', t)
+    t = re.sub(r'\\mathbf\s*\{([^{}]*)\}', r'\1', t)
+    t = re.sub(r'\{([^{}\n]+)\}', r'\1', t)
+
+    # Metadata pedoman yang terseret ke isi proposal.
+    t = re.sub(r'(?im)^\s*[-*•]?\s*Pedoman\s+Penulisan\s+Tesis\s+\d+\s*\|\s*(?=BAB\b).*?\*?\s*$', '', t)
+
+    # Hapus bintang tunggal yatim, tetapi pasangan Markdown tetap untuk formatter Word.
+    fixed=[]
+    for line in t.split('\n'):
+        if line.count('*') == 1:
+            line=line.replace('*','')
+        fixed.append(line)
+    t='\n'.join(fixed)
+
     t = re.sub(r'(?i)\bDAFTRA\s+ISI\b', 'DAFTAR ISI', t)
     t = re.sub(r'(?i)\bpemehaman\b', 'pemahaman', t)
-    # Rapikan spasi tetapi pertahankan pergantian paragraf.
     t = re.sub(r'[ \t]+\n', '\n', t)
     t = re.sub(r'\n{3,}', '\n\n', t)
     return t.strip()
@@ -3926,12 +3948,15 @@ NASKAH:
                 st.caption(f"Model AI: {_model_sunting}")
             _hasil_sunting = st.session_state["hasil_sunting_parafrase_ai"]
             st.text_area("Hasil Suntingan", _hasil_sunting, height=700, key="hasil_sunting_parafrase_area")
+            # Gunakan isi editor TERKINI untuk Word. Jika pengguna memperbaiki teks di kotak
+            # Hasil Suntingan, perubahan itu ikut masuk ke file unduhan.
+            _hasil_sunting_untuk_word = st.session_state.get("hasil_sunting_parafrase_area", _hasil_sunting) or _hasil_sunting
 
             st.markdown("#### 📥 Download Hasil Terakhir")
             st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
             try:
                 _word_sunting = buat_docx_hasil_sunting_pedoman(
-                    _hasil_sunting, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
+                    _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
                 )
                 if _word_sunting:
                     st.download_button(
