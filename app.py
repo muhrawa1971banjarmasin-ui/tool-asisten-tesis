@@ -3981,7 +3981,10 @@ NASKAH:
                         if _j and _j not in _seen:
                             _seen.add(_j); _uniq.append(_r)
                     st.session_state["refs_penyunting_terverifikasi"] = _uniq[:15]
-                    st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.") if _uniq else st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
+                    if _uniq:
+                        st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.")
+                    else:
+                        st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
 
             _refs_now = st.session_state.get("refs_penyunting_terverifikasi", [])
             if _refs_now:
