@@ -678,6 +678,43 @@ def deteksi_gaya_sitasi_otomatis(teks):
     return {"gaya":best,"keyakinan":conf,"alasan":"; ".join(dict.fromkeys(reasons)) or "pola sitasi terdeteksi"}
 
 
+def deteksi_gaya_sitasi_file_asli(file_obj, teks=""):
+    """Deteksi gaya dari NASKAH ASLI. Untuk DOCX, keberadaan true footnote Word
+    lebih kuat daripada pola author-year yang mungkin hanya muncul di daftar pustaka.
+    File pointer selalu dikembalikan ke posisi awal.
+    """
+    hasil = deteksi_gaya_sitasi_otomatis(teks or "")
+    if file_obj is None:
+        return hasil
+    nama = str(getattr(file_obj, "name", "") or "").lower()
+    if not nama.endswith(".docx"):
+        return hasil
+    try:
+        import io, zipfile
+        from lxml import etree
+        file_obj.seek(0)
+        raw = file_obj.read()
+        file_obj.seek(0)
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
+            if "word/document.xml" not in z.namelist():
+                return hasil
+            W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            root = etree.fromstring(z.read("word/document.xml"))
+            refs = root.xpath(".//w:footnoteReference", namespaces={"w": W})
+            if refs:
+                return {
+                    "gaya": "Chicago/Turabian Notes (Footnote)",
+                    "keyakinan": "Tinggi",
+                    "alasan": f"Naskah DOCX asli memiliki {len(refs)} true footnote Word; sistem footnote asli dikunci sebagai master."
+                }
+    except Exception:
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+    return hasil
+
+
 def prompt_perbaiki_footnote_kutipan(teks, gaya, refs, mode="Pertahankan gaya bawaan"):
     daftar="\n".join(f"[{i}] {format_referensi(r, gaya if gaya not in ['Gaya bawaan/Custom','Deteksi Otomatis'] else None)} | DOI: {r.get('DOI','')} | STATUS: {r.get('Status','')}" for i,r in enumerate(refs[:80],1)) or "LIBRARY KOSONG"
     return f"""Anda adalah editor sitasi akademik yang sangat konservatif.
@@ -3929,6 +3966,12 @@ elif menu == "✨ Penyunting Akademik AI":
             if not _t.startswith("ERROR:"):
                 teks_edit = _t
 
+        # Gaya sitasi SELALU ditentukan dari naskah asli, bukan dari hasil AI.
+        _gaya_asli_info = deteksi_gaya_sitasi_file_asli(file_edit, teks_edit)
+        _gaya_asli = _gaya_asli_info.get("gaya", "Gaya bawaan/Custom")
+        st.session_state["gaya_sitasi_asli_penyunting"] = _gaya_asli
+        st.info(f"🔒 Gaya kutipan naskah asli dikunci: **{_gaya_asli}**. Semua kutipan baru wajib mengikuti gaya ini; AI tidak boleh menggantinya dengan APA/Chicago/gaya lain.")
+        st.caption(_gaya_asli_info.get("alasan", ""))
         st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
         _siap_sunting = bool(str(teks_edit or "").strip())
         if not _siap_sunting:
@@ -3951,7 +3994,9 @@ ATURAN WAJIB:
 5. Sitasi yang sudah ada harus tetap melekat pada klaim yang sama.
 6. Bila ada bagian meragukan, tandai [PERLU VERIFIKASI], jangan menebak.
 7. Ikuti pedoman aktif bila tersedia. Jika pedoman tidak mengatur sesuatu, jangan membuat aturan institusi sendiri.
-8. Keluarkan dua bagian: HASIL SUNTINGAN dan CATATAN PERUBAHAN PENTING. Jangan menambah pembahasan di luar naskah.
+8. GAYA SITASI NASKAH ASLI TERDETEKSI: {_gaya_asli}. GAYA INI DIKUNCI. Dilarang mengubahnya menjadi APA, Chicago, atau gaya lain yang berbeda. Kutipan lama harus tetap ada dan semua kutipan baru wajib mengikuti gaya asli ini.
+9. Jika gaya asli memakai footnote, jangan mengubah footnote menjadi author-date. Untuk catatan baru gunakan marker [^N] pada posisi klaim dan definisi [^N]: isi catatan agar dapat dipasang sebagai true footnote Word. Jangan membuat nomor ganda.
+10. Keluarkan dua bagian: HASIL SUNTINGAN dan CATATAN PERUBAHAN PENTING. Jangan menambah pembahasan di luar naskah.
 
 NASKAH:
 {str(teks_edit)[:90000]}"""
@@ -4166,6 +4211,7 @@ KANDIDAT:
                     _meta = "\n".join([f"- Penulis: {r.get('Penulis','')}; Tahun: {r.get('Tahun','')}; Judul: {r.get('Judul','')}; Jurnal/Penerbit: {r.get('Jurnal','')}; DOI: {r.get('DOI','')}; Halaman metadata: {r.get('Halaman','')}; Status: {r.get('Status','')}" for r in _selected])
                     _prompt_ref = f"""Anda adalah penyunting referensi akademik.
     JENIS NASKAH: {jenis_naskah_editor}
+    GAYA SITASI ASLI YANG DIKUNCI: {st.session_state.get("gaya_sitasi_asli_penyunting", _gaya_asli)}
 
     NASKAH:
     {str(_hasil_sunting_untuk_word)[:90000]}
@@ -4176,7 +4222,7 @@ KANDIDAT:
     TUGAS WAJIB - MODE AMAN PENYUNTING AKADEMIK AI:
     1. NASKAH ASLI ADALAH MASTER. Jangan menulis ulang, meringkas, menghapus, memindahkan, atau mengganti paragraf yang tidak perlu. Pertahankan urutan BAB, subbab, tabel, ayat, hadis, data, angka, istilah, dan substansi.
     2. PERTAHANKAN 100% SEMUA SUMBER DAN KUTIPAN/FOOTNOTE ASLI. Dilarang menghapus nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
-    3. DETEKSI DAN KUNCI GAYA SITASI NASKAH ASLI. Proposal/naskah unggahan adalah master. Jika gaya asli Chicago footnote, semua sitasi tambahan atau sitasi yang terlanjur berbentuk APA/author-date harus dirapikan menjadi Chicago footnote dengan sumber yang sama. Jika gaya asli APA, tetap APA. Jika gaya lain, ikuti gaya asli. DILARANG mengubah naskah ke gaya pilihan AI.
+    3. JANGAN MENDETEKSI ULANG DARI HASIL AI. Gunakan persis GAYA SITASI ASLI YANG DIKUNCI di atas. Jika gaya terkunci adalah footnote/notes, DILARANG menghasilkan sitasi author-date seperti (Nama, 2024). Sitasi tambahan wajib berupa marker [^N] di lokasi klaim dan definisi [^N]: catatan lengkap. Jika gaya terkunci APA/author-date, pertahankan author-date. Gaya lain mengikuti gaya asli.
     4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. Pertahankan catatan lama, rapikan formatnya, dan sisipkan footnote baru sesuai posisi kutipan sehingga penomoran akhir unik, berurutan, dan tidak ganda. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
     4a. AYAT AL-QURAN: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1, lalu akhiri dengan identitas ayat seperti (Q.S. Al-Hasyr/59: 18). Identitas ayat tersebut TIDAK diberi footnote baru. Tafsir/penjelasan setelah ayat kembali menjadi paragraf biasa dan menggunakan sitasi sesuai gaya asli naskah.
     4b. HADIS: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1. Pada akhir terjemahan tulis (HR. Nama Perawi) lalu nomor footnote sesuai urutan gaya asli. Footnote hadis memuat sumber/takhrij yang benar-benar tersedia. Jangan mengarang nomor hadis, halaman, sanad, atau data yang belum terverifikasi.
@@ -4209,13 +4255,26 @@ KANDIDAT:
             st.markdown("#### 📥 Download Hasil Terakhir")
             st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
             try:
-                _word_sunting = buat_docx_hasil_sunting_pedoman(
-                    _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
-                )
+                _gaya_word_asli = st.session_state.get("gaya_sitasi_asli_penyunting", _gaya_asli)
+                _word_sunting = None
+                _pesan_word_asli = ""
+                # Untuk DOCX dengan gaya footnote, JANGAN bangun ulang dokumen dari teks.
+                # Gunakan file asli sebagai master agar seluruh true footnote lama tetap utuh,
+                # lalu tambahkan footnote baru ke package Word asli.
+                if file_edit is not None and str(getattr(file_edit, "name", "")).lower().endswith(".docx") and ("footnote" in _gaya_word_asli.lower() or "notes" in _gaya_word_asli.lower() or "chicago" in _gaya_word_asli.lower() or "turabian" in _gaya_word_asli.lower()):
+                    _word_sunting, _pesan_word_asli = buat_word_hasil_revisi(file_edit, _hasil_sunting_untuk_word)
+                    if _word_sunting is None:
+                        st.warning("Word asli tetap dilindungi. Footnote baru belum dipasang karena marker/konteks belum aman: " + str(_pesan_word_asli))
+                else:
+                    _word_sunting = buat_docx_hasil_sunting_pedoman(
+                        _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
+                    )
                 if _word_sunting:
+                    if _pesan_word_asli:
+                        st.success(_pesan_word_asli)
                     st.download_button(
                         "📥 Download Word Hasil Suntingan Rapi", data=_word_sunting,
-                        file_name="Hasil_Suntingan_Akademik_Rapi.docx",
+                        file_name="Hasil_Suntingan_Akademik_Gaya_Asli.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary", key="download_word_hasil_sunting_rapi"
                     )
