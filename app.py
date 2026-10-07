@@ -1385,6 +1385,64 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             cursor = end
         return False
 
+
+    def format_terjemahan_ayat_hadis_word(doc_root):
+        """Format terjemahan ayat/hadis pada DOCX master tanpa merusak true footnote."""
+        def set_rpr_font_10(run):
+            rpr = run.find(q(W, "rPr"))
+            if rpr is None:
+                rpr = etree.Element(q(W, "rPr")); run.insert(0, rpr)
+            fonts = rpr.find(q(W, "rFonts"))
+            if fonts is None:
+                fonts = etree.SubElement(rpr, q(W, "rFonts"))
+            for a in ("ascii", "hAnsi", "eastAsia", "cs"):
+                fonts.set(q(W, a), "Times New Roman")
+            for tag in ("sz", "szCs"):
+                el = rpr.find(q(W, tag))
+                if el is None: el = etree.SubElement(rpr, q(W, tag))
+                el.set(q(W, "val"), "20")  # 10 pt = 20 half-points
+
+        def strip_prefix_from_text_nodes(p):
+            nodes = p.xpath(".//w:t", namespaces=ns)
+            full = "".join((n.text or "") for n in nodes)
+            m = re.match(r'^\s*(?:[-*•]\s*)?(?:\*{0,2})?Artinya(?:\*{0,2})?\s*:\s*', full, re.I)
+            if not m: return False
+            remove = m.end()
+            left = remove
+            for n in nodes:
+                txt = n.text or ""
+                if left <= 0: break
+                cut = min(left, len(txt))
+                n.text = txt[cut:]
+                left -= cut
+            return True
+
+        paras = doc_root.xpath(".//w:body//w:p", namespaces=ns)
+        changed = 0
+        for p in paras:
+            raw = para_text(p)
+            if not re.match(r'^\s*(?:[-*•]\s*)?(?:\*{0,2})?Artinya(?:\*{0,2})?\s*:', raw, re.I):
+                continue
+            strip_prefix_from_text_nodes(p)
+            # Paragraf terjemahan: TNR 10, spasi 1, baris pertama menjorok 1,27 cm.
+            ppr = p.find(q(W, "pPr"))
+            if ppr is None:
+                ppr = etree.Element(q(W, "pPr")); p.insert(0, ppr)
+            ind = ppr.find(q(W, "ind"))
+            if ind is None: ind = etree.SubElement(ppr, q(W, "ind"))
+            ind.set(q(W, "left"), "0"); ind.set(q(W, "right"), "0"); ind.set(q(W, "firstLine"), "720")
+            spacing = ppr.find(q(W, "spacing"))
+            if spacing is None: spacing = etree.SubElement(ppr, q(W, "spacing"))
+            spacing.set(q(W, "before"), "0"); spacing.set(q(W, "after"), "0")
+            spacing.set(q(W, "line"), "240"); spacing.set(q(W, "lineRule"), "auto")
+            jc = ppr.find(q(W, "jc"))
+            if jc is None: jc = etree.SubElement(ppr, q(W, "jc"))
+            jc.set(q(W, "val"), "both")
+            for run in p.xpath("./w:r", namespaces=ns):
+                set_rpr_font_10(run)
+            changed += 1
+        return changed
+
     try:
         file_asli.seek(0)
         original = file_asli.read()
@@ -1550,6 +1608,10 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
         if not inserted and not skipped:
             return None, "Tidak ada marker yang dapat dicocokkan secara aman dengan naskah Word asli."
 
+        # Format khusus terjemahan ayat/hadis pada DOCX master asli.
+        # Ini tidak mengubah paragraf naskah biasa dan tidak menghapus true footnote.
+        _jumlah_terjemahan_diformat = format_terjemahan_ayat_hadis_word(doc_root)
+
         # Pastikan SEMUA nomor footnote, lama maupun baru, benar-benar superscript.
         # Di badan naskah: w:footnoteReference
         for ref_el in doc_root.xpath(".//w:footnoteReference", namespaces=ns):
@@ -1620,6 +1682,8 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
                 return None, "Validasi footnote gagal: ada reference tanpa footnote."
 
         msg = f"Berhasil menambahkan {len(inserted)} footnote Word pada posisi kutipan."
+        if _jumlah_terjemahan_diformat:
+            msg += f" {_jumlah_terjemahan_diformat} paragraf terjemahan ayat/hadis diformat TNR 10, spasi 1, dan menjorok 1,27 cm."
         if skipped:
             msg += f" {len(skipped)} footnote identik tidak digandakan."
         if missing:
@@ -2191,10 +2255,11 @@ def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Ti
         _is_terjemah=bool(re.match(r'^["“]', _kutip) and (re.search(r'\(Q\.S\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]*[.!?]?["”]?\s*$', _kutip, re.I) or re.search(r'\(HR\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]+[.!?]?["”]?\s*$', _kutip, re.I)))
         if _is_terjemah:
             p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY
-            p.paragraph_format.left_indent=Cm(1.27); p.paragraph_format.right_indent=Cm(1.27)
-            p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=1
+            # Kutipan terjemahan mengikuti pedoman: TNR 10 pt, spasi 1, awal paragraf menjorok.
+            p.paragraph_format.left_indent=Cm(0); p.paragraph_format.right_indent=Cm(0)
+            p.paragraph_format.first_line_indent=Cm(1.27); p.paragraph_format.line_spacing=1
             p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(0)
-            _run_markdown_inline(p,_kutip,font_name,font_size)
+            _run_markdown_inline(p,_kutip,'Times New Roman',10)
             continue
 
         # Bullet menjadi daftar menjorok rapi.
