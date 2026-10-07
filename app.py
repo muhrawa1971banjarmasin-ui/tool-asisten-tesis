@@ -3851,12 +3851,20 @@ elif menu == "✨ Penyunting Akademik AI":
     st.caption("Bengkel naskah akademik untuk proposal, tesis, skripsi, disertasi, dan artikel. Substansi penelitian dilindungi.")
 
     # Pedoman aktif global: memakai sumber pedoman yang SUDAH ADA di aplikasi.
-    _ped_aktif = bool(st.session_state.get("pedoman_tesis_s2_aktif"))
+    # Status tetap ditampilkan di Penyunting Akademik AI dan tidak bergantung hanya
+    # pada satu flag, agar pedoman yang sudah tersimpan tidak tampak hilang.
     _ped_nama = str(st.session_state.get("pedoman_tesis_s2_nama", "") or "")
     _ped_teks = str(st.session_state.get("pedoman_tesis_s2_teks", "") or "")
     _ped_analisis = str(st.session_state.get("pedoman_tesis_s2_analisis", "") or "")
+    _ped_flag = bool(st.session_state.get("pedoman_tesis_s2_aktif"))
+    _ped_aktif = bool(_ped_flag or _ped_teks.strip() or _ped_analisis.strip())
+
+    st.markdown("### 📘 Pedoman Aktif")
     if _ped_aktif:
-        st.success(f"📘 Pedoman Aktif Global: {_ped_nama or 'Pedoman Penulisan yang telah diaktifkan'}")
+        # Pulihkan flag bila isi pedoman sebenarnya sudah tersedia.
+        st.session_state["pedoman_tesis_s2_aktif"] = True
+        st.success(f"Pedoman Aktif: {_ped_nama or 'Pedoman Penulisan Tesis yang telah diaktifkan'} ✓")
+        st.caption("Pedoman ini menjadi acuan global Penyunting Akademik AI. Jika suatu aturan tidak ditemukan di pedoman, AI tidak boleh menebaknya.")
     else:
         st.warning("📘 Belum ada Pedoman Aktif. Penyunting tetap dapat digunakan, tetapi aturan institusi yang tidak tersedia tidak akan ditebak oleh AI.")
 
