@@ -3962,35 +3962,119 @@ NASKAH:
             _hasil_sunting_untuk_word = st.session_state.get("hasil_sunting_parafrase_area", _hasil_sunting) or _hasil_sunting
 
             st.markdown("#### 📚 Perkuat Referensi & Kutipan")
-            st.caption("Untuk proposal sebelum Sempro maupun tesis lengkap. Sistem mempertahankan substansi, memeriksa kecocokan klaim dengan sumber, dan tidak boleh mengarang referensi.")
-            _kata_ref = st.text_input("Kata kunci referensi yang dibutuhkan", key="kata_ref_penyunting", placeholder="Contoh: generative AI teacher competence curriculum planning")
+            st.caption("Akademia AI membaca isi naskah untuk menentukan kata kunci dan menyaring referensi yang relevan. Kata kunci tambahan bersifat opsional.")
+            _kata_ref = st.text_input(
+                "Kata kunci tambahan (opsional)",
+                key="kata_ref_penyunting",
+                placeholder="Kosongkan untuk pencarian otomatis dari isi proposal/tesis"
+            )
             _c1, _c2, _c3 = st.columns(3)
-            if _c1.button("🔎 Cari Referensi Terverifikasi", key="btn_cari_ref_penyunting", type="primary", use_container_width=True):
-                if not _kata_ref.strip():
-                    st.warning("Masukkan kata kunci referensi terlebih dahulu.")
+            if _c1.button("🔎 Cari Referensi Sesuai Proposal", key="btn_cari_ref_penyunting", type="primary", use_container_width=True):
+                _naskah_ref = str(_hasil_sunting_untuk_word or "").strip()
+                if not _naskah_ref:
+                    st.warning("Belum ada naskah proposal/tesis yang dapat dianalisis.")
                 else:
-                    with st.spinner("Mencari metadata referensi..."):
+                    with st.spinner("Membaca isi naskah, menyusun kata kunci, mencari, lalu menyaring relevansi referensi..."):
+                        # 1. AI menyusun query dari substansi naskah, bukan dari kata umum seperti 'kutipan'.
+                        _prompt_kw = f"""Anda adalah asisten penelusuran literatur akademik.
+Baca naskah penelitian berikut dan buat tepat 6 QUERY PENCARIAN yang paling mewakili substansi penelitian.
+Fokus pada: judul/topik, variabel atau fokus utama, teori/konsep inti, objek/subjek, konteks pendidikan, dan istilah padanan bahasa Inggris.
+Jangan gunakan kata generik seperti referensi, kutipan, daftar pustaka, proposal, tesis, penelitian, atau metodologi kecuali memang merupakan konsep yang diteliti.
+Jika ada KATA KUNCI TAMBAHAN, gunakan hanya sebagai penguat bila selaras dengan naskah.
+Kembalikan HANYA 6 baris query tanpa nomor dan tanpa penjelasan.
+
+KATA KUNCI TAMBAHAN:
+{_kata_ref.strip() or '(tidak ada)'}
+
+NASKAH:
+{_naskah_ref[:45000]}"""
+                        _hkw = panggil_gemini(_prompt_kw, temperature=0.10)
+                        _queries = []
+                        if _hkw.get("sukses"):
+                            for _baris in str(_hkw.get("hasil", "")).splitlines():
+                                _q = re.sub(r"^\s*[-*•\d\.\)\:]+\s*", "", _baris).strip().strip('"“”')
+                                if len(_q) >= 8 and _q.lower() not in [x.lower() for x in _queries]:
+                                    _queries.append(_q)
+                        if _kata_ref.strip() and _kata_ref.strip().lower() not in [x.lower() for x in _queries]:
+                            _queries.append(_kata_ref.strip())
+                        if not _queries:
+                            _queries = [_kata_ref.strip()] if _kata_ref.strip() else [_naskah_ref[:180]]
+
+                        # 2. Cari lebih luas pada tiga indeks, lalu deduplikasi.
                         _refs = []
-                        _refs.extend(cari_crossref(_kata_ref, 6))
-                        _refs.extend(cari_openalex(_kata_ref, 6))
-                        _refs.extend(cari_semantic_scholar(_kata_ref, 6))
-                    # deduplikasi judul
-                    _seen, _uniq = set(), []
-                    for _r in _refs:
-                        _j = str(_r.get("Judul", "")).strip().lower()
-                        if _j and _j not in _seen:
-                            _seen.add(_j); _uniq.append(_r)
-                    st.session_state["refs_penyunting_terverifikasi"] = _uniq[:15]
-                    if _uniq:
-                        st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.")
+                        for _q in _queries[:7]:
+                            _refs.extend(cari_crossref(_q, 5))
+                            _refs.extend(cari_openalex(_q, 5))
+                            _refs.extend(cari_semantic_scholar(_q, 5))
+                        _seen, _uniq = set(), []
+                        for _r in _refs:
+                            _k = kunci_ref(_r)
+                            if _k and _k not in _seen and str(_r.get("Judul", "")).strip():
+                                _seen.add(_k); _uniq.append(_r)
+
+                        # 3. AI hanya menilai relevansi metadata. Tidak boleh mengarang isi artikel.
+                        _candidates = []
+                        for _i, _r in enumerate(_uniq[:60], 1):
+                            _candidates.append(
+                                f"[{_i}] Judul: {_r.get('Judul','')} | Penulis: {_r.get('Penulis','')} | Tahun: {_r.get('Tahun','')} | Jurnal: {_r.get('Jurnal','')} | Sumber: {_r.get('Sumber','')}"
+                            )
+                        _ranked = []
+                        if _candidates:
+                            _prompt_rank = f"""Anda adalah penyaring relevansi literatur untuk tesis.
+Nilai HANYA kecocokan metadata kandidat dengan substansi naskah. Jangan mengarang abstrak, isi, temuan, atau klaim artikel.
+Pilih maksimal 15 kandidat yang paling relevan. Tolak kandidat yang hanya kebetulan memiliki kata yang sama tetapi topiknya berbeda.
+
+Kembalikan HANYA JSON array valid seperti:
+[{{"no": 3, "skor": 92, "status": "Sangat Relevan", "alasan": "..."}}]
+
+Aturan skor:
+85-100 = Sangat Relevan
+70-84 = Relevan
+Di bawah 70 = jangan dimasukkan.
+
+NASKAH:
+{_naskah_ref[:30000]}
+
+KANDIDAT:
+{chr(10).join(_candidates)}"""
+                            _hrank = panggil_gemini(_prompt_rank, temperature=0.05)
+                            if _hrank.get("sukses"):
+                                _raw = str(_hrank.get("hasil", "")).strip()
+                                _raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", _raw, flags=re.I|re.S).strip()
+                                try:
+                                    _nilai = json.loads(_raw)
+                                except Exception:
+                                    _nilai = []
+                                if isinstance(_nilai, list):
+                                    for _v in _nilai:
+                                        try:
+                                            _idx = int(_v.get("no", 0)) - 1
+                                            _skor = int(float(_v.get("skor", 0)))
+                                        except Exception:
+                                            continue
+                                        if 0 <= _idx < len(_uniq) and _skor >= 70:
+                                            _rr = dict(_uniq[_idx])
+                                            _rr["Skor Relevansi"] = _skor
+                                            _rr["Relevansi"] = str(_v.get("status", "Relevan"))
+                                            _rr["Alasan Relevansi"] = str(_v.get("alasan", ""))
+                                            _ranked.append(_rr)
+                        _ranked.sort(key=lambda x: int(x.get("Skor Relevansi", 0)), reverse=True)
+                        st.session_state["refs_penyunting_terverifikasi"] = _ranked[:15]
+                        st.session_state["query_ref_penyunting_otomatis"] = _queries[:7]
+
+                    if st.session_state.get("refs_penyunting_terverifikasi"):
+                        st.success(f"Ditemukan {len(st.session_state['refs_penyunting_terverifikasi'])} referensi yang lolos penyaringan relevansi terhadap naskah.")
+                        with st.expander("🔎 Kata kunci otomatis yang digunakan"):
+                            for _q in st.session_state.get("query_ref_penyunting_otomatis", []):
+                                st.write(f"• {_q}")
                     else:
-                        st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
+                        st.warning("Belum ditemukan referensi yang cukup relevan dengan isi naskah. Coba tambahkan kata kunci khusus secara opsional.")
 
             _refs_now = st.session_state.get("refs_penyunting_terverifikasi", [])
             if _refs_now:
                 _opsi_ref = []
                 for _i, _r in enumerate(_refs_now):
-                    _opsi_ref.append(f"{_i+1}. {_r.get('Penulis','')} ({_r.get('Tahun','')}). {_r.get('Judul','')} — {_r.get('Sumber','')}")
+                    _opsi_ref.append(f"{_i+1}. [{_r.get('Relevansi','Relevan')} {_r.get('Skor Relevansi','')}%] {_r.get('Penulis','')} ({_r.get('Tahun','')}). {_r.get('Judul','')} — {_r.get('Sumber','')}")
                 _pilih_ref = st.multiselect("Pilih referensi yang boleh dipakai AI", _opsi_ref, default=_opsi_ref[:min(5,len(_opsi_ref))], key="pilih_ref_penyunting")
                 _selected = [_refs_now[_opsi_ref.index(x)] for x in _pilih_ref if x in _opsi_ref]
             else:
