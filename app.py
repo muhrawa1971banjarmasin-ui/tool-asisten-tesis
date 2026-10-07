@@ -2129,10 +2129,31 @@ def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Ti
             _run_markdown_inline(p,'•\t'+mb.group(1),font_name,font_size)
             continue
 
-        # Ayat Arab: rata kanan, tanpa indent awal.
+        # Ayat/hadis Arab sesuai Pedoman Tesis S2: Traditional Arabic 16 pt, RTL, rata kanan.
         if re.search(r'[\u0600-\u06FF]',plain):
-            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.RIGHT; p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=1.5
-            r=p.add_run(plain); r.font.name='Traditional Arabic'; r.font.size=Pt(16)
+            p=d.add_paragraph()
+            p.alignment=WD_ALIGN_PARAGRAPH.RIGHT
+            p.paragraph_format.first_line_indent=Cm(0)
+            p.paragraph_format.left_indent=Cm(0)
+            p.paragraph_format.right_indent=Cm(0)
+            p.paragraph_format.line_spacing=1.5
+            # Aktifkan BiDi/RTL pada paragraf Word agar huruf Arab tidak terbalik/pecah.
+            pPr=p._p.get_or_add_pPr()
+            bidi=OxmlElement('w:bidi')
+            bidi.set(qn('w:val'),'1')
+            pPr.append(bidi)
+            r=p.add_run(plain)
+            r.font.name='Traditional Arabic'
+            r.font.size=Pt(16)
+            rPr=r._r.get_or_add_rPr()
+            rFonts=rPr.find(qn('w:rFonts'))
+            if rFonts is None:
+                rFonts=OxmlElement('w:rFonts'); rPr.insert(0,rFonts)
+            for attr in ('ascii','hAnsi','eastAsia','cs'):
+                rFonts.set(qn('w:'+attr),'Traditional Arabic')
+            rtl=OxmlElement('w:rtl'); rtl.set(qn('w:val'),'1'); rPr.append(rtl)
+            cs=OxmlElement('w:cs'); cs.set(qn('w:val'),'1'); rPr.append(cs)
+            szCs=OxmlElement('w:szCs'); szCs.set(qn('w:val'),'32'); rPr.append(szCs)
             continue
 
         # Paragraf naratif.
