@@ -3965,20 +3965,23 @@ NASKAH:
             st.caption("Untuk proposal sebelum Sempro maupun tesis lengkap. Sistem mempertahankan substansi, memeriksa kecocokan klaim dengan sumber, dan tidak boleh mengarang referensi.")
             _kata_ref = st.text_input("Kata kunci referensi yang dibutuhkan", key="kata_ref_penyunting", placeholder="Contoh: generative AI teacher competence curriculum planning")
             _c1, _c2, _c3 = st.columns(3)
-            if _c1.button("🔎 Cari Referensi Terverifikasi", key="btn_cari_ref_penyunting", disabled=not bool(_kata_ref.strip())):
-                with st.spinner("Mencari metadata referensi..."):
-                    _refs = []
-                    _refs.extend(cari_crossref(_kata_ref, 6))
-                    _refs.extend(cari_openalex(_kata_ref, 6))
-                    _refs.extend(cari_semantic_scholar(_kata_ref, 6))
-                # deduplikasi judul
-                _seen, _uniq = set(), []
-                for _r in _refs:
-                    _j = str(_r.get("Judul", "")).strip().lower()
-                    if _j and _j not in _seen:
-                        _seen.add(_j); _uniq.append(_r)
-                st.session_state["refs_penyunting_terverifikasi"] = _uniq[:15]
-                st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.") if _uniq else st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
+            if _c1.button("🔎 Cari Referensi Terverifikasi", key="btn_cari_ref_penyunting", type="primary", use_container_width=True):
+                if not _kata_ref.strip():
+                    st.warning("Masukkan kata kunci referensi terlebih dahulu.")
+                else:
+                    with st.spinner("Mencari metadata referensi..."):
+                        _refs = []
+                        _refs.extend(cari_crossref(_kata_ref, 6))
+                        _refs.extend(cari_openalex(_kata_ref, 6))
+                        _refs.extend(cari_semantic_scholar(_kata_ref, 6))
+                    # deduplikasi judul
+                    _seen, _uniq = set(), []
+                    for _r in _refs:
+                        _j = str(_r.get("Judul", "")).strip().lower()
+                        if _j and _j not in _seen:
+                            _seen.add(_j); _uniq.append(_r)
+                    st.session_state["refs_penyunting_terverifikasi"] = _uniq[:15]
+                    st.success(f"Ditemukan {len(_uniq[:15])} kandidat metadata referensi.") if _uniq else st.warning("Belum ditemukan kandidat yang cukup kuat. Ubah kata kunci.")
 
             _refs_now = st.session_state.get("refs_penyunting_terverifikasi", [])
             if _refs_now:
@@ -3990,38 +3993,43 @@ NASKAH:
             else:
                 _selected = []
 
-            if _c2.button("📚 Perkuat Referensi & Kutipan", key="btn_perkuat_ref_kutipan", disabled=not (bool(str(_hasil_sunting_untuk_word).strip()) and bool(_selected))):
-                _meta = "\n".join([f"- Penulis: {r.get('Penulis','')}; Tahun: {r.get('Tahun','')}; Judul: {r.get('Judul','')}; Jurnal/Penerbit: {r.get('Jurnal','')}; DOI: {r.get('DOI','')}; Halaman metadata: {r.get('Halaman','')}; Status: {r.get('Status','')}" for r in _selected])
-                _prompt_ref = f"""Anda adalah penyunting referensi akademik.
-JENIS NASKAH: {jenis_naskah_editor}
-
-NASKAH:
-{str(_hasil_sunting_untuk_word)[:90000]}
-
-REFERENSI METADATA YANG DIIZINKAN:
-{_meta}
-
-TUGAS WAJIB:
-1. Periksa klaim yang membutuhkan sumber. Nilai hubungan klaim-sumber: ✅ SESUAI, ⚠️ KURANG SESUAI, ❌ TIDAK MENDUKUNG, atau ❓ BELUM DAPAT DIVERIFIKASI.
-2. Tambahkan sitasi hanya bila metadata yang tersedia benar-benar relevan. Jangan mengarang isi artikel, DOI, volume, halaman, kutipan langsung, atau hasil penelitian.
-3. Jika isi sumber belum tersedia sehingga dukungan substantif tidak dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER], jangan menyatakan sumber pasti mendukung.
-4. Untuk tafsir: setiap uraian penafsiran harus memiliki sitasi/footnote sumber tafsir. Jangan membuat nomor halaman; bila belum tersedia tulis [halaman perlu verifikasi].
-5. Untuk hadis: sumber/takhrij harus jelas. Jangan membuat nomor hadis atau sanad.
-6. Pertahankan seluruh sumber lama. Jangan menghapus data, angka, hasil, ayat, hadis, tabel, atau substansi penelitian.
-7. Sinkronkan setiap sumber yang benar-benar dikutip ke DAFTAR PUSTAKA. Jangan memasukkan kandidat yang tidak digunakan.
-8. Keluarkan NASKAH DIPERKUAT terlebih dahulu, lalu LAPORAN KESESUAIAN KUTIPAN singkat.
-"""
-                with st.spinner("Memperkuat referensi dan memeriksa kutipan..."):
-                    _hr = panggil_gemini(_prompt_ref, temperature=0.15)
-                if _hr.get("sukses"):
-                    st.session_state["hasil_sunting_parafrase_ai"] = str(_hr.get("hasil", "")).strip()
-                    st.session_state["hasil_sunting_parafrase_area"] = st.session_state["hasil_sunting_parafrase_ai"]
-                    st.success("Referensi dan kutipan selesai diperiksa. Hasil diperbarui.")
-                    st.rerun()
+            if _c2.button("📚 Perkuat Referensi & Kutipan", key="btn_perkuat_ref_kutipan", type="primary", use_container_width=True):
+                if not bool(str(_hasil_sunting_untuk_word).strip()):
+                    st.warning("Belum ada naskah hasil suntingan yang dapat diperkuat.")
+                elif not _selected:
+                    st.warning("Cari lalu pilih minimal satu referensi terlebih dahulu.")
                 else:
-                    st.error(str(_hr.get("error", "Pemeriksaan referensi gagal.")))
+                    _meta = "\n".join([f"- Penulis: {r.get('Penulis','')}; Tahun: {r.get('Tahun','')}; Judul: {r.get('Judul','')}; Jurnal/Penerbit: {r.get('Jurnal','')}; DOI: {r.get('DOI','')}; Halaman metadata: {r.get('Halaman','')}; Status: {r.get('Status','')}" for r in _selected])
+                    _prompt_ref = f"""Anda adalah penyunting referensi akademik.
+    JENIS NASKAH: {jenis_naskah_editor}
 
-            if _c3.button("🗑️ Hapus", key="btn_hapus_penyunting"):
+    NASKAH:
+    {str(_hasil_sunting_untuk_word)[:90000]}
+
+    REFERENSI METADATA YANG DIIZINKAN:
+    {_meta}
+
+    TUGAS WAJIB:
+    1. Periksa klaim yang membutuhkan sumber. Nilai hubungan klaim-sumber: ✅ SESUAI, ⚠️ KURANG SESUAI, ❌ TIDAK MENDUKUNG, atau ❓ BELUM DAPAT DIVERIFIKASI.
+    2. Tambahkan sitasi hanya bila metadata yang tersedia benar-benar relevan. Jangan mengarang isi artikel, DOI, volume, halaman, kutipan langsung, atau hasil penelitian.
+    3. Jika isi sumber belum tersedia sehingga dukungan substantif tidak dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER], jangan menyatakan sumber pasti mendukung.
+    4. Untuk tafsir: setiap uraian penafsiran harus memiliki sitasi/footnote sumber tafsir. Jangan membuat nomor halaman; bila belum tersedia tulis [halaman perlu verifikasi].
+    5. Untuk hadis: sumber/takhrij harus jelas. Jangan membuat nomor hadis atau sanad.
+    6. Pertahankan seluruh sumber lama. Jangan menghapus data, angka, hasil, ayat, hadis, tabel, atau substansi penelitian.
+    7. Sinkronkan setiap sumber yang benar-benar dikutip ke DAFTAR PUSTAKA. Jangan memasukkan kandidat yang tidak digunakan.
+    8. Keluarkan NASKAH DIPERKUAT terlebih dahulu, lalu LAPORAN KESESUAIAN KUTIPAN singkat.
+    """
+                    with st.spinner("Memperkuat referensi dan memeriksa kutipan..."):
+                        _hr = panggil_gemini(_prompt_ref, temperature=0.15)
+                    if _hr.get("sukses"):
+                        st.session_state["hasil_sunting_parafrase_ai"] = str(_hr.get("hasil", "")).strip()
+                        st.session_state["hasil_sunting_parafrase_area"] = st.session_state["hasil_sunting_parafrase_ai"]
+                        st.success("Referensi dan kutipan selesai diperiksa. Hasil diperbarui.")
+                        st.rerun()
+                    else:
+                        st.error(str(_hr.get("error", "Pemeriksaan referensi gagal.")))
+
+            if _c3.button("🗑️ Hapus", key="btn_hapus_penyunting", type="primary", use_container_width=True):
                 for _k in ["hasil_sunting_parafrase_ai", "hasil_sunting_parafrase_area", "model_sunting_parafrase_ai", "refs_penyunting_terverifikasi", "pilih_ref_penyunting", "kata_ref_penyunting"]:
                     st.session_state.pop(_k, None)
                 st.success("Naskah hasil dan referensi sementara dibersihkan. Pedoman dan bank referensi tetap aman.")
