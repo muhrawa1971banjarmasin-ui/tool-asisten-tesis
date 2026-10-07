@@ -252,7 +252,7 @@ def _panggil_gemini_rest_aman(prompt, temperature=0.25, max_output_tokens=8192):
 
     # Model utama tetap model yang sudah digunakan aplikasi.
     # Fallback hanya dipakai setelah gangguan sementara pada model utama.
-    model_ids = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+    model_ids = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
     transient_codes = {408, 429, 500, 502, 503, 504}
     payload = {
         "contents": [{"parts": [{"text": prompt[:90000]}]}],
@@ -3641,7 +3641,11 @@ elif menu == "✨ Penyunting Akademik AI":
                 teks_edit = _t
 
         st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
-        if st.button("✨ Sunting dengan AI", type="primary", disabled=not bool(str(teks_edit).strip()), key="btn_sunting_parafrase_ai"):
+        _siap_sunting = bool(str(teks_edit or "").strip())
+        if not _siap_sunting:
+            st.caption("Unggah naskah atau tempel teks terlebih dahulu agar tombol Sunting aktif.")
+
+        if st.button("✨ Sunting dengan AI", type="primary", disabled=not _siap_sunting, key="btn_sunting_parafrase_ai"):
             _ped_prompt = (_ped_teks[:45000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:12000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
             _prompt = f"""Anda adalah Penyunting Akademik AI.
 JENIS NASKAH: {jenis_naskah_editor}
@@ -3662,12 +3666,21 @@ ATURAN WAJIB:
 
 NASKAH:
 {str(teks_edit)[:90000]}"""
-            _h = panggil_gemini(_prompt)
-            if _h["sukses"]:
-                st.session_state["hasil_sunting_parafrase_ai"] = _h["hasil"]
+            with st.spinner("AI sedang menyunting naskah. Mohon tunggu sampai hasil tampil..."):
+                _h = panggil_gemini(_prompt, temperature=0.20)
+            if _h.get("sukses"):
+                st.session_state["hasil_sunting_parafrase_ai"] = str(_h.get("hasil", "") or "").strip()
+                st.session_state["model_sunting_parafrase_ai"] = str(_h.get("model", "") or "")
+                st.success("✅ Penyuntingan selesai. Hasil tampil di bawah.")
             else:
-                st.error(_h["error"])
+                st.session_state["hasil_sunting_parafrase_ai"] = ""
+                st.error("❌ Penyuntingan belum berhasil.")
+                st.warning(str(_h.get("error", "Kesalahan AI tidak diketahui.")))
+
         if st.session_state.get("hasil_sunting_parafrase_ai"):
+            _model_sunting = st.session_state.get("model_sunting_parafrase_ai", "")
+            if _model_sunting:
+                st.caption(f"Model AI: {_model_sunting}")
             st.text_area("Hasil Suntingan", st.session_state["hasil_sunting_parafrase_ai"], height=700, key="hasil_sunting_parafrase_area")
 
     # --------------------------------------------------------
