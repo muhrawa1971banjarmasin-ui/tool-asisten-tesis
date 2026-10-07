@@ -3583,97 +3583,268 @@ elif menu == "📘 Penulis Buku AI":
 # ============================================================
 elif menu == "✨ Penyunting Akademik AI":
     st.header("✨ Penyunting Akademik AI")
-    mode_edit=st.selectbox("Mode",[
-        "Koreksi Ejaan & Typo","Rapikan Kalimat","Bahasa Akademik",
-        "Perkuat Paragraf","Koherensi Antarparagraf",
-        "Parafrasa Akademik Bertanggung Jawab","Sunting Naskah Lengkap",
-        "📑 Format Akademik & Finalisasi Word"
-    ])
+    st.caption("Bengkel naskah akademik untuk proposal, tesis, skripsi, disertasi, dan artikel. Substansi penelitian dilindungi.")
 
-    if mode_edit == "📑 Format Akademik & Finalisasi Word":
-        st.subheader("📑 Format Akademik & Finalisasi Word")
-        st.caption("Khusus merapikan naskah akademik tanpa mengubah judul, metode, variabel, data, kutipan, dan substansi penelitian.")
-        file_edit=st.file_uploader("Unggah naskah Word / PDF / TXT",type=["pdf","docx","txt"],key="file_editor_final_word")
-        teks_edit=st.text_area("Atau tempel naskah",height=260,key="teks_editor_final_word")
+    # Pedoman aktif global: memakai sumber pedoman yang SUDAH ADA di aplikasi.
+    _ped_aktif = bool(st.session_state.get("pedoman_tesis_s2_aktif"))
+    _ped_nama = str(st.session_state.get("pedoman_tesis_s2_nama", "") or "")
+    _ped_teks = str(st.session_state.get("pedoman_tesis_s2_teks", "") or "")
+    _ped_analisis = str(st.session_state.get("pedoman_tesis_s2_analisis", "") or "")
+    if _ped_aktif:
+        st.success(f"📘 Pedoman Aktif Global: {_ped_nama or 'Pedoman Penulisan yang telah diaktifkan'}")
+    else:
+        st.warning("📘 Belum ada Pedoman Aktif. Penyunting tetap dapat digunakan, tetapi aturan institusi yang tidak tersedia tidak akan ditebak oleh AI.")
+
+    jenis_naskah_editor = st.selectbox(
+        "Jenis Naskah",
+        ["Deteksi Otomatis", "Proposal", "Tesis", "Skripsi", "Disertasi", "Artikel Jurnal"],
+        key="jenis_naskah_penyunting_global"
+    )
+
+    submenu_editor = st.radio(
+        "Bagian Penyunting Akademik AI",
+        [
+            "✍️ Sunting & Parafrase",
+            "👨‍🏫 Revisi Dosen Pembimbing",
+            "🔎 Audit Akademik",
+            "📑 Finalisasi Word",
+        ],
+        horizontal=True,
+        key="submenu_penyunting_akademik_ai"
+    )
+
+    # --------------------------------------------------------
+    # 1. SUNTING & PARAFRASE
+    # --------------------------------------------------------
+    if submenu_editor == "✍️ Sunting & Parafrase":
+        st.subheader("✍️ Sunting & Parafrase")
+        mode_edit = st.selectbox(
+            "Mode Penyuntingan",
+            [
+                "Koreksi Ejaan & Typo",
+                "Rapikan Kalimat",
+                "Bahasa Akademik",
+                "Perkuat Paragraf",
+                "Koherensi Antarparagraf",
+                "Parafrasa Ringan",
+                "Parafrasa Akademik",
+                "Parafrasa Mendalam",
+                "Sunting Naskah Lengkap",
+            ],
+            key="mode_sunting_parafrase_ai"
+        )
+        file_edit = st.file_uploader("Unggah naskah", type=["pdf", "docx", "txt"], key="file_sunting_parafrase_ai")
+        teks_edit = st.text_area("Atau tempel teks", height=300, key="teks_sunting_parafrase_ai")
         if file_edit:
-            t=ekstrak_teks(file_edit)
-            if not t.startswith("ERROR:"): teks_edit=t
+            _t = ekstrak_teks(file_edit)
+            if not _t.startswith("ERROR:"):
+                teks_edit = _t
 
-        c1,c2,c3=st.columns(3)
-        with c1:
-            pedoman_final=st.selectbox("Pedoman",["Pedoman Tesis IAI Darussalam Martapura"],key="pedoman_final_word")
-            gaya_final=st.selectbox("Gaya Sitasi",["Chicago Notes & Bibliography (Footnote)","Turabian Notes-Bibliography","APA 7th","IEEE"],key="gaya_final_word")
-        with c2:
-            font_final=st.selectbox("Jenis Huruf",["Times New Roman","Cambria","Arial","Calibri"],key="font_final_word")
-            size_final=st.selectbox("Ukuran Isi",["12 pt","11 pt"],key="size_final_word")
-        with c3:
-            judul_final=st.text_input("Judul Penelitian",value=st.session_state.get("mesin2_judul_terkunci", ""),key="judul_final_word")
-            nama_final=st.text_input("Nama Mahasiswa",key="nama_final_word")
-            npm_final=st.text_input("NPM",key="npm_final_word")
+        st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
+        if st.button("✨ Sunting dengan AI", type="primary", disabled=not bool(str(teks_edit).strip()), key="btn_sunting_parafrase_ai"):
+            _ped_prompt = (_ped_teks[:45000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:12000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
+            _prompt = f"""Anda adalah Penyunting Akademik AI.
+JENIS NASKAH: {jenis_naskah_editor}
+MODE: {mode_edit}
 
-        st.info("Aturan Word: isi mengikuti font pilihan; footnote Chicago/Turabian Times New Roman 10 pt spasi 1; BAB mulai halaman baru; daftar bertingkat memakai tab/hanging indent; sampul tanpa nomor; bagian awal Romawi kecil; bagian BAB angka Arab.")
-
-        if st.button("🔍 Penyempurnaan Akademik",type="primary",disabled=not bool(str(teks_edit).strip()),key="btn_finalisasi_akademik_word"):
-            prompt_final=f"""Anda adalah penyunting akademik tesis S2. Rapikan naskah berikut sesuai {pedoman_final}.
-Gaya sitasi yang dipilih: {gaya_final}.
+PEDOMAN AKTIF:
+{_ped_prompt}
 
 ATURAN WAJIB:
-1. Jangan mengubah judul penelitian, jenis penelitian, variabel, hipotesis, lokasi, subjek, data angka, atau substansi ilmiah.
-2. Perbaiki typo, PUEBI, tanda baca, kalimat tidak efektif, pengulangan, dan konsistensi istilah.
-3. Jangan menciptakan data lapangan, jumlah populasi/sampel, DOI, halaman sumber, nama penulis, judul sumber, nomor hadis, atau metadata bibliografis. Jika belum tersedia, tulis [PERLU VERIFIKASI].
-4. Bersihkan artefak Markdown/LaTeX yang tidak semestinya: tanda $, ``` , #, ##, ###, dan tanda format mentah. Jangan menghapus tanda kurung yang memang diperlukan secara ilmiah.
-5. Strukturkan BAB, subbab A./B./C., dan daftar 1./2./3. secara konsisten. Jangan memakai spasi manual untuk indentasi.
-6. Untuk Chicago/Turabian gunakan marker [^1] pada posisi kutipan di narasi dan definisi catatan di akhir naskah dalam format [^1]: isi catatan. Nomor harus berurutan. Jangan tampilkan ^1 mentah.
-7. Untuk APA 7 gunakan author-date dalam teks. Untuk IEEE gunakan [1], [2], dst. Jangan mencampur gaya.
-8. Bedakan format sumber buku, jurnal, tesis/disertasi, regulasi, website, video YouTube, Al-Qur'an, kitab tafsir, hadis, kitab hadis/syarah, kitab klasik, dan wawancara sesuai gaya yang dipilih serta pedoman.
-9. Al-Qur'an, tafsir, hadis, dan kitab hadis tidak boleh diperlakukan sebagai artikel jurnal. Jangan mengarang nomor hadis atau halaman kitab.
-10. Pertahankan ayat Arab dan hadis; jangan mengubah teks Arab. Bila teks Arab rusak karena ekstraksi, beri [TEKS ARAB PERLU DIPERIKSA], jangan merekonstruksi dari tebakan.
-11. Jangan menambahkan ringkasan perubahan ke dalam naskah. Keluarkan hanya naskah final.
+1. Pertahankan makna, fakta, angka, data, judul, variabel, hasil, tabel, kutipan, sitasi, nama sumber, ayat dan hadis.
+2. Jangan menciptakan referensi, DOI, halaman, data, kutipan langsung, hasil penelitian, atau fakta baru.
+3. Perbaiki hanya sesuai mode yang dipilih.
+4. Parafrase bertujuan memperjelas bahasa akademik, bukan mengelabui pemeriksa plagiarisme.
+5. Sitasi yang sudah ada harus tetap melekat pada klaim yang sama.
+6. Bila ada bagian meragukan, tandai [PERLU VERIFIKASI], jangan menebak.
+7. Ikuti pedoman aktif bila tersedia. Jika pedoman tidak mengatur sesuatu, jangan membuat aturan institusi sendiri.
+8. Keluarkan dua bagian: HASIL SUNTINGAN dan CATATAN PERUBAHAN PENTING. Jangan menambah pembahasan di luar naskah.
 
 NASKAH:
 {str(teks_edit)[:90000]}"""
-            h=panggil_gemini(prompt_final)
-            if h["sukses"]:
-                st.session_state["hasil_finalisasi_word"]=h["hasil"]
-                st.success("Penyempurnaan selesai. Periksa preview sebelum mengunduh Word.")
-            else: st.error(h["error"])
+            _h = panggil_gemini(_prompt)
+            if _h["sukses"]:
+                st.session_state["hasil_sunting_parafrase_ai"] = _h["hasil"]
+            else:
+                st.error(_h["error"])
+        if st.session_state.get("hasil_sunting_parafrase_ai"):
+            st.text_area("Hasil Suntingan", st.session_state["hasil_sunting_parafrase_ai"], height=700, key="hasil_sunting_parafrase_area")
 
-        if st.session_state.get("hasil_finalisasi_word"):
-            hasil_final=st.text_area("Preview Naskah Final",st.session_state["hasil_finalisasi_word"],height=700,key="preview_finalisasi_word")
-            st.session_state["hasil_finalisasi_word"]=hasil_final
+    # --------------------------------------------------------
+    # 2. REVISI DOSEN PEMBIMBING
+    # --------------------------------------------------------
+    elif submenu_editor == "👨‍🏫 Revisi Dosen Pembimbing":
+        st.subheader("👨‍🏫 Revisi Dosen Pembimbing")
+        st.caption("AI mencari sendiri BAB, subbab, dan paragraf yang terkait dengan catatan pembimbing. Bagian lain dipertahankan.")
+        file_revisi = st.file_uploader("Unggah naskah yang akan direvisi", type=["pdf", "docx", "txt"], key="file_revisi_dosen_ai")
+        teks_revisi = st.text_area("Atau tempel naskah", height=250, key="teks_revisi_dosen_ai")
+        if file_revisi:
+            _t = ekstrak_teks(file_revisi)
+            if not _t.startswith("ERROR:"):
+                teks_revisi = _t
+        catatan_dosen = st.text_area("Catatan / arahan dosen pembimbing", height=180, key="catatan_dosen_pembimbing_ai", placeholder="Contoh: Perkuat research gap pada latar belakang dan jangan mengubah metode penelitian.")
+        batas_revisi = st.selectbox("Lokasi Revisi", ["Otomatis oleh AI", "BAB I", "BAB II", "BAB III", "BAB IV", "BAB V", "Bagian/Paragraf yang disebut dalam catatan"], key="batas_revisi_dosen_ai")
+
+        st.info("🔒 AI hanya merevisi bagian yang diminta. Perubahan substantif besar harus ditandai terlebih dahulu, bukan dilakukan diam-diam.")
+        if st.button("🔎 Analisis & Kerjakan Revisi", type="primary", disabled=not (bool(str(teks_revisi).strip()) and bool(str(catatan_dosen).strip())), key="btn_revisi_dosen_ai"):
+            _ped_prompt = (_ped_teks[:45000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:12000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
+            _prompt = f"""Anda adalah asisten revisi dosen pembimbing untuk naskah akademik.
+JENIS NASKAH: {jenis_naskah_editor}
+BATAS LOKASI: {batas_revisi}
+
+PEDOMAN AKTIF:
+{_ped_prompt}
+
+CATATAN DOSEN:
+{catatan_dosen}
+
+TUGAS:
+1. Temukan sendiri BAB, subbab, dan paragraf yang paling relevan dengan catatan dosen, termasuk bila dosen tidak menyebut nomor paragraf.
+2. Jangan merevisi bagian yang tidak berkaitan dengan catatan dosen.
+3. Jangan mengubah judul, rumusan masalah, tujuan, variabel, metode, populasi/sampel, data, hasil, kutipan, atau sumber kecuali catatan dosen secara eksplisit memerintahkannya.
+4. Jika catatan meminta perubahan substantif besar yang berdampak lintas bagian, beri PERINGATAN PERUBAHAN SUBSTANTIF dan jelaskan bagian terdampak. Jangan diam-diam mengubah seluruh naskah.
+5. Jangan menciptakan data, referensi, DOI, halaman, kutipan, nomor hadis, atau fakta baru.
+6. Ikuti pedoman aktif bila tersedia.
+7. Tampilkan: LOKASI DITEMUKAN, SEBELUM, SESUDAH, ALASAN REVISI, lalu NASKAH REVISI LENGKAP.
+8. Pertahankan bagian naskah lain apa adanya sejauh mungkin.
+
+NASKAH:
+{str(teks_revisi)[:100000]}"""
+            _h = panggil_gemini(_prompt)
+            if _h["sukses"]:
+                st.session_state["hasil_revisi_dosen_ai"] = _h["hasil"]
+            else:
+                st.error(_h["error"])
+        if st.session_state.get("hasil_revisi_dosen_ai"):
+            st.text_area("Hasil Revisi Dosen", st.session_state["hasil_revisi_dosen_ai"], height=750, key="hasil_revisi_dosen_area")
+
+    # --------------------------------------------------------
+    # 3. AUDIT AKADEMIK
+    # --------------------------------------------------------
+    elif submenu_editor == "🔎 Audit Akademik":
+        st.subheader("🔎 Audit Akademik")
+        file_audit = st.file_uploader("Unggah naskah untuk diaudit", type=["pdf", "docx", "txt"], key="file_audit_akademik_ai")
+        teks_audit = st.text_area("Atau tempel naskah", height=260, key="teks_audit_akademik_ai")
+        if file_audit:
+            _t = ekstrak_teks(file_audit)
+            if not _t.startswith("ERROR:"):
+                teks_audit = _t
+        cakupan_audit = st.multiselect(
+            "Cakupan Audit",
+            ["Struktur & Pedoman", "Konsistensi Judul-Rumusan-Tujuan", "Teori & Penelitian Terdahulu", "Metode Penelitian", "Data/Angka yang Belum Terverifikasi", "Sitasi & Footnote", "Daftar Pustaka", "Bahasa & Typo", "Artefak AI/Markdown/LaTeX"],
+            default=["Struktur & Pedoman", "Konsistensi Judul-Rumusan-Tujuan", "Metode Penelitian", "Sitasi & Footnote", "Daftar Pustaka", "Bahasa & Typo", "Artefak AI/Markdown/LaTeX"],
+            key="cakupan_audit_akademik_ai"
+        )
+        if st.button("🔎 Audit Naskah", type="primary", disabled=not bool(str(teks_audit).strip()), key="btn_audit_akademik_ai"):
+            _ped_prompt = (_ped_teks[:50000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:15000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
+            _prompt = f"""Lakukan audit akademik ketat terhadap naskah berikut.
+JENIS NASKAH: {jenis_naskah_editor}
+CAKUPAN: {', '.join(cakupan_audit)}
+
+PEDOMAN AKTIF:
+{_ped_prompt}
+
+ATURAN:
+- Jangan memperbaiki naskah secara diam-diam. Audit dahulu.
+- Bedakan TEMUAN KRITIS, TEMUAN PENTING, dan TEMUAN MINOR.
+- Sebutkan lokasi BAB/subbab/paragraf atau frasa agar mudah ditemukan.
+- Periksa konsistensi judul, rumusan/fokus, tujuan, variabel, hipotesis, metode, populasi/sampel, instrumen, dan analisis sesuai jenis penelitian.
+- Tandai angka/data lapangan yang tampak tidak memiliki dasar dari naskah sebagai [PERLU VERIFIKASI], bukan dianggap benar.
+- Tandai referensi/DOI/halaman/kutipan yang tidak dapat dipastikan sebagai [PERLU VERIFIKASI]. Jangan menciptakan pengganti.
+- Deteksi typo, ejaan, tanda baca, istilah tidak konsisten, serta artefak $, *, #, ```, [^n], atau LaTeX mentah yang tidak semestinya tampil di Word.
+- Jika pedoman tidak mengatur suatu hal, tulis 'Tidak ditemukan dalam pedoman aktif'.
+- Akhiri dengan STATUS KESIAPAN: Belum Siap / Perlu Revisi / Hampir Siap / Siap Difinalisasi, disertai alasan singkat.
+
+NASKAH:
+{str(teks_audit)[:110000]}"""
+            _h = panggil_gemini(_prompt)
+            if _h["sukses"]:
+                st.session_state["hasil_audit_akademik_ai"] = _h["hasil"]
+            else:
+                st.error(_h["error"])
+        if st.session_state.get("hasil_audit_akademik_ai"):
+            st.markdown(st.session_state["hasil_audit_akademik_ai"])
+
+    # --------------------------------------------------------
+    # 4. FINALISASI WORD
+    # --------------------------------------------------------
+    elif submenu_editor == "📑 Finalisasi Word":
+        st.subheader("📑 Format Akademik & Finalisasi Word")
+        st.caption("Tahap akhir untuk membersihkan naskah dan membentuk Word akademik tanpa mengubah substansi penelitian.")
+        file_final = st.file_uploader("Unggah naskah Word / PDF / TXT", type=["pdf", "docx", "txt"], key="file_finalisasi_word_ai")
+        teks_final = st.text_area("Atau tempel naskah", height=280, key="teks_finalisasi_word_ai")
+        if file_final:
+            _t = ekstrak_teks(file_final)
+            if not _t.startswith("ERROR:"):
+                teks_final = _t
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            gaya_final = st.selectbox("Gaya Sitasi", ["Chicago Notes & Bibliography (Footnote)", "Turabian Notes-Bibliography", "APA 7th", "IEEE"], key="gaya_final_word_ai")
+            font_final = st.selectbox("Jenis Huruf", ["Times New Roman", "Cambria", "Arial", "Calibri"], key="font_final_word_ai")
+        with c2:
+            size_final = st.selectbox("Ukuran Isi", ["12 pt", "11 pt"], key="size_final_word_ai")
+            judul_final = st.text_input("Judul Penelitian", value=st.session_state.get("mesin2_judul_terkunci", ""), key="judul_final_word_ai")
+        with c3:
+            nama_final = st.text_input("Nama Mahasiswa", key="nama_final_word_ai")
+            npm_final = st.text_input("NPM", key="npm_final_word_ai")
+
+        if _ped_aktif:
+            st.success(f"Format akan mengikuti Pedoman Aktif: {_ped_nama or 'Pedoman Penulisan'}")
+        st.info("Target Word: BAB halaman baru; daftar A./1./a. memakai tab dan hanging indent; tidak ada spasi manual; teks/tabel tidak melewati margin; sampul tanpa nomor; bagian awal Romawi kecil; halaman pertama BAB angka Arab di tengah bawah dan halaman berikutnya di kanan atas; Chicago/Turabian memakai footnote Word dan superscript.")
+
+        if st.button("✨ Finalisasi Naskah", type="primary", disabled=not bool(str(teks_final).strip()), key="btn_finalisasi_word_ai"):
+            _ped_prompt = (_ped_teks[:50000] + "\n\nRINGKASAN PEDOMAN:\n" + _ped_analisis[:15000]) if _ped_aktif else "Pedoman institusi belum aktif. Jangan menebak aturan institusi."
+            _prompt = f"""Anda adalah finalisator naskah akademik.
+JENIS NASKAH: {jenis_naskah_editor}
+GAYA SITASI: {gaya_final}
+FONT: {font_final} {size_final}
+
+PEDOMAN AKTIF:
+{_ped_prompt}
+
+ATURAN WAJIB:
+1. Jangan mengubah judul, jenis penelitian, variabel, hipotesis, lokasi, subjek, data angka, hasil, atau substansi ilmiah.
+2. Perbaiki typo, ejaan, tanda baca, kalimat tidak efektif, pengulangan, dan konsistensi istilah.
+3. Jangan menciptakan data lapangan, jumlah populasi/sampel, DOI, halaman sumber, nama penulis, judul sumber, nomor hadis, metadata bibliografis, atau kutipan. Tandai [PERLU VERIFIKASI] bila perlu.
+4. Bersihkan artefak Markdown/LaTeX yang tidak semestinya: $, ```, #, ##, ###, **, dan marker format mentah. Jangan menghapus tanda kurung yang diperlukan secara ilmiah.
+5. Hipotesis seperti $H_0$ dan $H_a$ harus menjadi H₀ dan Hₐ, tanpa tanda dolar.
+6. Strukturkan BAB, subbab A./B./C., daftar 1./2./3., dan a./b./c. secara konsisten. Jangan memakai spasi manual untuk indentasi.
+7. Chicago/Turabian: gunakan marker [^1] di narasi dan definisi [^1]: catatan di akhir teks agar mesin Word dapat mengubahnya menjadi footnote. APA 7 gunakan author-date. IEEE gunakan [1]. Jangan mencampur gaya.
+8. Bedakan buku, jurnal, tesis/disertasi, regulasi, website, YouTube, Al-Qur'an, tafsir, hadis, kitab hadis/syarah, kitab klasik, dan wawancara.
+9. Pertahankan teks Arab. Bila rusak karena ekstraksi, tandai [TEKS ARAB PERLU DIPERIKSA], jangan menebak.
+10. Jangan menambahkan ringkasan perubahan ke dalam naskah final. Keluarkan hanya naskah final yang bersih.
+
+NASKAH:
+{str(teks_final)[:110000]}"""
+            _h = panggil_gemini(_prompt)
+            if _h["sukses"]:
+                st.session_state["hasil_finalisasi_word_ai"] = _h["hasil"]
+                st.success("Finalisasi teks selesai. Periksa preview sebelum Download Word.")
+            else:
+                st.error(_h["error"])
+
+        if st.session_state.get("hasil_finalisasi_word_ai"):
+            hasil_final = st.text_area("Preview Naskah Final", st.session_state["hasil_finalisasi_word_ai"], height=750, key="preview_finalisasi_word_ai")
+            st.session_state["hasil_finalisasi_word_ai"] = hasil_final
             if judul_final.strip():
                 try:
-                    word_final=buat_docx_proposal_final(
+                    word_final = buat_docx_proposal_final(
                         hasil_final, judul_final, nama_final, npm_final,
                         "Pendidikan Agama Islam", datetime.now().year,
                         gaya_sitasi=gaya_final, font_naskah=font_final, ukuran_naskah=size_final
                     )
                     if word_final:
-                        st.download_button("📥 Download Word Final (.docx)",data=word_final,
+                        st.download_button(
+                            "📥 Download Word Final (.docx)", data=word_final,
                             file_name="Naskah_Akademik_Final.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key="download_final_word")
+                            key="download_final_word_ai"
+                        )
                 except Exception as e:
                     st.error(f"Word belum dapat dibuat: {e}")
             else:
                 st.warning("Isi Judul Penelitian agar Word final dapat dibuat.")
-    else:
-        file_edit=st.file_uploader("Unggah naskah",type=["pdf","docx","txt"],key="file_editor")
-        teks_edit=st.text_area("Atau tempel teks",height=250,key="teks_editor")
-        if file_edit:
-            t=ekstrak_teks(file_edit)
-            if not t.startswith("ERROR:"): teks_edit=t
-        if st.button("✨ Sunting dengan AI",type="primary",disabled=not bool(teks_edit.strip())):
-            h=panggil_gemini(f"""Sunting teks berikut dengan mode: {mode_edit}.
-Pertahankan makna, data, sitasi, nama, dan substansi. Jangan menghapus sitasi untuk menurunkan kemiripan.
-Jangan membuat referensi baru. Untuk parafrasa, ubah secara akademik dan wajar, bukan untuk mengelabui pemeriksa plagiarisme.
-Tampilkan naskah hasil suntingan dan ringkas perubahan penting.
-TEKS:
-{teks_edit[:70000]}""")
-            if h["sukses"]: st.session_state.hasil_editor=h["hasil"]
-            else: st.error(h["error"])
-        if st.session_state.get("hasil_editor"):
-            st.text_area("Hasil suntingan",st.session_state.hasil_editor,height=650,key="hasil_editor_area")
 
 
 # ============================================================
