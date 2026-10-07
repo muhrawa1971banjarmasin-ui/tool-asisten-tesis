@@ -3976,8 +3976,7 @@ NASKAH:
                 key="kata_ref_penyunting",
                 placeholder="Kosongkan untuk pencarian otomatis dari isi proposal/tesis"
             )
-            _c1, _c2, _c3 = st.columns(3)
-            if _c1.button("🔎 Cari Referensi Sesuai Proposal", key="btn_cari_ref_penyunting", type="primary", use_container_width=True):
+            if st.button("🔎 Cari Referensi Sesuai Proposal", key="btn_cari_ref_penyunting", type="primary", use_container_width=True):
                 _naskah_ref = str(_hasil_sunting_untuk_word or "").strip()
                 if not _naskah_ref:
                     st.warning("Belum ada naskah proposal/tesis yang dapat dianalisis.")
@@ -4091,49 +4090,58 @@ KANDIDAT:
                         st.warning("Belum ditemukan referensi yang cukup relevan dengan isi naskah. Coba tambahkan kata kunci khusus secara opsional.")
 
             _refs_now = st.session_state.get("refs_penyunting_terverifikasi", [])
+            if "keputusan_manual_ref_penyunting" not in st.session_state:
+                st.session_state["keputusan_manual_ref_penyunting"] = {}
+
+            _selected = []
             if _refs_now:
-                _refs_saran = [_r for _r in _refs_now if _r.get("Keputusan AI") == "Disarankan"]
-                _refs_tolak = [_r for _r in _refs_now if _r.get("Keputusan AI") == "Tidak Disarankan"]
+                st.markdown("##### 🧭 Review Kesesuaian Referensi dengan Isi Proposal/Tesis")
+                st.caption("Tinjau setiap referensi. Klik ✅ Disarankan jika boleh digunakan pada proposal, atau ❌ Tidak Disarankan jika tidak boleh digunakan. Keputusan Anda menjadi kontrol akhir.")
 
-                st.markdown("##### 🧭 Review Kesesuaian dengan Isi Proposal/Tesis")
-                st.caption("Klik kategori untuk melihat hasil penilaian AI. Hanya referensi Disarankan yang dapat dipilih untuk diterapkan ke naskah.")
-                _rv1, _rv2 = st.columns(2)
-                if _rv1.button(f"✅ Disarankan ({len(_refs_saran)})", key="btn_lihat_ref_disarankan", use_container_width=True, type="primary"):
-                    st.session_state["tampilan_review_ref"] = "Disarankan"
-                if _rv2.button(f"❌ Tidak Disarankan ({len(_refs_tolak)})", key="btn_lihat_ref_tidak_disarankan", use_container_width=True):
-                    st.session_state["tampilan_review_ref"] = "Tidak Disarankan"
+                _keputusan_manual = st.session_state["keputusan_manual_ref_penyunting"]
+                for _i, _r in enumerate(_refs_now, 1):
+                    _sk = _r.get("Skor Relevansi", "")
+                    _judul = _r.get("Judul", "")
+                    _penulis = _r.get("Penulis", "")
+                    _tahun = _r.get("Tahun", "")
+                    _sumber = _r.get("Sumber", "")
+                    _bagian = _r.get("Bagian Proposal", "") or "Belum ditentukan"
+                    _alasan = _r.get("Alasan Relevansi", "") or "Tidak ada alasan tambahan."
+                    _ai = _r.get("Keputusan AI", "Belum dinilai")
+                    _rid = str(_r.get("DOI", "") or _r.get("URL", "") or f"{_judul}|{_penulis}|{_tahun}|{_sumber}")
+                    _status_manual = _keputusan_manual.get(_rid, "Belum dipilih")
 
-                _mode_review = st.session_state.get("tampilan_review_ref", "Disarankan")
-                _refs_tampil = _refs_saran if _mode_review == "Disarankan" else _refs_tolak
-                st.markdown(f"**{_mode_review} berdasarkan isi naskah**")
-                if not _refs_tampil:
-                    st.info(f"Belum ada referensi dalam kategori {_mode_review}.")
-                else:
-                    for _i, _r in enumerate(_refs_tampil, 1):
-                        _sk = _r.get("Skor Relevansi", "")
-                        _judul = _r.get("Judul", "")
-                        _penulis = _r.get("Penulis", "")
-                        _tahun = _r.get("Tahun", "")
-                        _sumber = _r.get("Sumber", "")
-                        _bagian = _r.get("Bagian Proposal", "") or "Belum ditentukan"
-                        _alasan = _r.get("Alasan Relevansi", "") or "Tidak ada alasan tambahan."
+                    with st.container(border=True):
                         st.markdown(f"**{_i}. [{_sk}%] {_judul}**")
                         st.caption(f"{_penulis} ({_tahun}) • {_sumber}")
                         st.write(f"**Cocok untuk bagian:** {_bagian}")
                         st.write(f"**Alasan:** {_alasan}")
+                        st.caption(f"Penilaian AI: {_ai} | Keputusan Anda: {_status_manual}")
 
-                if _refs_saran:
-                    _opsi_ref = []
-                    for _i, _r in enumerate(_refs_saran):
-                        _opsi_ref.append(f"{_i+1}. [{_r.get('Relevansi','Relevan')} {_r.get('Skor Relevansi','')}%] {_r.get('Penulis','')} ({_r.get('Tahun','')}). {_r.get('Judul','')} — {_r.get('Sumber','')}")
-                    _pilih_ref = st.multiselect("Pilih referensi Disarankan yang akan diterapkan", _opsi_ref, default=[], key="pilih_ref_penyunting")
-                    _selected = [_refs_saran[_opsi_ref.index(x)] for x in _pilih_ref if x in _opsi_ref]
-                else:
-                    _selected = []
+                        _b1, _b2 = st.columns(2)
+                        if _b1.button("✅ Disarankan", key=f"ref_ok_{_i}_{abs(hash(_rid))}", use_container_width=True, type="primary" if _status_manual == "Disarankan" else "secondary"):
+                            st.session_state["keputusan_manual_ref_penyunting"][_rid] = "Disarankan"
+                            st.rerun()
+                        if _b2.button("❌ Tidak Disarankan", key=f"ref_no_{_i}_{abs(hash(_rid))}", use_container_width=True, type="primary" if _status_manual == "Tidak Disarankan" else "secondary"):
+                            st.session_state["keputusan_manual_ref_penyunting"][_rid] = "Tidak Disarankan"
+                            st.rerun()
+
+                    if _status_manual == "Disarankan":
+                        _selected.append(_r)
+
+                _jml_pilih = len(_selected)
+                _jml_tolak = sum(1 for _v in _keputusan_manual.values() if _v == "Tidak Disarankan")
+                st.info(f"Referensi yang Anda setujui: {_jml_pilih} | Tidak disarankan: {_jml_tolak}")
+                if _selected:
+                    with st.expander(f"📚 Lihat {_jml_pilih} referensi yang akan diterapkan", expanded=False):
+                        for _r in _selected:
+                            st.write(f"• {_r.get('Penulis','')} ({_r.get('Tahun','')}). {_r.get('Judul','')}")
             else:
                 _selected = []
 
-            if _c2.button("📚 Terapkan Referensi Terpilih ke Proposal", key="btn_perkuat_ref_kutipan", type="primary", use_container_width=True):
+            st.markdown("##### 📌 Tindakan Setelah Review")
+            _aksi_ref_1, _aksi_ref_2 = st.columns(2)
+            if _aksi_ref_1.button("📚 Terapkan Referensi yang Disarankan ke Proposal", key="btn_perkuat_ref_kutipan", type="primary", use_container_width=True):
                 if not bool(str(_hasil_sunting_untuk_word).strip()):
                     st.warning("Belum ada naskah hasil suntingan yang dapat diperkuat.")
                 elif not _selected:
@@ -4171,7 +4179,7 @@ KANDIDAT:
                     else:
                         st.error(str(_hr.get("error", "Pemeriksaan referensi gagal.")))
 
-            if _c3.button("🗑️ Hapus", key="btn_hapus_penyunting", type="primary", use_container_width=True):
+            if _aksi_ref_2.button("🗑️ Hapus Hasil Review Referensi", key="btn_hapus_penyunting", use_container_width=True):
                 for _k in ["hasil_sunting_parafrase_ai", "hasil_sunting_parafrase_area", "model_sunting_parafrase_ai", "refs_penyunting_terverifikasi", "pilih_ref_penyunting", "kata_ref_penyunting", "pending_hasil_sunting_parafrase_area", "tampilan_review_ref", "query_ref_penyunting_otomatis"]:
                     st.session_state.pop(_k, None)
                 st.success("Naskah hasil dan referensi sementara dibersihkan. Pedoman dan bank referensi tetap aman.")
