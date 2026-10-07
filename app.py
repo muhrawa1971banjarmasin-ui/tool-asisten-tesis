@@ -692,8 +692,9 @@ TUGAS:
 4a. Untuk sumber yang belum ditemukan, berikan SARAN PENCARIAN berdasarkan penulis/judul/tahun/DOI/topik yang benar-benar terbaca dari naskah.
 4b. Jika ada sumber Library yang relevan tetapi bukan sumber asli, labeli jelas sebagai [REFERENSI ALTERNATIF - BUKAN SUMBER ASLI] dan jangan mengganti otomatis.
 4c. Gunakan tiga status: ✅ TERVERIFIKASI, ⚠️ KANDIDAT/PERLU KONFIRMASI, ❌ TIDAK DITEMUKAN.
-5. Jika mode mempertahankan gaya bawaan, ikuti pola footnote/sitasi yang sudah dominan di naskah. Jangan memaksa Chicago.
-6. Jika gaya target memakai footnote/endnote, rapikan nomor dan konsistensinya. Jika gaya target memakai sitasi dalam teks, pertahankan sistem in-text tersebut.
+5. NASKAH UNGGAHAN ADALAH MASTER GAYA SITASI. Deteksi gaya sitasi yang benar-benar dipakai pada naskah asli (misalnya Chicago footnote, APA author-date, atau gaya lain), lalu KUNCI gaya tersebut. Jangan memaksa Chicago, APA, atau gaya lain jika berbeda dari naskah asli.
+5a. Semua kutipan/sitasi baru dan kutipan yang formatnya menyimpang akibat proses AI WAJIB dinormalisasi mengikuti gaya sitasi asli naskah, TANPA mengubah identitas sumber, isi kutipan, atau sumber yang sudah ada.
+6. Jika gaya asli memakai footnote/endnote, pertahankan semua footnote lama dan lanjutkan penomoran secara unik sesuai urutan kemunculan; jangan mulai lagi dari 1 dan jangan membuat nomor ganda. Jika gaya asli memakai sitasi dalam teks, pertahankan sistem in-text tersebut.
 7. Sinkronkan daftar pustaka hanya dengan sumber yang benar-benar digunakan/teridentifikasi.
 8. Kalimat utama hanya boleh diperbaiki bila tidak cocok dengan sumber atau sangat tidak efektif. Setiap perubahan kalimat wajib ditampilkan sebagai SEBELUM -> SESUDAH dan jangan diterapkan diam-diam.
 9. Untuk halaman yang tidak diketahui, tulis [halaman perlu verifikasi], jangan menciptakan nomor halaman.
@@ -2143,6 +2144,20 @@ def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Ti
             p.paragraph_format.left_indent=Cm(0.7); p.paragraph_format.line_spacing=2
             p.paragraph_format.tab_stops.add_tab_stop(Cm(0.7))
             _run_markdown_inline(p,mn.group(1)+'.\t'+mn.group(2),font_name,font_size)
+            continue
+
+        # Terjemahan ayat/hadis: tanpa label "Artinya", menjorok, spasi 1.
+        # Ayat diakhiri (Q.S. ...), tanpa footnote baru. Hadis diakhiri (HR. ...) lalu nomor footnote.
+        _kutip=t.strip()
+        _kutip=re.sub(r'^[-*•]\s*', '', _kutip).strip()
+        _kutip=re.sub(r'^(?:\*{0,2})?Artinya(?:\*{0,2})?\s*:\s*', '', _kutip, flags=re.I).strip()
+        _is_terjemah=bool(re.match(r'^["“]', _kutip) and (re.search(r'\(Q\.S\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]*[.!?]?["”]?\s*$', _kutip, re.I) or re.search(r'\(HR\.\s*[^)]*\)\s*[¹²³⁴⁵⁶⁷⁸⁹⁰\d]+[.!?]?["”]?\s*$', _kutip, re.I)))
+        if _is_terjemah:
+            p=d.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.left_indent=Cm(1.27); p.paragraph_format.right_indent=Cm(1.27)
+            p.paragraph_format.first_line_indent=Cm(0); p.paragraph_format.line_spacing=1
+            p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(0)
+            _run_markdown_inline(p,_kutip,font_name,font_size)
             continue
 
         # Bullet menjadi daftar menjorok rapi.
@@ -4160,9 +4175,11 @@ KANDIDAT:
 
     TUGAS WAJIB - MODE AMAN PENYUNTING AKADEMIK AI:
     1. NASKAH ASLI ADALAH MASTER. Jangan menulis ulang, meringkas, menghapus, memindahkan, atau mengganti paragraf yang tidak perlu. Pertahankan urutan BAB, subbab, tabel, ayat, hadis, data, angka, istilah, dan substansi.
-    2. PERTAHANKAN 100% SEMUA KUTIPAN/SITASI/FOOTNOTE LAMA. Dilarang menghapus sitasi model author-date, nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
-    3. Jangan mengubah gaya sitasi lama menjadi gaya lain. Jika naskah memakai footnote, gunakan footnote. Jika ada sitasi author-date yang memang berasal dari naskah asli, jangan menghapusnya hanya untuk menyeragamkan.
-    4. Sebelum menambah footnote baru, identifikasi nomor footnote tertinggi yang SUDAH ADA. Footnote baru WAJIB melanjutkan nomor berikutnya sesuai urutan kemunculan. Contoh: bila nomor terakhir 18, tambahan pertama adalah 19, lalu 20, 21, dan seterusnya. DILARANG memulai lagi dari 1 dan DILARANG membuat nomor ganda.
+    2. PERTAHANKAN 100% SEMUA SUMBER DAN KUTIPAN/FOOTNOTE ASLI. Dilarang menghapus nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
+    3. DETEKSI DAN KUNCI GAYA SITASI NASKAH ASLI. Proposal/naskah unggahan adalah master. Jika gaya asli Chicago footnote, semua sitasi tambahan atau sitasi yang terlanjur berbentuk APA/author-date harus dirapikan menjadi Chicago footnote dengan sumber yang sama. Jika gaya asli APA, tetap APA. Jika gaya lain, ikuti gaya asli. DILARANG mengubah naskah ke gaya pilihan AI.
+    4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. Pertahankan catatan lama, rapikan formatnya, dan sisipkan footnote baru sesuai posisi kutipan sehingga penomoran akhir unik, berurutan, dan tidak ganda. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
+    4a. AYAT AL-QURAN: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1, lalu akhiri dengan identitas ayat seperti (Q.S. Al-Hasyr/59: 18). Identitas ayat tersebut TIDAK diberi footnote baru. Tafsir/penjelasan setelah ayat kembali menjadi paragraf biasa dan menggunakan sitasi sesuai gaya asli naskah.
+    4b. HADIS: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1. Pada akhir terjemahan tulis (HR. Nama Perawi) lalu nomor footnote sesuai urutan gaya asli. Footnote hadis memuat sumber/takhrij yang benar-benar tersedia. Jangan mengarang nomor hadis, halaman, sanad, atau data yang belum terverifikasi.
     5. Rapikan footnote lama dan baru secara konsisten tanpa mengubah identitas sumber. Jika metadata kurang, pertahankan sumber dan tandai [PERLU VERIFIKASI] atau [halaman perlu verifikasi], jangan mengarang.
     6. Tambahkan sumber baru HANYA pada klaim yang benar-benar relevan dengan metadata referensi yang DIIZINKAN. Jangan memaksakan semua referensi masuk ke naskah.
     7. Jangan mengarang isi artikel, DOI, volume, nomor, halaman, kutipan langsung, hasil penelitian, nomor hadis, sanad, atau halaman kitab/tafsir. Jika dukungan substantif belum dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER].
