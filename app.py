@@ -19,6 +19,8 @@ import difflib
 import csv
 import time
 import random
+import zipfile
+import xml.etree.ElementTree as ET
 try:
     import docx
     from docx.shared import Cm, Pt
@@ -203,6 +205,123 @@ def ekstrak_teks(file):
         return baca_txt(file)
 
     return ""
+
+
+def hitung_footnote_docx_bytes(data):
+    """Hitung footnote nyata di paket DOCX, tidak termasuk separator bawaan Word."""
+    try:
+        with zipfile.ZipFile(BytesIO(data), 'r') as z:
+            if 'word/footnotes.xml' not in z.namelist():
+                return 0
+            root=ET.fromstring(z.read('word/footnotes.xml'))
+            ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+            ids=[]
+            for fn in root.findall('w:footnote', ns):
+                fid=fn.attrib.get('{%s}id'%ns['w'])
+                try:
+                    if int(fid) > 0: ids.append(int(fid))
+                except Exception:
+                    pass
+            return len(set(ids))
+    except Exception:
+        return 0
+
+
+def _paragraf_nonempty_docx(data):
+    d=docx.Document(BytesIO(data))
+    return [p for p in d.paragraphs if (p.text or '').strip()]
+
+
+def _set_run_text_preserve_format(run, text):
+    """Ganti teks run tanpa menghapus properti run/field/footnote yang bukan w:t."""
+    from docx.oxml.ns import qn
+    r=run._r
+    texts=r.findall(qn('w:t'))
+    if texts:
+        texts[0].text=text
+        if text.startswith(' ') or text.endswith(' '):
+            texts[0].set('{http://www.w3.org/XML/1998/namespace}space','preserve')
+        for x in texts[1:]: r.remove(x)
+    elif text:
+        t=ET.Element(qn('w:t'))
+        t.text=text
+        if text.startswith(' ') or text.endswith(' '):
+            t.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
+        r.append(t)
+
+
+def _run_punya_footnote(run):
+    from docx.oxml.ns import qn
+    return bool(run._r.findall('.//' + qn('w:footnoteReference')))
+
+
+def _bagi_teks_menurut_anchor(teks_baru, bobot_lama):
+    """Bagi teks baru ke segmen di sekitar anchor footnote berdasarkan proporsi teks lama."""
+    n=len(bobot_lama)
+    if n<=1: return [teks_baru]
+    total=max(1,sum(max(1,x) for x in bobot_lama))
+    # Cari batas kata terdekat berdasarkan proporsi. Footnote umumnya di akhir kalimat.
+    words=re.findall(r'\S+\s*', teks_baru)
+    if not words: return ['']*n
+    out=[]; start=0; cum=0
+    for i,w in enumerate(bobot_lama[:-1]):
+        cum += max(1,w)
+        target=round(len(words)*cum/total)
+        target=max(start,min(len(words),target))
+        # Geser sedikit ke tanda baca terdekat agar anchor tetap natural.
+        best=target
+        for j in range(max(start,target-5), min(len(words),target+6)):
+            if re.search(r'[.!?;,:][\"”’\']?\s*$', words[j]):
+                best=j+1; break
+        out.append(''.join(words[start:best])); start=best
+    out.append(''.join(words[start:]))
+    return out
+
+
+def _ganti_paragraf_jaga_footnote(paragraph, teks_baru):
+    """Ganti teks paragraf sambil mempertahankan run footnoteReference dan format utama."""
+    runs=list(paragraph.runs)
+    if not runs:
+        paragraph.add_run(teks_baru); return
+    # Kelompok run teks dipisahkan oleh run anchor footnote.
+    groups=[[]]
+    anchors=[]
+    for run in runs:
+        if _run_punya_footnote(run):
+            anchors.append(run); groups.append([])
+        else:
+            groups[-1].append(run)
+    bobot=[sum(len(r.text or '') for r in g) for g in groups]
+    parts=_bagi_teks_menurut_anchor(teks_baru,bobot)
+    for gi,g in enumerate(groups):
+        if not g:
+            # Bila segmen tidak punya run teks, jangan menggeser anchor; teks dititipkan ke segmen terdekat.
+            continue
+        _set_run_text_preserve_format(g[0], parts[gi] if gi < len(parts) else '')
+        for r in g[1:]: _set_run_text_preserve_format(r,'')
+
+
+def buat_docx_dari_master_jaga_footnote(master_bytes, teks_hasil):
+    """Terapkan hasil suntingan ke salinan DOCX master tanpa membangun ulang paket Word.
+    Pengaman: jumlah paragraf isi harus sama dan jumlah footnote sebelum/sesudah harus identik.
+    """
+    if docx is None: return None, {'aman':False,'pesan':'python-docx belum tersedia.'}
+    try:
+        clean=_bersihkan_hasil_sunting_ai(teks_hasil)
+        new_lines=[x.strip() for x in clean.splitlines() if x.strip()]
+        d=docx.Document(BytesIO(master_bytes))
+        paras=[p for p in d.paragraphs if (p.text or '').strip()]
+        if len(new_lines) != len(paras):
+            return None, {'aman':False,'pesan':f'Jumlah paragraf berubah: master {len(paras)}, hasil AI {len(new_lines)}. Untuk melindungi footnote, Word final diblokir sampai struktur paragraf sama.'}
+        foot_awal=hitung_footnote_docx_bytes(master_bytes)
+        for p,t in zip(paras,new_lines):
+            _ganti_paragraf_jaga_footnote(p,t)
+        bio=BytesIO(); d.save(bio); out=bio.getvalue()
+        foot_akhir=hitung_footnote_docx_bytes(out)
+        aman=(foot_awal==foot_akhir)
+        return (out if aman else None), {'aman':aman,'footnote_master':foot_awal,'footnote_hasil':foot_akhir,'paragraf_master':len(paras),'paragraf_hasil':len(new_lines),'pesan':('Struktur Word dan footnote aman.' if aman else 'Jumlah footnote berubah. Hasil diblokir.')}
+    except Exception as e:
+        return None, {'aman':False,'pesan':f'Gagal menjaga Word master: {e}'}
 
 
 def deteksi_struktur(teks):
@@ -3971,6 +4090,15 @@ elif menu == "✨ Penyunting Akademik AI":
             _t = ekstrak_teks(file_edit)
             if not _t.startswith("ERROR:"):
                 teks_edit = _t
+            if str(getattr(file_edit, "name", "")).lower().endswith(".docx"):
+                try:
+                    _master_bytes = file_edit.getvalue()
+                    st.session_state["word_master_penyunting_bytes"] = _master_bytes
+                    st.session_state["word_master_penyunting_nama"] = file_edit.name
+                    st.session_state["word_master_footnote_count"] = hitung_footnote_docx_bytes(_master_bytes)
+                    st.success(f"🔒 Word Master aktif: {file_edit.name} • Footnote terdeteksi: {st.session_state['word_master_footnote_count']}. Struktur Word asli akan dipertahankan.")
+                except Exception as _e_master:
+                    st.warning(f"Word Master belum dapat dikunci: {_e_master}")
 
         st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
 
@@ -4006,6 +4134,7 @@ ATURAN WAJIB:
 1. Pertahankan makna, fakta, angka, data, judul, variabel, hasil, tabel, kutipan, sitasi, nama sumber, ayat dan hadis.
 2. Jangan menciptakan referensi, DOI, halaman, data, kutipan langsung, hasil penelitian, atau fakta baru.
 3. Perbaiki hanya sesuai mode yang dipilih.
+3a. KHUSUS WORD MASTER: JANGAN menggabungkan, memecah, menambah, menghapus, atau memindahkan paragraf. Jumlah dan urutan paragraf WAJIB sama persis dengan naskah input agar footnote Word tetap melekat pada paragraf yang benar.
 4. Parafrase bertujuan memperjelas bahasa akademik, bukan mengelabui pemeriksa plagiarisme.
 5. Sitasi yang sudah ada harus tetap melekat pada klaim yang sama.
 6. Bila ada bagian meragukan, tandai [PERLU VERIFIKASI], jangan menebak.
@@ -4323,17 +4452,29 @@ KANDIDAT:
             st.markdown("#### 📥 Download Hasil Terakhir")
             st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
             try:
-                _word_sunting = buat_docx_hasil_sunting_pedoman(
-                    _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
-                )
+                _master_word = st.session_state.get("word_master_penyunting_bytes")
+                _audit_word = None
+                if _master_word:
+                    _word_sunting, _audit_word = buat_docx_dari_master_jaga_footnote(_master_word, _hasil_sunting_untuk_word)
+                    if _audit_word:
+                        if _audit_word.get("aman"):
+                            st.success(f"🛡️ Pemeriksaan Word Master: Footnote {_audit_word.get('footnote_master',0)} → {_audit_word.get('footnote_hasil',0)} ✅ • Paragraf {_audit_word.get('paragraf_master',0)} → {_audit_word.get('paragraf_hasil',0)} ✅")
+                        else:
+                            st.error("🔴 Word final diblokir demi keamanan footnote. " + str(_audit_word.get("pesan", "")))
+                            st.info("Gunakan Sunting dengan AI lagi. Mode Word Master sekarang memerintahkan AI mempertahankan jumlah dan urutan paragraf. Master asli tetap aman.")
+                else:
+                    _word_sunting = buat_docx_hasil_sunting_pedoman(
+                        _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
+                    )
+                    st.warning("⚠️ Tidak ada Word Master DOCX aktif. File dibuat dari teks dan tidak dapat menjamin footnote asli. Untuk tesis/proposal ber-footnote, unggah DOCX master terlebih dahulu.")
                 if _word_sunting:
                     st.download_button(
-                        "📥 Download Word Hasil Suntingan Rapi", data=_word_sunting,
+                        "📥 Download Word Hasil Suntingan Rapi (Footnote Aman)", data=_word_sunting,
                         file_name="Hasil_Suntingan_Akademik_Rapi.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         type="primary", key="download_word_hasil_sunting_rapi"
                     )
-                    st.success("✅ Word hasil terakhir siap diunduh. Cover tanpa nomor; bagian awal memakai Romawi kecil; BAB memakai angka Latin (1, 2, 3, ...), halaman pertama BAB di tengah bawah dan halaman berikutnya di kanan atas.")
+                    st.success("✅ Word hasil terakhir siap diunduh. Jika Word Master aktif, file berasal dari salinan master dan footnote asli telah lolos pemeriksaan jumlah sebelum/sesudah.")
             except Exception as _e_word_sunting:
                 st.error(f"Word belum dapat dibuat: {_e_word_sunting}")
 
