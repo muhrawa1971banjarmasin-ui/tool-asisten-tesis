@@ -4140,6 +4140,7 @@ KANDIDAT:
                 _selected = []
 
             st.markdown("##### 📌 Tindakan Setelah Review")
+            st.info("🔒 Mode aman aktif: kutipan dan footnote lama tidak boleh dihapus. Footnote baru harus menyambung nomor terakhir tanpa penomoran ganda; daftar pustaka lama tetap dipertahankan.")
             _aksi_ref_1, _aksi_ref_2 = st.columns(2)
             if _aksi_ref_1.button("📚 Terapkan Referensi yang Disarankan ke Proposal", key="btn_perkuat_ref_kutipan", type="primary", use_container_width=True):
                 if not bool(str(_hasil_sunting_untuk_word).strip()):
@@ -4157,15 +4158,18 @@ KANDIDAT:
     REFERENSI METADATA YANG DIIZINKAN:
     {_meta}
 
-    TUGAS WAJIB:
-    1. Periksa klaim yang membutuhkan sumber. Nilai hubungan klaim-sumber: ✅ SESUAI, ⚠️ KURANG SESUAI, ❌ TIDAK MENDUKUNG, atau ❓ BELUM DAPAT DIVERIFIKASI.
-    2. Tambahkan sitasi hanya bila metadata yang tersedia benar-benar relevan. Jangan mengarang isi artikel, DOI, volume, halaman, kutipan langsung, atau hasil penelitian.
-    3. Jika isi sumber belum tersedia sehingga dukungan substantif tidak dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER], jangan menyatakan sumber pasti mendukung.
-    4. Untuk tafsir: setiap uraian penafsiran harus memiliki sitasi/footnote sumber tafsir. Jangan membuat nomor halaman; bila belum tersedia tulis [halaman perlu verifikasi].
-    5. Untuk hadis: sumber/takhrij harus jelas. Jangan membuat nomor hadis atau sanad.
-    6. Pertahankan seluruh sumber lama. Jangan menghapus data, angka, hasil, ayat, hadis, tabel, atau substansi penelitian.
-    7. Sinkronkan setiap sumber yang benar-benar dikutip ke DAFTAR PUSTAKA. Jangan memasukkan kandidat yang tidak digunakan.
-    8. Keluarkan NASKAH DIPERKUAT terlebih dahulu, lalu LAPORAN KESESUAIAN KUTIPAN singkat.
+    TUGAS WAJIB - MODE AMAN PENYUNTING AKADEMIK AI:
+    1. NASKAH ASLI ADALAH MASTER. Jangan menulis ulang, meringkas, menghapus, memindahkan, atau mengganti paragraf yang tidak perlu. Pertahankan urutan BAB, subbab, tabel, ayat, hadis, data, angka, istilah, dan substansi.
+    2. PERTAHANKAN 100% SEMUA KUTIPAN/SITASI/FOOTNOTE LAMA. Dilarang menghapus sitasi model author-date, nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
+    3. Jangan mengubah gaya sitasi lama menjadi gaya lain. Jika naskah memakai footnote, gunakan footnote. Jika ada sitasi author-date yang memang berasal dari naskah asli, jangan menghapusnya hanya untuk menyeragamkan.
+    4. Sebelum menambah footnote baru, identifikasi nomor footnote tertinggi yang SUDAH ADA. Footnote baru WAJIB melanjutkan nomor berikutnya sesuai urutan kemunculan. Contoh: bila nomor terakhir 18, tambahan pertama adalah 19, lalu 20, 21, dan seterusnya. DILARANG memulai lagi dari 1 dan DILARANG membuat nomor ganda.
+    5. Rapikan footnote lama dan baru secara konsisten tanpa mengubah identitas sumber. Jika metadata kurang, pertahankan sumber dan tandai [PERLU VERIFIKASI] atau [halaman perlu verifikasi], jangan mengarang.
+    6. Tambahkan sumber baru HANYA pada klaim yang benar-benar relevan dengan metadata referensi yang DIIZINKAN. Jangan memaksakan semua referensi masuk ke naskah.
+    7. Jangan mengarang isi artikel, DOI, volume, nomor, halaman, kutipan langsung, hasil penelitian, nomor hadis, sanad, atau halaman kitab/tafsir. Jika dukungan substantif belum dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER].
+    8. Untuk tafsir, pertahankan footnote tafsir yang sudah ada. Tambahan baru hanya jika benar-benar diperlukan; halaman yang tidak diketahui ditulis [halaman perlu verifikasi]. Untuk hadis, pertahankan sumber/takhrij lama dan jangan membuat nomor hadis atau sanad.
+    9. Sinkronkan DAFTAR PUSTAKA secara ADITIF: jangan menghapus entri lama. Tambahkan hanya sumber baru yang benar-benar digunakan. Jangan membuat entri ganda; jika sumber sudah ada, rapikan entri yang sama, bukan menambah duplikat.
+    10. HASIL WAJIB berupa naskah utuh dengan isi asli tetap lengkap. Jangan menambahkan judul buatan seperti 'NASKAH DIPERKUAT'. Jangan menambahkan laporan analisis ke dalam badan naskah.
+    11. Lakukan pemeriksaan akhir sebelum mengeluarkan hasil: jumlah kutipan lama tidak boleh berkurang; nomor footnote harus unik dan berurutan; footnote baru harus menyambung; tidak boleh ada dua nomor sama untuk catatan berbeda.
     """
                     with st.spinner("Memperkuat referensi dan memeriksa kutipan..."):
                         _hr = panggil_gemini(_prompt_ref, temperature=0.15)
@@ -4174,7 +4178,7 @@ KANDIDAT:
                         # Jangan menulis langsung ke key widget yang sudah dibuat pada run ini.
                         # Simpan sebagai pending, lalu terapkan pada awal rerun berikutnya.
                         st.session_state["pending_hasil_sunting_parafrase_area"] = st.session_state["hasil_sunting_parafrase_ai"]
-                        st.success("Referensi terpilih selesai diterapkan. Naskah diperbarui tanpa mengubah substansi utama proposal/tesis.")
+                        st.success("Referensi terpilih selesai diterapkan. Kutipan/footnote lama wajib dipertahankan, footnote baru disambung tanpa nomor ganda, dan daftar pustaka disinkronkan secara aditif.")
                         st.rerun()
                     else:
                         st.error(str(_hr.get("error", "Pemeriksaan referensi gagal.")))
