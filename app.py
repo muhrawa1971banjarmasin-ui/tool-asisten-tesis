@@ -3,6 +3,7 @@ from copy import deepcopy
 from io import BytesIO
 
 import streamlit as st
+import streamlit.components.v1 as components
 import shutil
 import pandas as pd
 import PyPDF2
@@ -38,6 +39,47 @@ except ImportError:
     SimpleDocTemplate = Paragraph = Spacer = Table = TableStyle = PageBreak = None
     colors = rl_cm = None
 
+
+
+def tampilkan_preview_word_rapi(teks, tinggi=900, judul="Preview Dokumen"):
+    """Pratinjau bergaya Print Layout Word langsung di Streamlit."""
+    raw = _bersihkan_hasil_sunting_ai(str(teks or "")) if '_bersihkan_hasil_sunting_ai' in globals() else str(teks or "")
+    lines = [x.rstrip() for x in raw.splitlines()]
+    blocks=[]
+    for line in lines:
+        t=line.strip()
+        if not t:
+            blocks.append('<div class="spacer"></div>'); continue
+        plain=re.sub(r'[*_#]','',t).strip(); up=plain.upper(); esc=html.escape(plain)
+        if re.match(r'^BAB\s+[IVXLCDM]+\b',up): blocks.append(f'<div class="bab">{esc}</div>')
+        elif up in ('PENDAHULUAN','KAJIAN PUSTAKA DAN KERANGKA PIKIR','METODE PENELITIAN','KATA PENGANTAR','DAFTAR ISI','DAFTAR TABEL','DAFTAR GAMBAR','DAFTAR LAMPIRAN','SISTEMATIKA PENULISAN','DAFTAR PUSTAKA','DAFTAR PUSTAKA SEMENTARA'): blocks.append(f'<div class="heading">{esc}</div>')
+        elif re.match(r'^[A-Z]\.\s+',plain): blocks.append(f'<div class="subheading">{esc}</div>')
+        elif re.match(r'^\d+[\.)]\s+',plain): blocks.append(f'<div class="numbered">{esc}</div>')
+        elif re.search(r'[\u0600-\u06FF]',plain): blocks.append(f'<div class="arabic">{esc}</div>')
+        else: blocks.append(f'<div class="para">{esc}</div>')
+    body=''.join(f'<div class="src-block">{b}</div>' for b in blocks)
+    doc=f'''<!doctype html><html><head><meta charset="utf-8"><style>
+    *{{box-sizing:border-box}} body{{margin:0;background:#e7e9ed;font-family:"Times New Roman",serif;color:#111}}
+    .toolbar{{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid #cfd3d8;padding:10px 16px;font-family:Arial,sans-serif;font-size:14px}}
+    #source{{display:none}} #pages{{padding:22px 0 40px}}
+    .page{{width:794px;height:1123px;margin:0 auto 22px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);padding:151px 113px 113px 151px;overflow:hidden;position:relative}}
+    .page-no{{position:absolute;right:55px;top:42px;font:12px Arial;color:#777}}
+    .para,.numbered,.subheading,.heading,.bab,.arabic{{font-size:16px;line-height:2;text-align:justify;margin:0}}
+    .para{{text-indent:48px}} .numbered{{padding-left:28px;text-indent:-28px}}
+    .subheading{{font-weight:bold;text-align:left;margin-top:2px}} .heading,.bab{{font-weight:bold;text-align:center;text-indent:0}}
+    .arabic{{direction:rtl;text-align:right;font-family:"Traditional Arabic","Amiri","Noto Naskh Arabic",serif;font-size:20px;line-height:1.8}}
+    .spacer{{height:10px}} .src-block{{break-inside:avoid}}
+    @media(max-width:900px){{.page{{transform-origin:top center;zoom:.78}}}}
+    </style></head><body><div class="toolbar"><b>👁️ {html.escape(judul)}</b> &nbsp; • &nbsp; Tampilan A4 sebelum file Word diunduh</div>
+    <div id="source">{body}</div><div id="pages"></div>
+    <script>
+    const src=[...document.querySelectorAll('#source .src-block')]; const pages=document.getElementById('pages');
+    function newPage(){{const p=document.createElement('div');p.className='page';pages.appendChild(p);return p;}}
+    let page=newPage();
+    src.forEach((b)=>{{let c=b.cloneNode(true);page.appendChild(c);if(page.scrollHeight>page.clientHeight){{page.removeChild(c);page=newPage();page.appendChild(c);}}}});
+    [...pages.children].forEach((p,i)=>{{let n=document.createElement('div');n.className='page-no';n.textContent=(i+1);p.appendChild(n);}});
+    </script></body></html>'''
+    components.html(doc, height=tinggi, scrolling=True)
 
 # ============================================================
 # KONFIGURASI
@@ -3999,14 +4041,12 @@ NASKAH:
                 _hasil_bersih_aktif = _m_hasil.group(1).strip()
             _hasil_bersih_aktif = re.sub(r"^```(?:text|markdown)?\s*|\s*```$", "", _hasil_bersih_aktif, flags=re.I|re.S).strip()
 
-            st.markdown("#### 👀 Perbandingan Naskah")
-            _kol_asli, _kol_hasil = st.columns(2)
-            with _kol_asli:
-                with st.expander("📄 Naskah Sebelum Disunting", expanded=False):
-                    st.text_area("Sebelum", value=str(st.session_state.get("naskah_aktif_penyunting_ai") or st.session_state.get("naskah_asli_penyunting_ai") or teks_edit or ""), height=350, disabled=True, key="lihat_naskah_sebelum_sunting")
-            with _kol_hasil:
-                with st.expander("✨ Hasil Penyuntingan", expanded=True):
-                    st.text_area("Sesudah", value=_hasil_bersih_aktif, height=350, disabled=True, key="lihat_naskah_sesudah_sunting")
+            st.markdown("#### 👁️ Preview Dokumen Sebelum Download")
+            st.caption("Preview ditampilkan seperti Print Layout Word: lembar A4, margin, Times New Roman, spasi, heading, paragraf, daftar, dan teks Arab. Periksa hasil di sini sebelum menjadikannya naskah aktif atau mengunduh Word.")
+            tampilkan_preview_word_rapi(_hasil_bersih_aktif, tinggi=920, judul="Preview Hasil Penyuntingan")
+            with st.expander("🔎 Bandingkan dengan naskah sebelum disunting", expanded=False):
+                _naskah_sebelum = str(st.session_state.get("naskah_aktif_penyunting_ai") or st.session_state.get("naskah_asli_penyunting_ai") or teks_edit or "")
+                tampilkan_preview_word_rapi(_naskah_sebelum, tinggi=650, judul="Naskah Sebelum Disunting")
 
             # Terapkan pembaruan hasil referensi SEBELUM widget text_area dibuat.
             # Streamlit melarang perubahan session_state sebuah widget setelah widget
@@ -4016,7 +4056,9 @@ NASKAH:
                 st.session_state["hasil_sunting_parafrase_area"] = _pending_area
             elif "hasil_sunting_parafrase_area" not in st.session_state:
                 st.session_state["hasil_sunting_parafrase_area"] = _hasil_sunting
-            st.text_area("Hasil Suntingan", height=700, key="hasil_sunting_parafrase_area")
+            with st.expander("✏️ Edit teks manual (opsional)", expanded=False):
+                st.caption("Bagian ini hanya jika Anda ingin memperbaiki kata tertentu secara manual. Preview rapi tetap menjadi tampilan utama.")
+                st.text_area("Hasil Suntingan", height=500, key="hasil_sunting_parafrase_area")
             # Gunakan isi editor TERKINI untuk Word. Jika pengguna memperbaiki teks di kotak
             # Hasil Suntingan, perubahan itu ikut masuk ke file unduhan.
             _hasil_sunting_untuk_word = st.session_state.get("hasil_sunting_parafrase_area", _hasil_sunting) or _hasil_sunting
