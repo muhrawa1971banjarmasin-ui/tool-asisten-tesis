@@ -2018,6 +2018,7 @@ def buat_docx_hasil_sunting_pedoman(teks, jenis_naskah='Proposal', font_name='Ti
     if docx is None: return None
     from docx.enum.section import WD_SECTION
     from docx.enum.text import WD_BREAK
+    from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Inches
 
