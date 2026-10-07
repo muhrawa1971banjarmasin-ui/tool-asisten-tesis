@@ -1443,6 +1443,66 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             changed += 1
         return changed
 
+    def replace_sistematika_from_ai(doc_root, ai_text):
+        """Ganti HANYA bagian SISTEMATIKA PENULISAN pada DOCX master dengan
+        kerangka dari hasil AI. Footnote dan bagian lain tidak disentuh."""
+        txt = str(ai_text or "")
+        m = re.search(r'(?is)(?:^|\n)\s*(?:#{1,6}\s*)?SISTEMATIKA PENULISAN\s*\n(.*?)(?=\n\s*(?:#{1,6}\s*)?DAFTAR PUSTAKA(?:\s+SEMENTARA)?\b|\Z)', txt)
+        if not m:
+            return 0
+        block = clean_md(m.group(1)).strip()
+        lines = [clean_md(x).strip() for x in block.splitlines() if clean_md(x).strip()]
+        # Hanya terima kerangka nyata, bukan uraian lama.
+        if not any(re.match(r'^BAB\s+[IVX]+\b', x, re.I) for x in lines):
+            return 0
+        body = doc_root.find('.//' + q(W, 'body'))
+        if body is None:
+            return 0
+        children = list(body)
+        start = end = None
+        for i, el in enumerate(children):
+            if el.tag != q(W, 'p'):
+                continue
+            t = clean_md(''.join(el.xpath('.//w:t/text()', namespaces=ns))).strip()
+            if start is None and re.fullmatch(r'SISTEMATIKA PENULISAN', t, re.I):
+                start = i
+                continue
+            if start is not None and re.fullmatch(r'DAFTAR PUSTAKA(?: SEMENTARA)?', t, re.I):
+                end = i
+                break
+        if start is None or end is None or end <= start:
+            return 0
+        # Hapus isi lama setelah heading sampai sebelum Daftar Pustaka.
+        for el in children[start+1:end]:
+            body.remove(el)
+        # Temukan ulang heading agar insertion index aman.
+        children = list(body)
+        heading_el = children[start]
+        insert_at = list(body).index(heading_el) + 1
+        for line in lines:
+            p = etree.Element(q(W, 'p'))
+            ppr = etree.SubElement(p, q(W, 'pPr'))
+            spacing = etree.SubElement(ppr, q(W, 'spacing'))
+            spacing.set(q(W, 'line'), '480')
+            spacing.set(q(W, 'lineRule'), 'auto')
+            ind = etree.SubElement(ppr, q(W, 'ind'))
+            # BAB tanpa indent; subbab dan anak subbab bertingkat.
+            if re.match(r'^[A-Z]\.\s+', line):
+                ind.set(q(W, 'left'), '360')
+            elif re.match(r'^\d+[.)]\s+', line):
+                ind.set(q(W, 'left'), '720')
+            r = etree.SubElement(p, q(W, 'r'))
+            rpr = etree.SubElement(r, q(W, 'rPr'))
+            fonts = etree.SubElement(rpr, q(W, 'rFonts'))
+            fonts.set(q(W, 'ascii'), 'Times New Roman')
+            fonts.set(q(W, 'hAnsi'), 'Times New Roman')
+            sz = etree.SubElement(rpr, q(W, 'sz')); sz.set(q(W, 'val'), '24')
+            if re.match(r'^BAB\s+[IVX]+\b', line, re.I):
+                etree.SubElement(rpr, q(W, 'b'))
+            t = etree.SubElement(r, q(W, 't')); t.text = line
+            body.insert(insert_at, p); insert_at += 1
+        return len(lines)
+
     try:
         file_asli.seek(0)
         original = file_asli.read()
@@ -1486,6 +1546,8 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
 
         parser = etree.XMLParser(remove_blank_text=False, recover=False)
         doc_root = etree.fromstring(files["word/document.xml"], parser)
+        # Terapkan perubahan terarah pada Sistematika Penulisan saja.
+        _jumlah_sistematika = replace_sistematika_from_ai(doc_root, ai)
 
         fn_path = "word/footnotes.xml"
         if fn_path in files:
@@ -1510,12 +1572,18 @@ def buat_word_hasil_revisi(file_asli, teks_hasil_ai):
             except Exception:
                 pass
 
-        next_id = max([x for x in existing_ids if x > 0], default=0) + 1
+        max_existing_id = max([x for x in existing_ids if x > 0], default=0)
+        next_id = max_existing_id + 1
         inserted, skipped, missing = [], [], []
 
         paragraphs = doc_root.xpath(".//w:body//w:p", namespaces=ns)
 
         for marker_no in sorted(ai_notes):
+            # Footnote lama adalah MASTER. Marker AI yang nomornya sudah ada
+            # tidak boleh dibuat ulang, dipindah, atau ditukar sumbernya.
+            if marker_no <= max_existing_id:
+                skipped.append(marker_no)
+                continue
             ctx = contexts.get(marker_no, "")
             note_text = ai_notes[marker_no]
             if not ctx:
@@ -4288,9 +4356,10 @@ KANDIDAT:
     1. NASKAH ASLI ADALAH MASTER. Jangan menulis ulang, meringkas, menghapus, memindahkan, atau mengganti paragraf yang tidak perlu. Pertahankan urutan BAB, subbab, tabel, ayat, hadis, data, angka, istilah, dan substansi.
     2. PERTAHANKAN 100% SEMUA SUMBER DAN KUTIPAN/FOOTNOTE ASLI. Dilarang menghapus nomor catatan kaki, teks catatan kaki, DOI, sumber kitab, sumber tafsir, sumber hadis, atau penanda [PERLU VERIFIKASI] yang sudah ada.
     3. JANGAN MENDETEKSI ULANG DARI HASIL AI. Gunakan persis GAYA SITASI ASLI YANG DIKUNCI di atas. Jika gaya terkunci adalah footnote/notes, DILARANG menghasilkan sitasi author-date seperti (Nama, 2024). Sitasi tambahan wajib berupa marker [^N] di lokasi klaim dan definisi [^N]: catatan lengkap. Jika gaya terkunci APA/author-date, pertahankan author-date. Gaya lain mengikuti gaya asli.
-    4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. Pertahankan catatan lama, rapikan formatnya, dan sisipkan footnote baru sesuai posisi kutipan sehingga penomoran akhir unik, berurutan, dan tidak ganda. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
+    4. Jika gaya asli menggunakan footnote, identifikasi seluruh nomor footnote yang SUDAH ADA. KUNCI nomor, posisi, dan isi footnote lama PERSIS seperti dokumen asli: jangan dipindah, jangan ditukar sumbernya, jangan diberi nomor baru, dan jangan ditulis ulang. Footnote BARU saja yang boleh ditambahkan, dimulai setelah nomor footnote terbesar yang sudah ada. Jangan membuat rangkaian nomor kedua yang dimulai lagi dari 1.
     4a. AYAT AL-QURAN: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1, lalu akhiri dengan identitas ayat seperti (Q.S. Al-Hasyr/59: 18). Identitas ayat tersebut TIDAK diberi footnote baru. Tafsir/penjelasan setelah ayat kembali menjadi paragraf biasa dan menggunakan sitasi sesuai gaya asli naskah.
     4b. HADIS: hapus label/bullet 'Artinya:' pada terjemahan. Tulis terjemahan langsung di dalam tanda kutip, sebagai kutipan menjorok dan spasi 1. Pada akhir terjemahan tulis (HR. Nama Perawi) lalu nomor footnote sesuai urutan gaya asli. Footnote hadis memuat sumber/takhrij yang benar-benar tersedia. Jangan mengarang nomor hadis, halaman, sanad, atau data yang belum terverifikasi.
+    4c. SISTEMATIKA PENULISAN WAJIB DIGANTI dari bentuk uraian menjadi PETA/KERANGKA tesis BAB I sampai BAB V. Jangan mempertahankan sistematika lama yang berbentuk kalimat “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”. BAB I mengikuti subbab BAB I naskah aktif; BAB II mengikuti subbab BAB II dan bagian Kajian Teori diperinci menjadi anak subbab teori sesuai variabel/fokus penelitian; BAB III mengikuti subbab metode pada proposal; BAB IV dibuat sebagai kerangka Hasil Penelitian dan Pembahasan sesuai jenis penelitian, rumusan masalah, tujuan, variabel/fokus, hipotesis/instrumen/analisis bila relevan tanpa mengarang hasil; BAB V dibuat sebagai Penutup sesuai jenis penelitian dan pedoman. Gunakan hierarki BAB I, A., 1. tanpa paragraf uraian.
     5. Rapikan footnote lama dan baru secara konsisten tanpa mengubah identitas sumber. Jika metadata kurang, pertahankan sumber dan tandai [PERLU VERIFIKASI] atau [halaman perlu verifikasi], jangan mengarang.
     6. Tambahkan sumber baru HANYA pada klaim yang benar-benar relevan dengan metadata referensi yang DIIZINKAN. Jangan memaksakan semua referensi masuk ke naskah.
     7. Jangan mengarang isi artikel, DOI, volume, nomor, halaman, kutipan langsung, hasil penelitian, nomor hadis, sanad, atau halaman kitab/tafsir. Jika dukungan substantif belum dapat dipastikan, tandai [PERLU VERIFIKASI SUMBER].
@@ -5664,9 +5733,6 @@ ATURAN:
 - Jangan menciptakan data, DOI, halaman, kutipan, atau sumber yang tidak ada.
 - Susun: BAGIAN AWAL; BAB I PENDAHULUAN; BAB II KAJIAN PUSTAKA DAN KERANGKA PIKIR;
   BAB III METODE PENELITIAN; SISTEMATIKA PENULISAN; DAFTAR PUSTAKA.
-- KHUSUS SISTEMATIKA PENULISAN: tampilkan sebagai PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, bukan uraian/deskripsi isi bab. Dasarnya: Pedoman Tesis aktif, proposal aktif, dan jenis penelitian.
-  BAB I mengikuti subbab BAB I proposal. BAB II mengikuti proposal, tetapi bagian KAJIAN TEORI wajib diperinci menjadi anak subbab teori yang akan ditulis sesuai variabel/fokus, konsep judul, rumusan masalah, tujuan, dan hubungan antarkonsep. BAB III mengikuti subbab metode pada proposal dan tidak boleh mencampur jenis metode. BAB IV dibuat sebagai kerangka Hasil Penelitian dan Pembahasan yang adaptif berdasarkan rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis, tanpa mengarang hasil. BAB V dibuat sebagai Penutup sesuai Pedoman aktif dan jenis penelitian.
-  Jangan menulis kalimat seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”. Gunakan hierarki BAB I, A., 1. secara rapi.
 - Pertahankan kutipan/catatan kaki yang dapat ditelusuri dari tesis sumber.
 - Gunakan bahasa akademik tingkat S2.
 Keluarkan proposal lengkap, bukan laporan analisis.
@@ -5860,17 +5926,7 @@ Gunakan HANYA keluarga metode pada JENIS PENELITIAN FINAL.
 JANGAN mencampur metode yang tidak kompatibel.
 
 SETELAH BAB III
-- SISTEMATIKA PENULISAN harus berupa PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, BUKAN uraian isi bab.
-  Dasar penyusunannya wajib berurutan: PEDOMAN TESIS AKTIF -> ISI PROPOSAL AKTIF -> JENIS PENELITIAN -> RUMUSAN MASALAH/TUJUAN -> VARIABEL atau FOKUS PENELITIAN.
-  Tuliskan secara rapi dan hierarkis BAB I sampai BAB V.
-  * BAB I: salin/ikuti judul subbab yang benar-benar ada pada BAB I proposal aktif. Jangan menambah subbab generik dan jangan mengubahnya menjadi ringkasan.
-  * BAB II: ikuti judul subbab yang benar-benar ada pada BAB II proposal aktif. KHUSUS bagian KAJIAN TEORI, jangan berhenti pada tulisan “Kajian Teori”. Turunkan menjadi anak subbab teori yang nyata dan akan ditulis dalam tesis berdasarkan variabel/fokus, konsep utama pada judul, rumusan masalah, tujuan penelitian, dan hubungan antarkonsep. Jangan menciptakan teori yang tidak relevan. Jika proposal sudah memiliki anak subbab teori, pertahankan dan rapikan; jika belum, susun anak subbab yang paling diperlukan untuk penelitian tersebut.
-  * BAB III: ikuti judul subbab metode yang benar-benar ada pada BAB III proposal aktif dan pertahankan konsistensinya dengan jenis penelitian. Jangan memasukkan struktur metode dari jenis penelitian lain.
-  * BAB IV: karena proposal umumnya belum berisi hasil penelitian, buat KERANGKA HASIL PENELITIAN DAN PEMBAHASAN yang akan dipakai saat tesis selesai. Turunkan subbab secara adaptif dari rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis pada BAB III. Kuantitatif, kualitatif, R&D, PTK/action research, dan library research WAJIB menghasilkan struktur BAB IV yang berbeda sesuai karakter metodenya. Jangan menulis hasil atau angka yang belum diperoleh.
-  * BAB V: susun PENUTUP sesuai Pedoman aktif dan jenis penelitian. Gunakan Kesimpulan dan Saran/Rekomendasi, serta Implikasi hanya bila memang disyaratkan/relevan menurut pedoman dan rancangan penelitian. Jangan mengarang hasil penelitian.
-  * Jangan menulis paragraf penjelasan seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”.
-  * Jangan memakai bullet bintang untuk BAB. Gunakan BAB I, BAB II, dst.; subbab A., B., C., dst.; anak subbab 1., 2., 3. bila diperlukan.
-  * SISTEMATIKA harus menunjukkan dengan jelas apa yang nanti ditulis/dikerjakan dalam tesis, tetapi tetap berupa judul struktur, bukan uraian naratif.
+- SISTEMATIKA PENULISAN sesuai Pedoman aktif.
 - DAFTAR PUSTAKA SEMENTARA.
 
 ATURAN SUMBER DAN TAHUN:
@@ -6495,17 +6551,7 @@ Susun SUBBAGIAN BAB III sesuai metode yang benar-benar digunakan.
 JANGAN mencampur struktur metode yang tidak kompatibel.
 
 SETELAH BAB III
-- SISTEMATIKA PENULISAN harus berupa PETA/KERANGKA BAB, SUBBAB, dan bila perlu ANAK SUBBAB tesis, BUKAN uraian isi bab.
-  Dasar penyusunannya wajib berurutan: PEDOMAN TESIS AKTIF -> ISI PROPOSAL AKTIF -> JENIS PENELITIAN -> RUMUSAN MASALAH/TUJUAN -> VARIABEL atau FOKUS PENELITIAN.
-  Tuliskan secara rapi dan hierarkis BAB I sampai BAB V.
-  * BAB I: salin/ikuti judul subbab yang benar-benar ada pada BAB I proposal aktif. Jangan menambah subbab generik dan jangan mengubahnya menjadi ringkasan.
-  * BAB II: ikuti judul subbab yang benar-benar ada pada BAB II proposal aktif. KHUSUS bagian KAJIAN TEORI, jangan berhenti pada tulisan “Kajian Teori”. Turunkan menjadi anak subbab teori yang nyata dan akan ditulis dalam tesis berdasarkan variabel/fokus, konsep utama pada judul, rumusan masalah, tujuan penelitian, dan hubungan antarkonsep. Jangan menciptakan teori yang tidak relevan. Jika proposal sudah memiliki anak subbab teori, pertahankan dan rapikan; jika belum, susun anak subbab yang paling diperlukan untuk penelitian tersebut.
-  * BAB III: ikuti judul subbab metode yang benar-benar ada pada BAB III proposal aktif dan pertahankan konsistensinya dengan jenis penelitian. Jangan memasukkan struktur metode dari jenis penelitian lain.
-  * BAB IV: karena proposal umumnya belum berisi hasil penelitian, buat KERANGKA HASIL PENELITIAN DAN PEMBAHASAN yang akan dipakai saat tesis selesai. Turunkan subbab secara adaptif dari rumusan masalah, tujuan, variabel/fokus, hipotesis bila ada, instrumen, dan teknik analisis pada BAB III. Kuantitatif, kualitatif, R&D, PTK/action research, dan library research WAJIB menghasilkan struktur BAB IV yang berbeda sesuai karakter metodenya. Jangan menulis hasil atau angka yang belum diperoleh.
-  * BAB V: susun PENUTUP sesuai Pedoman aktif dan jenis penelitian. Gunakan Kesimpulan dan Saran/Rekomendasi, serta Implikasi hanya bila memang disyaratkan/relevan menurut pedoman dan rancangan penelitian. Jangan mengarang hasil penelitian.
-  * Jangan menulis paragraf penjelasan seperti “Memuat...”, “Berisi...”, “Menguraikan...”, atau “Menyajikan...”.
-  * Jangan memakai bullet bintang untuk BAB. Gunakan BAB I, BAB II, dst.; subbab A., B., C., dst.; anak subbab 1., 2., 3. bila diperlukan.
-  * SISTEMATIKA harus menunjukkan dengan jelas apa yang nanti ditulis/dikerjakan dalam tesis, tetapi tetap berupa judul struktur, bukan uraian naratif.
+- SISTEMATIKA PENULISAN, sesuai Pedoman aktif.
 - DAFTAR PUSTAKA SEMENTARA.
 
 JANGAN memasukkan Simulasi Seminar Proposal ke dalam naskah.
