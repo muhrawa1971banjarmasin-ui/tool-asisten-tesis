@@ -3270,48 +3270,51 @@ ke PowerPoint.
                             "Jangan mengarang sumber atau data."
                         )
 
-                    panel_ai_penulisan(
+                    respons_tugas = panel_ai_penulisan(
                         konteks_tugas,
                         jenis_tugas,
                         instruksi_ai,
                         referensi_dipilih,
                         "tugas_mata_kuliah"
                     )
+                    if respons_tugas.get("sukses") and respons_tugas.get("hasil", "").strip():
+                        st.session_state["hasil_tugas_unduhan"] = respons_tugas["hasil"]
+                        st.session_state["hasil_tugas_mata_kuliah"] = respons_tugas["hasil"]
+                        st.rerun()
 
             # =================================================
-            # HASIL TUGAS
+            # HASIL TUGAS DAN UNDUHAN WORD
             # =================================================
-            if st.session_state.get(
-                "hasil_penulisan_ai"
-            ):
-
+            teks_tugas_tersimpan = st.session_state.get("hasil_tugas_unduhan", "")
+            if teks_tugas_tersimpan:
                 st.divider()
-
                 st.markdown("## 📄 Hasil Tugas")
-
+                st.success("Draf tugas tersedia. Edit dahulu jika diperlukan, lalu unduh Word.")
+                if "hasil_tugas_mata_kuliah" not in st.session_state:
+                    st.session_state["hasil_tugas_mata_kuliah"] = teks_tugas_tersimpan
                 hasil_edit = st.text_area(
-                    "Hasil dapat diedit",
-                    st.session_state.hasil_penulisan_ai,
-                    height=700,
+                    "✏️ Pratinjau dan edit hasil tugas",
+                    height=650,
                     key="hasil_tugas_mata_kuliah"
                 )
-
                 st.session_state.naskah_aktif = hasil_edit
-                word_bytes = _word_tugas(hasil_edit, judul_tugas)
-                if word_bytes:
-                    st.download_button("📥 Unduh Tugas Word (.docx)", data=word_bytes,
-                        file_name="Tugas_Akademia_AI.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True, key="unduh_word_tugas_mk")
-                else:
-                    st.warning("Fitur Word membutuhkan library python-docx.")
-
-                st.caption(
-                    "Periksa kembali nama, NIM, dosen, institusi, "
-                    "kutipan, halaman sumber, dan ketentuan tugas "
-                    "sebelum digunakan sebagai naskah final."
-                )
-
+                if hasil_edit.strip():
+                    word_bytes = _word_tugas(hasil_edit, judul_tugas)
+                    if word_bytes:
+                        st.download_button(
+                            "📥 DOWNLOAD WORD (.docx)",
+                            data=word_bytes,
+                            file_name="Tugas_Akademia_AI.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="primary",
+                            use_container_width=True,
+                            key="unduh_word_tugas_mk"
+                        )
+                    else:
+                        st.error("Download Word memerlukan paket python-docx pada requirements.txt.")
+                st.caption("Periksa identitas, kutipan, sumber, dan ketentuan dosen sebelum menyerahkan tugas.")
+            else:
+                st.info("📥 Tombol Download Word akan muncul di sini setelah 'Susun Tugas Lengkap' berhasil menghasilkan naskah.")
         # ====================================================
         # RPS / MODUL
         # ====================================================
