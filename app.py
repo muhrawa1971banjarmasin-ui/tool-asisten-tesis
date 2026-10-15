@@ -158,6 +158,81 @@ if "gaya_sitasi" not in st.session_state:
 
 
 # ============================================================
+# BANK MATERI, RENCANA PERTEMUAN, DAN CATATAN DOSEN
+# Penyimpanan lokal: dapat hilang pada redeploy Streamlit Cloud.
+# Ekspor JSON disediakan agar pengguna dapat membuat cadangan.
+# ============================================================
+BANK_KULIAH_FILE = Path("data/bank_perkuliahan.json")
+
+def _muat_bank_kuliah():
+    try:
+        if BANK_KULIAH_FILE.exists():
+            d = json.loads(BANK_KULIAH_FILE.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                return {k: v for k, v in d.items() if isinstance(v, list)}
+    except (OSError, ValueError, TypeError):
+        pass
+    return {"materi": [], "catatan": [], "rencana": []}
+
+def _simpan_bank_kuliah():
+    try:
+        BANK_KULIAH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BANK_KULIAH_FILE.write_text(json.dumps(st.session_state.bank_perkuliahan, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+if "bank_perkuliahan" not in st.session_state:
+    st.session_state.bank_perkuliahan = _muat_bank_kuliah()
+for _kelompok in ("materi", "catatan", "rencana"):
+    st.session_state.bank_perkuliahan.setdefault(_kelompok, [])
+
+def _entri_kuliah(jenis, mk):
+    return [x for x in st.session_state.bank_perkuliahan[jenis] if x.get("mata_kuliah") == mk]
+
+def _simpan_entri_kuliah(jenis, item):
+    daftar = st.session_state.bank_perkuliahan[jenis]
+    for i, lama in enumerate(daftar):
+        if lama.get("id") == item["id"]:
+            daftar[i] = item
+            return _simpan_bank_kuliah()
+    daftar.append(item)
+    return _simpan_bank_kuliah()
+
+def _hapus_entri_kuliah(jenis, id_item):
+    st.session_state.bank_perkuliahan[jenis] = [x for x in st.session_state.bank_perkuliahan[jenis] if x.get("id") != id_item]
+    return _simpan_bank_kuliah()
+
+def _identitas_entri():
+    import uuid
+    return str(uuid.uuid4())
+
+def _word_tugas(teks, judul):
+    if docx is None:
+        return None
+    d = docx.Document()
+    sec = d.sections[0]
+    sec.top_margin = Cm(3)
+    sec.bottom_margin = Cm(3)
+    sec.left_margin = Cm(4)
+    sec.right_margin = Cm(3)
+    normal = d.styles['Normal']
+    normal.font.name = 'Times New Roman'
+    normal.font.size = Pt(12)
+    normal.paragraph_format.line_spacing = 1.5
+    for line in (teks or '').splitlines():
+        t = line.strip()
+        if not t:
+            d.add_paragraph('')
+        elif t.upper().startswith('BAB ') or t.upper() in ('DAFTAR PUSTAKA', 'KESIMPULAN', 'PENDAHULUAN'):
+            d.add_heading(t, level=1)
+        else:
+            d.add_paragraph(t)
+    b = BytesIO()
+    d.save(b)
+    return b.getvalue()
+
+# ============================================================
 # FUNGSI DASAR
 # ============================================================
 def format_ukuran(byte):
@@ -2594,6 +2669,7 @@ elif menu == "📚 Perkuliahan & OBE":
                     "Review Buku",
                     "Critical Review",
                     "Studi Kasus",
+                    "Analisis",
                     "Laporan",
                     "Mini Riset",
                     "Presentasi"
@@ -2607,7 +2683,32 @@ elif menu == "📚 Perkuliahan & OBE":
                 key="judul_tugas_mata_kuliah"
             )
 
+            st.markdown("### 📌 Instruksi / Ketentuan Dosen")
+            instruksi_dosen = st.text_area(
+                "Ketik atau tempel instruksi dosen (opsional)",
+                height=140, key="instruksi_dosen_tugas"
+            )
+            st.markdown("### 📚 Gunakan Materi dan Catatan Tersimpan (Opsional)")
+            materi_tersedia = _entri_kuliah("materi", mata_kuliah)
+            catatan_tersedia = _entri_kuliah("catatan", mata_kuliah)
+            rencana_tersedia = _entri_kuliah("rencana", mata_kuliah)
+            pilihan_bahan = (
+                [("materi", x) for x in materi_tersedia] +
+                [("catatan", x) for x in catatan_tersedia] +
+                [("rencana", x) for x in rencana_tersedia]
+            )
+            peta_bahan = {x[1]["id"]: x for x in pilihan_bahan}
+            pilihan_id = st.multiselect(
+                "Pilih satu atau beberapa bahan dari bank",
+                list(peta_bahan),
+                format_func=lambda k: f"{peta_bahan[k][0].title()}: {peta_bahan[k][1].get('judul', peta_bahan[k][1].get('pertemuan',''))}",
+                key="pilih_bahan_bank_tugas"
+            )
             st.markdown("### 📎 Bahan Tugas")
+            teks_ketik_tugas = st.text_area(
+                "Ketik bahan tugas langsung (opsional)",
+                height=160, key="bahan_ketik_tugas"
+            )
 
             files_tugas = st.file_uploader(
                 "Unggah tugas dari dosen atau bahan pendukung bila ada",
@@ -2626,7 +2727,18 @@ elif menu == "📚 Perkuliahan & OBE":
                 key="upload_tugas_mata_kuliah"
             )
 
-            bahan_teks = ""
+            bahan_teks = ("INSTRUKSI DOSEN:\n" + instruksi_dosen + "\n\n" if instruksi_dosen.strip() else "")
+            if teks_ketik_tugas.strip():
+                bahan_teks += "BAHAN DIKETIK:\n" + teks_ketik_tugas + "\n\n"
+            for bid in pilihan_id:
+                tipe, item = peta_bahan[bid]
+                isi = item.get("isi", "")
+                if tipe == "rencana":
+                    isi = (f"Pertemuan: {item.get('pertemuan')}\nMateri: {item.get('materi','')}\n"
+                           f"Pengalaman: {item.get('pengalaman','')}\nTugas: {item.get('tugas','')}\n"
+                           f"Keterangan: {item.get('keterangan','')}")
+                bahan_teks += f"\n===== BANK {tipe.upper()}: {item.get('judul','')} =====\n{isi}\n"
+
 
             if files_tugas:
 
@@ -2934,6 +3046,9 @@ elif menu == "📚 Perkuliahan & OBE":
                     "alternatif solusi, rekomendasi, dan kesimpulan."
                 )
 
+            elif jenis_tugas == "Analisis":
+                st.info("Analisis mencakup: konsep, tokoh, karakteristik, kelebihan, kelemahan/keterbatasan, implikasi pembelajaran, implementasi PAI, dan strategi pembelajaran relevan.")
+
             elif jenis_tugas == "Presentasi":
 
                 st.info(
@@ -3097,6 +3212,24 @@ alasan pemilihan solusi, dan kesimpulan.
 Jangan menciptakan fakta kasus yang tidak diberikan.
 """
 
+                    elif jenis_tugas == "Analisis":
+
+                        instruksi_ai = """
+Susun TUGAS ANALISIS akademik yang lengkap dan sistematis.
+Gunakan delapan komponen wajib berikut:
+a. Konsep: definisi, dasar teori, ruang lingkup.
+b. Tokoh: tokoh dan kontribusi pemikirannya (jika sumber tersedia).
+c. Karakteristik: ciri dan prinsip utama.
+d. Kelebihan: kekuatan dan manfaat.
+e. Kelemahan/keterbatasan: kendala dan batas penerapan.
+f. Implikasi terhadap pembelajaran.
+g. Implementasi dalam Pendidikan Agama Islam (PAI).
+h. Strategi pembelajaran yang relevan.
+Ikuti instruksi dosen apabila ada ketentuan tambahan.
+Bedakan fakta terverifikasi dan analisis penulis. Jangan mengarang tokoh, kutipan, halaman, atau referensi.
+Sertakan pendahuluan, kesimpulan, dan daftar pustaka dari sumber yang benar-benar dipakai.
+"""
+
                     elif jenis_tugas == "Laporan":
 
                         instruksi_ai = """
@@ -3164,6 +3297,14 @@ ke PowerPoint.
                 )
 
                 st.session_state.naskah_aktif = hasil_edit
+                word_bytes = _word_tugas(hasil_edit, judul_tugas)
+                if word_bytes:
+                    st.download_button("📥 Unduh Tugas Word (.docx)", data=word_bytes,
+                        file_name="Tugas_Akademia_AI.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True, key="unduh_word_tugas_mk")
+                else:
+                    st.warning("Fitur Word membutuhkan library python-docx.")
 
                 st.caption(
                     "Periksa kembali nama, NIM, dosen, institusi, "
@@ -3224,37 +3365,142 @@ ke PowerPoint.
         # MATERI PERKULIAHAN
         # ====================================================
         elif bagian == "📚 Materi Perkuliahan":
-
-            st.markdown("## 📚 Materi Perkuliahan")
-
-            files_materi = st.file_uploader(
-                "Unggah materi kuliah",
-                type=["pdf", "docx", "txt", "pptx"],
-                accept_multiple_files=True,
-                key="upload_materi_mata_kuliah"
-            )
-
-            if files_materi:
-
-                for file in files_materi:
-
-                    st.write(
-                        f"📄 **{file.name}** — "
-                        f"{format_ukuran(file.size)}"
-                    )
+            st.markdown("## 📚 Bank Materi Perkuliahan")
+            st.caption("Materi disimpan berdasarkan mata kuliah. Penyimpanan lokal perlu dicadangkan karena Streamlit Cloud dapat menghapusnya saat restart atau redeploy.")
+            with st.form("tambah_materi_bank", clear_on_submit=True):
+                judul_materi = st.text_input("Judul materi")
+                pertemuan_materi = st.selectbox("Pertemuan", ["Umum"] + [str(i) for i in range(1, 17)])
+                isi_materi = st.text_area("Ketik atau tempel materi (opsional)", height=160)
+                unggah_materi = st.file_uploader("Unggah materi (opsional)", type=["pdf", "docx", "txt", "pptx"])
+                tambah_materi = st.form_submit_button("💾 Simpan Materi")
+            if tambah_materi:
+                if not judul_materi.strip() and unggah_materi is None:
+                    st.warning("Isi judul atau unggah dokumen.")
+                else:
+                    nama_file = unggah_materi.name if unggah_materi else ""
+                    konten = isi_materi.strip()
+                    if unggah_materi and nama_file.lower().endswith((".pdf", ".docx", ".txt")):
+                        konten += "\n" + ekstrak_teks(unggah_materi)
+                    item = {"id": _identitas_entri(), "mata_kuliah": mata_kuliah,
+                            "judul": judul_materi.strip() or nama_file, "pertemuan": pertemuan_materi,
+                            "isi": konten, "nama_file": nama_file,
+                            "file_b64": base64.b64encode(unggah_materi.getvalue()).decode("ascii") if unggah_materi and unggah_materi.size <= 8*1024*1024 else ""}
+                    berhasil = _simpan_entri_kuliah("materi", item)
+                    if unggah_materi and unggah_materi.size > 8*1024*1024:
+                        st.warning("File lebih dari 8 MB: hanya teks yang berhasil diekstraksi disimpan, file asli tidak masuk bank. Simpan salinan file secara terpisah.")
+                    st.success("Materi disimpan." if berhasil else "Materi tersimpan dalam sesi, tetapi gagal menulis file lokal.")
+                    st.rerun()
+            st.markdown("### 📂 Daftar Materi")
+            for item in _entri_kuliah("materi", mata_kuliah):
+                with st.expander(f"📖 Pertemuan {item.get('pertemuan','')} | {item['judul']}"):
+                    with st.form("edit_materi_" + item["id"]):
+                        j = st.text_input("Judul", value=item["judul"])
+                        isi = st.text_area("Isi materi", value=item.get("isi", ""), height=180)
+                        simpan = st.form_submit_button("💾 Simpan Edit")
+                    if simpan:
+                        item.update(judul=j, isi=isi)
+                        _simpan_entri_kuliah("materi", item)
+                        st.rerun()
+                    if item.get("file_b64"):
+                        st.download_button("📥 Unduh File Asli", base64.b64decode(item["file_b64"]),
+                            file_name=item.get("nama_file") or "materi", key="unduh_materi_" + item["id"])
+                    if item.get("isi"):
+                        st.download_button("📥 Unduh Teks Materi", item["isi"].encode("utf-8"),
+                            file_name="materi.txt", key="unduh_teks_materi_" + item["id"])
+                    yakin = st.checkbox("Konfirmasi hapus materi", key="konfirmasi_materi_" + item["id"])
+                    if st.button("🗑️ Hapus", disabled=not yakin, key="hapus_materi_" + item["id"]):
+                        _hapus_entri_kuliah("materi", item["id"])
+                        st.rerun()
+            st.divider()
+            st.markdown("### 📋 Rencana Perkuliahan (Pertemuan 1 sampai 16)")
+            with st.form("form_rencana_kuliah", clear_on_submit=True):
+                per = st.selectbox("Pertemuan ke-", list(range(1,17)))
+                mat = st.text_area("Materi Perkuliahan")
+                peng = st.text_area("Pengalaman Pembelajaran")
+                tugas = st.text_area("Tugas Dosen")
+                ket = st.text_area("Keterangan")
+                tambah_rencana = st.form_submit_button("💾 Simpan Rencana Pertemuan")
+            if tambah_rencana:
+                existing = next((x for x in _entri_kuliah("rencana", mata_kuliah) if x.get("pertemuan") == per), None)
+                item = {"id": existing["id"] if existing else _identitas_entri(),
+                        "mata_kuliah": mata_kuliah, "judul": f"Pertemuan {per}",
+                        "pertemuan": per, "materi": mat, "pengalaman": peng,
+                        "tugas": tugas, "keterangan": ket}
+                _simpan_entri_kuliah("rencana", item)
+                st.rerun()
+            rencana = sorted(_entri_kuliah("rencana", mata_kuliah), key=lambda x: x.get("pertemuan", 0))
+            if rencana:
+                st.dataframe(pd.DataFrame([{"Pertemuan": x["pertemuan"], "Materi": x.get("materi",""),
+                    "Pengalaman Pembelajaran": x.get("pengalaman",""), "Tugas Dosen": x.get("tugas",""),
+                    "Keterangan": x.get("keterangan","")} for x in rencana]), use_container_width=True)
+            for x in rencana:
+                with st.expander(f"✏️ Edit / Hapus Pertemuan {x['pertemuan']}"):
+                    with st.form("ubah_rencana_" + x["id"]):
+                        mat = st.text_area("Materi", value=x.get("materi",""))
+                        peng = st.text_area("Pengalaman", value=x.get("pengalaman",""))
+                        tugas = st.text_area("Tugas", value=x.get("tugas",""))
+                        ket = st.text_area("Keterangan", value=x.get("keterangan",""))
+                        ubah = st.form_submit_button("💾 Simpan Perubahan")
+                    if ubah:
+                        x.update(materi=mat, pengalaman=peng, tugas=tugas, keterangan=ket)
+                        _simpan_entri_kuliah("rencana", x)
+                        st.rerun()
+                    yakin = st.checkbox("Konfirmasi hapus pertemuan", key="yakin_rencana_" + x["id"])
+                    if st.button("🗑️ Hapus Pertemuan", disabled=not yakin, key="hapus_rencana_" + x["id"]):
+                        _hapus_entri_kuliah("rencana", x["id"])
+                        st.rerun()
+            st.info("RPS PDF/Word dapat diunggah pada menu RPS / Modul. Pengisian tabel rencana saat ini manual; ekstraksi otomatis dari RPS belum diaktifkan agar tidak menghasilkan data pertemuan yang keliru.")
 
         # ====================================================
         # CATATAN DOSEN
         # ====================================================
         elif bagian == "📌 Catatan Dosen":
-
-            st.markdown("## 📌 Catatan Dosen")
-
-            st.text_area(
-                "Catatan, arahan, atau revisi dari dosen",
-                height=300,
-                key="catatan_dosen_mata_kuliah"
-            )
+            st.markdown("## 📌 Bank Catatan Dosen")
+            with st.form("form_catatan_dosen", clear_on_submit=True):
+                judul_catatan = st.text_input("Judul Catatan / Tugas")
+                pertemuan_catatan = st.selectbox("Pertemuan", ["Umum"] + [str(i) for i in range(1,17)])
+                isi_catatan = st.text_area("Catatan, arahan, ketentuan, atau revisi dosen", height=220)
+                simpan_catatan = st.form_submit_button("💾 Simpan Catatan")
+            if simpan_catatan:
+                if not judul_catatan.strip() or not isi_catatan.strip():
+                    st.warning("Isi judul dan catatan terlebih dahulu.")
+                else:
+                    _simpan_entri_kuliah("catatan", {"id": _identitas_entri(),
+                        "mata_kuliah": mata_kuliah, "judul": judul_catatan.strip(),
+                        "pertemuan": pertemuan_catatan, "isi": isi_catatan.strip()})
+                    st.rerun()
+            for item in _entri_kuliah("catatan", mata_kuliah):
+                with st.expander(f"📌 {item['judul']} | Pertemuan {item.get('pertemuan','Umum')}"):
+                    with st.form("edit_catatan_" + item["id"]):
+                        j = st.text_input("Judul", value=item["judul"])
+                        isi = st.text_area("Catatan Dosen", value=item.get("isi", ""), height=180)
+                        simpan = st.form_submit_button("💾 Simpan Edit")
+                    if simpan:
+                        item.update(judul=j, isi=isi)
+                        _simpan_entri_kuliah("catatan", item)
+                        st.rerun()
+                    st.download_button("📥 Unduh Catatan", item.get("isi", "").encode("utf-8"),
+                        file_name="catatan_dosen.txt", key="unduh_catatan_" + item["id"])
+                    yakin = st.checkbox("Konfirmasi hapus catatan", key="yakin_catatan_" + item["id"])
+                    if st.button("🗑️ Hapus Catatan", disabled=not yakin, key="hapus_catatan_" + item["id"]):
+                        _hapus_entri_kuliah("catatan", item["id"])
+                        st.rerun()
+            st.divider()
+            st.markdown("### 💾 Cadangan Bank Perkuliahan")
+            st.download_button("📥 Unduh Cadangan JSON", json.dumps(st.session_state.bank_perkuliahan,
+                ensure_ascii=False, indent=2).encode("utf-8"), file_name="cadangan_bank_perkuliahan.json",
+                mime="application/json", key="unduh_cadangan_kuliah")
+            cadangan = st.file_uploader("Pulihkan cadangan JSON", type=["json"], key="pulihkan_bank_kuliah")
+            if cadangan and st.button("♻️ Pulihkan Cadangan", key="konfirmasi_pulihkan_bank"):
+                try:
+                    data = json.loads(cadangan.getvalue().decode("utf-8"))
+                    if not isinstance(data, dict) or not all(isinstance(data.get(k), list) for k in ("materi", "catatan", "rencana")):
+                        raise ValueError("Format cadangan tidak sesuai")
+                    st.session_state.bank_perkuliahan = {k: data[k] for k in ("materi", "catatan", "rencana")}
+                    _simpan_bank_kuliah()
+                    st.rerun()
+                except (ValueError, UnicodeError) as e:
+                    st.error(f"Cadangan tidak valid: {e}")
 
         # ====================================================
         # REFERENSI MATA KULIAH
