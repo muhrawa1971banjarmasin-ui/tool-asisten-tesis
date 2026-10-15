@@ -117,8 +117,31 @@ if "naskah_aktif" not in st.session_state:
 
 if "hasil_penulisan_ai" not in st.session_state:
     st.session_state.hasil_penulisan_ai = ""
-if "mata_kuliah_tambahan" not in st.session_state:
-    st.session_state.mata_kuliah_tambahan = []
+# Penyimpanan mata kuliah dapat diubah dan dihapus oleh pengguna.
+# File lokal ini tidak dijamin bertahan setelah redeploy/restart Streamlit Cloud.
+MATA_KULIAH_FILE = Path("data/mata_kuliah.json")
+def muat_mata_kuliah():
+    bawaan = ["Seminar Proposal Tesis", "Kepemimpinan dan Supervisi PAI"]
+    try:
+        if MATA_KULIAH_FILE.exists():
+            isi = json.loads(MATA_KULIAH_FILE.read_text(encoding="utf-8"))
+            if isinstance(isi, list):
+                return list(dict.fromkeys(x.strip() for x in isi if isinstance(x, str) and x.strip()))
+    except (OSError, ValueError, TypeError):
+        pass
+    return bawaan
+
+def simpan_mata_kuliah(daftar):
+    try:
+        MATA_KULIAH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        MATA_KULIAH_FILE.write_text(json.dumps(daftar, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+if "daftar_mata_kuliah_user" not in st.session_state:
+    st.session_state.daftar_mata_kuliah_user = muat_mata_kuliah()
+
 if "naskah_upload_ref" not in st.session_state:
     st.session_state.naskah_upload_ref = ""
 
@@ -2472,56 +2495,69 @@ elif menu == "📚 Perkuliahan & OBE":
     # ========================================================
     st.subheader("📚 Mata Kuliah Saya")
 
-    daftar_mata_kuliah = [
-        "Seminar Proposal Tesis",
-        "Kepemimpinan dan Supervisi PAI",
-    ] + st.session_state.mata_kuliah_tambahan + ["➕ Tambah Mata Kuliah"]
+    daftar_mata_kuliah = st.session_state.daftar_mata_kuliah_user
+    if not daftar_mata_kuliah:
+        st.info("Belum ada mata kuliah. Tambahkan mata kuliah terlebih dahulu.")
 
-    mata_kuliah = st.selectbox(
-        "Pilih Mata Kuliah",
-        daftar_mata_kuliah,
-        key="pilih_mata_kuliah"
-    )
+    pilihan_mk = daftar_mata_kuliah + ["➕ Tambah Mata Kuliah"]
+    if st.session_state.get("pilih_mata_kuliah") not in pilihan_mk:
+        st.session_state["pilih_mata_kuliah"] = pilihan_mk[0]
+    mata_kuliah = st.selectbox("Pilih Mata Kuliah", pilihan_mk, key="pilih_mata_kuliah")
 
-    # ========================================================
-    # TAMBAH MATA KULIAH
-    # ========================================================
     if mata_kuliah == "➕ Tambah Mata Kuliah":
-
         st.markdown("### ➕ Tambah Mata Kuliah")
-
-        nama_mk = st.text_input(
-            "Nama Mata Kuliah",
-            key="nama_mata_kuliah_baru"
-        )
-
-        if st.button(
-            "Tambahkan Mata Kuliah",
-            key="tambah_mata_kuliah"
-        ):
-            if nama_mk.strip():
-                nama_baru = nama_mk.strip()
-                daftar_bawaan = ["Seminar Proposal Tesis", "Kepemimpinan dan Supervisi PAI"]
-                if nama_baru in daftar_bawaan or nama_baru in st.session_state.mata_kuliah_tambahan:
-                    st.warning("Mata kuliah tersebut sudah ada.")
-                else:
-                    st.session_state.mata_kuliah_tambahan.append(nama_baru)
-                    st.success(f"Mata kuliah '{nama_baru}' berhasil ditambahkan.")
-                    st.rerun()
+        with st.form("form_tambah_mata_kuliah", clear_on_submit=True):
+            nama_mk = st.text_input("Nama Mata Kuliah")
+            tambah = st.form_submit_button("💾 Simpan Mata Kuliah")
+        if tambah:
+            nama_baru = nama_mk.strip()
+            if not nama_baru:
+                st.warning("Masukkan nama mata kuliah terlebih dahulu.")
+            elif any(nama_baru.casefold() == x.casefold() for x in daftar_mata_kuliah):
+                st.warning("Mata kuliah tersebut sudah ada.")
             else:
-                st.warning(
-                    "Masukkan nama mata kuliah terlebih dahulu."
-                )
+                st.session_state.daftar_mata_kuliah_user.append(nama_baru)
+                tersimpan = simpan_mata_kuliah(st.session_state.daftar_mata_kuliah_user)
+                st.session_state.pilih_mata_kuliah = nama_baru
+                if not tersimpan:
+                    st.session_state.pesan_mk = "Mata kuliah ditambahkan untuk sesi ini, tetapi file penyimpanan tidak dapat ditulis."
+                st.rerun()
+    else:
+        with st.expander("✏️ Edit atau 🗑️ Hapus Mata Kuliah"):
+            nama_edit = st.text_input("Ubah nama mata kuliah", value=mata_kuliah, key="edit_nama_mk")
+            kol_edit, kol_hapus = st.columns(2)
+            with kol_edit:
+                if st.button("💾 Simpan Perubahan", key="simpan_edit_mk"):
+                    nama_edit = nama_edit.strip()
+                    if not nama_edit:
+                        st.warning("Nama mata kuliah tidak boleh kosong.")
+                    elif any(nama_edit.casefold() == x.casefold() for x in daftar_mata_kuliah if x != mata_kuliah):
+                        st.warning("Nama mata kuliah sudah digunakan.")
+                    else:
+                        idx = daftar_mata_kuliah.index(mata_kuliah)
+                        daftar_mata_kuliah[idx] = nama_edit
+                        if not simpan_mata_kuliah(daftar_mata_kuliah):
+                            st.session_state.pesan_mk = "Perubahan hanya tersimpan selama sesi ini."
+                        st.session_state.pilih_mata_kuliah = nama_edit
+                        st.rerun()
+            with kol_hapus:
+                konfirmasi = st.checkbox("Saya yakin ingin menghapus mata kuliah ini", key="konfirmasi_hapus_mk")
+                if st.button("🗑️ Hapus Mata Kuliah", disabled=not konfirmasi, key="hapus_mk"):
+                    st.session_state.daftar_mata_kuliah_user = [x for x in daftar_mata_kuliah if x != mata_kuliah]
+                    if not simpan_mata_kuliah(st.session_state.daftar_mata_kuliah_user):
+                        st.session_state.pesan_mk = "Penghapusan hanya berlaku selama sesi ini."
+                    pilihan_baru = st.session_state.daftar_mata_kuliah_user
+                    st.session_state.pilih_mata_kuliah = pilihan_baru[0] if pilihan_baru else "➕ Tambah Mata Kuliah"
+                    st.rerun()
+    if st.session_state.get("pesan_mk"):
+        st.warning(st.session_state.pop("pesan_mk"))
 
     # ========================================================
     # RUANG KERJA MATA KULIAH
     # ========================================================
     else:
 
-        if mata_kuliah == "Seminar Proposal Tesis":
-            st.markdown("### 🎓 Seminar Proposal Tesis")
-        else:
-            st.markdown("### 👨‍🏫 Kepemimpinan dan Supervisi PAI")
+        st.markdown(f"### 🎓 {mata_kuliah}")
 
         st.info(
             "Pilih Tugas Saya untuk membuat tugas perkuliahan. "
