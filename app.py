@@ -2500,9 +2500,12 @@ elif menu == "📚 Perkuliahan & OBE":
         st.info("Belum ada mata kuliah. Tambahkan mata kuliah terlebih dahulu.")
 
     pilihan_mk = daftar_mata_kuliah + ["➕ Tambah Mata Kuliah"]
-    if st.session_state.get("pilih_mata_kuliah") not in pilihan_mk:
-        st.session_state["pilih_mata_kuliah"] = pilihan_mk[0]
-    mata_kuliah = st.selectbox("Pilih Mata Kuliah", pilihan_mk, key="pilih_mata_kuliah")
+    if st.session_state.get("mk_terpilih") not in pilihan_mk:
+        st.session_state["mk_terpilih"] = pilihan_mk[0]
+    mata_kuliah = st.selectbox("Pilih Mata Kuliah", pilihan_mk, index=pilihan_mk.index(st.session_state["mk_terpilih"]))
+    st.session_state["mk_terpilih"] = mata_kuliah
+    if st.session_state.get("pesan_mk"):
+        st.warning(st.session_state.pop("pesan_mk"))
 
     if mata_kuliah == "➕ Tambah Mata Kuliah":
         st.markdown("### ➕ Tambah Mata Kuliah")
@@ -2518,7 +2521,7 @@ elif menu == "📚 Perkuliahan & OBE":
             else:
                 st.session_state.daftar_mata_kuliah_user.append(nama_baru)
                 tersimpan = simpan_mata_kuliah(st.session_state.daftar_mata_kuliah_user)
-                st.session_state.pilih_mata_kuliah = nama_baru
+                st.session_state.mk_terpilih = nama_baru
                 if not tersimpan:
                     st.session_state.pesan_mk = "Mata kuliah ditambahkan untuk sesi ini, tetapi file penyimpanan tidak dapat ditulis."
                 st.rerun()
@@ -2538,7 +2541,7 @@ elif menu == "📚 Perkuliahan & OBE":
                         daftar_mata_kuliah[idx] = nama_edit
                         if not simpan_mata_kuliah(daftar_mata_kuliah):
                             st.session_state.pesan_mk = "Perubahan hanya tersimpan selama sesi ini."
-                        st.session_state.pilih_mata_kuliah = nama_edit
+                        st.session_state.mk_terpilih = nama_edit
                         st.rerun()
             with kol_hapus:
                 konfirmasi = st.checkbox("Saya yakin ingin menghapus mata kuliah ini", key="konfirmasi_hapus_mk")
@@ -2547,15 +2550,12 @@ elif menu == "📚 Perkuliahan & OBE":
                     if not simpan_mata_kuliah(st.session_state.daftar_mata_kuliah_user):
                         st.session_state.pesan_mk = "Penghapusan hanya berlaku selama sesi ini."
                     pilihan_baru = st.session_state.daftar_mata_kuliah_user
-                    st.session_state.pilih_mata_kuliah = pilihan_baru[0] if pilihan_baru else "➕ Tambah Mata Kuliah"
+                    st.session_state.mk_terpilih = pilihan_baru[0] if pilihan_baru else "➕ Tambah Mata Kuliah"
                     st.rerun()
-    if st.session_state.get("pesan_mk"):
-        st.warning(st.session_state.pop("pesan_mk"))
-
     # ========================================================
     # RUANG KERJA MATA KULIAH
     # ========================================================
-    else:
+    if mata_kuliah != "➕ Tambah Mata Kuliah":
 
         st.markdown(f"### 🎓 {mata_kuliah}")
 
