@@ -4339,6 +4339,7 @@ elif menu == "✨ Penyunting Akademik AI":
         "Bagian Penyunting Akademik AI",
         [
             "✍️ Sunting & Parafrase",
+            "📖 Pengembangan Pembahasan & Dalil",
             "🤖 Asisten Penulisan BAB",
             "👨‍🏫 Revisi Dosen/Penguji",
             "🔎 Audit Akademik",
@@ -4766,6 +4767,115 @@ KANDIDAT:
     # --------------------------------------------------------
     # 2. ASISTEN PENULISAN BAB
     # --------------------------------------------------------
+    # --------------------------------------------------------
+    # PENGEMBANGAN PEMBAHASAN & DALIL (FITUR TAMBAHAN)
+    # --------------------------------------------------------
+    elif submenu_editor == "📖 Pengembangan Pembahasan & Dalil":
+        st.subheader("📖 Pengembangan Pembahasan Akademik Berbasis Dalil dan Literatur Islam")
+        st.caption("Mengembangkan satu subbab tanpa mengubah naskah asli. Semua dalil dan rujukan wajib diperiksa sebelum digunakan.")
+        _sumber_aktif = str(st.session_state.get("naskah_aktif_penyunting_ai") or
+                           st.session_state.get("hasil_tugas_mata_kuliah") or "")
+        _judul_bahas = st.text_input("Judul BAB / Subbab yang akan dikembangkan",
+                                     key="pengembangan_judul_subbab")
+        _teks_bahas = st.text_area("Isi subbab awal (boleh mengambil dari naskah aktif)",
+                                   value="", height=260, key="pengembangan_teks_subbab",
+                                   placeholder="Tempel isi subbab yang ingin diperdalam...")
+        if _sumber_aktif:
+            with st.expander("📄 Lihat naskah aktif sebagai bahan salin", expanded=False):
+                st.text_area("Naskah aktif (hanya baca)", value=_sumber_aktif[:60000],
+                             height=250, disabled=True, key="pengembangan_naskah_aktif_lihat")
+        _kedalaman = st.selectbox("Kedalaman pembahasan",
+                                  ["Standar", "Mendalam", "Komprehensif"],
+                                  index=1, key="pengembangan_kedalaman")
+        _sumber_pilihan = st.multiselect(
+            "Jenis sumber pendukung",
+            ["Al-Qur'an dan terjemahan", "Hadis dan takhrij",
+             "Kitab tafsir", "Kitab klasik/pendapat ulama", "Buku dan jurnal akademik"],
+            default=["Al-Qur'an dan terjemahan", "Hadis dan takhrij",
+                     "Kitab tafsir", "Kitab klasik/pendapat ulama", "Buku dan jurnal akademik"],
+            key="pengembangan_jenis_sumber"
+        )
+        _sumber_manual = st.text_area(
+            "Referensi atau dalil yang telah dimiliki (opsional)",
+            height=170, key="pengembangan_sumber_manual",
+            placeholder="Tempel ayat, hadis, kutipan kitab, metadata sumber, atau rujukan Zotero..."
+        )
+        _referensi_bank = st.session_state.get("bank_referensi", [])
+        _ref_teks = "\n".join(
+            f"- {format_referensi(r)} | Status metadata: {r.get('Status','Belum diperiksa')}"
+            for r in _referensi_bank[:35]
+        )
+        st.caption(f"Bank Referensi Akademia AI: {len(_referensi_bank)} entri tersedia. "
+                   "Metadata katalog tidak membuktikan isi atau halaman kutipan.")
+        if st.button("✨ Kembangkan Pembahasan", type="primary",
+                     disabled=not bool(_teks_bahas.strip() and _judul_bahas.strip()),
+                     key="btn_kembangkan_pembahasan"):
+            _prompt_bahas = f"""Anda adalah penyunting dan penulis akademik bidang Pendidikan Agama Islam.
+TUGAS: Kembangkan SATU subbab menjadi pembahasan substantif, mendalam, argumentatif,
+terstruktur, dan relevan, bukan sekadar mengulang atau memperpanjang kalimat.
+JUDUL: {_judul_bahas}
+JENIS NASKAH: {jenis_naskah_editor}
+KEDALAMAN: {_kedalaman}
+JENIS SUMBER DIMINTA: {', '.join(_sumber_pilihan)}
+PEDOMAN INSTITUSI: {(_ped_teks[:12000] + _ped_analisis[:4000]) if _ped_aktif else 'Belum tersedia; jangan mengarang ketentuan.'}
+
+ATURAN KETAT:
+1. Pertahankan fakta, maksud, data, istilah, dan argumen asli. Jangan menciptakan hasil penelitian.
+2. Tambahkan definisi, analisis konsep, perbandingan teori, contoh penerapan,
+   hubungan dengan pendidikan, sintesis, dan kesimpulan sementara jika relevan.
+3. Jika membahas ayat Al-Qur'an, tuliskan surah dan nomor ayat hanya bila yakin;
+   sertakan teks Arab dan terjemahan hanya bila dapat dipastikan benar.
+   Jika tidak dapat dipastikan, tulis [PERLU VERIFIKASI AYAT] tanpa mengarang.
+4. Untuk hadis, jangan mengarang matan, sanad, nomor, kitab, atau status kesahihan.
+   Tandai [PERLU VERIFIKASI HADIS] bila belum ada bukti.
+5. Untuk tafsir/kitab klasik, bedakan interpretasi Anda dari kutipan langsung.
+   Jangan membuat kutipan, jilid, cetakan, atau halaman yang tidak ada pada sumber.
+6. Metadata Bank Referensi bukan bukti bahwa isi kutipan atau halaman telah diverifikasi.
+7. Semua rujukan yang tidak bisa diperiksa secara langsung harus diberi
+   [PERLU VERIFIKASI SUMBER], bukan diklaim valid.
+8. Jangan menyisipkan bibliografi fiktif. Daftar pustaka hanya memuat sumber
+   yang benar-benar diidentifikasi dari input, dengan status verifikasi yang jelas.
+9. Tulis NASKAH PENGEMBANGAN terlebih dahulu, lalu CATATAN VERIFIKASI SUMBER
+   yang menjelaskan klaim, dalil, dan rujukan mana yang masih harus diperiksa.
+10. Jangan mengklaim sudah menelusuri situs atau kitab asli bila tidak tersedia dalam input.
+
+REFERENSI BANK (METADATA SAJA):
+{_ref_teks[:16000]}
+
+BAHAN RUJUKAN PENGGUNA:
+{_sumber_manual[:20000]}
+
+SUBBAB ASLI:
+{_teks_bahas[:35000]}
+"""
+            with st.spinner("Mengembangkan pembahasan dan memeriksa keterbatasan sumber..."):
+                _resp_bahas = panggil_gemini(_prompt_bahas, temperature=0.2)
+            if _resp_bahas.get("sukses") and str(_resp_bahas.get("hasil", "")).strip():
+                st.session_state["pengembangan_hasil_ai"] = str(_resp_bahas["hasil"]).strip()
+                st.success("Draf pengembangan selesai. Periksa dalil dan sumber sebelum menyetujui.")
+            else:
+                st.error("Pengembangan belum berhasil.")
+                st.warning(str(_resp_bahas.get("error", "AI tidak menghasilkan naskah.")))
+        if st.session_state.get("pengembangan_hasil_ai"):
+            st.markdown("#### ✏️ Periksa dan sunting draf")
+            st.text_area("Draf pengembangan (dapat diedit)", height=650,
+                         key="pengembangan_hasil_ai")
+            _draf_bahas = st.session_state.get("pengembangan_hasil_ai", "")
+            st.warning("Kutipan, teks Arab, nomor hadis, halaman, dan tafsir wajib diperiksa "
+                       "pada sumber asli. Tanda [PERLU VERIFIKASI] tidak boleh dihapus tanpa pemeriksaan.")
+            _dok_bahas = _word_tugas(_draf_bahas, _judul_bahas)
+            if _dok_bahas:
+                st.download_button("📥 Download Draf Pembahasan Word (.docx)",
+                                   data=_dok_bahas, file_name="Draf_Pengembangan_Pembahasan.docx",
+                                   mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                   key="unduh_pengembangan_pembahasan")
+            if st.button("✅ Setujui sebagai Naskah Aktif", key="setujui_pengembangan_bahasan"):
+                st.session_state["naskah_aktif_penyunting_ai"] = _draf_bahas
+                st.session_state.setdefault("riwayat_naskah_penyunting_ai", []).append(
+                    {"versi": "Pengembangan Pembahasan", "teks": _draf_bahas}
+                )
+                st.success("Draf disetujui sebagai naskah aktif. Naskah asli tidak dihapus.")
+
     elif submenu_editor == "🤖 Asisten Penulisan BAB":
         st.subheader("🤖 Asisten Penulisan BAB")
         st.caption("Membantu mengembangkan uraian akademik dari proposal hingga tesis BAB I–V. Data, angka, hasil penelitian, kutipan, dan sumber asli dilindungi.")
