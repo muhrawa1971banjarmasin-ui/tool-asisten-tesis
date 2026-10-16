@@ -4386,6 +4386,54 @@ elif menu == "✨ Penyunting Akademik AI":
                 except Exception as _e_master:
                     st.warning(f"Word Master belum dapat dikunci: {_e_master}")
 
+        # PENGATURAN SITASI TERSENDIRI — tidak mengubah Mode Penyuntingan.
+        st.markdown("#### 📚 Gaya Sitasi dan Catatan Kaki")
+        _naskah_deteksi_sitasi = str(
+            st.session_state.get("naskah_aktif_penyunting_ai") or teks_edit or ""
+        )
+        _deteksi_sitasi = deteksi_gaya_sitasi_otomatis(_naskah_deteksi_sitasi)
+        _opsi_gaya_sitasi = [
+            "Ikuti gaya asli dokumen (disarankan)",
+            "Chicago Notes & Bibliography",
+            "Turabian Notes-Bibliography",
+            "APA 7",
+            "Harvard",
+            "IEEE",
+            "Vancouver",
+            "MLA",
+            "OSCOLA",
+            "Pedoman kampus / gaya khusus",
+        ]
+        _gaya_editor = st.selectbox(
+            "Gaya sitasi / pengutipan",
+            _opsi_gaya_sitasi,
+            key="gaya_sitasi_penyunting_editor"
+        )
+        _sistem_editor = st.selectbox(
+            "Sistem pengutipan",
+            ["Ikuti sistem asli dokumen", "Catatan kaki (footnote)",
+             "Dalam teks (penulis–tahun)", "Numerik"],
+            key="sistem_sitasi_penyunting_editor"
+        )
+        _aturan_khusus_editor = ""
+        if _gaya_editor == "Pedoman kampus / gaya khusus":
+            _aturan_khusus_editor = st.text_area(
+                "Aturan gaya khusus (atau gunakan Pedoman Aktif di atas)",
+                key="aturan_sitasi_khusus_penyunting",
+                height=110,
+                placeholder="Contoh: format catatan kaki pertama, kutipan berulang, dan daftar pustaka..."
+            )
+        st.caption(
+            "Deteksi awal: " + str(_deteksi_sitasi.get("gaya", "Tidak terdeteksi")) +
+            " • Keyakinan: " + str(_deteksi_sitasi.get("keyakinan", "Rendah")) +
+            ". Deteksi berbasis teks bersifat indikatif; footnote Word diperiksa dari berkas master."
+        )
+        if _gaya_editor in ("APA 7", "Harvard") and _sistem_editor == "Catatan kaki (footnote)":
+            st.warning("APA/Harvard umumnya menggunakan kutipan penulis–tahun. "
+                       "Pilihan footnote memerlukan aturan khusus yang jelas.")
+        if _gaya_editor in ("Chicago Notes & Bibliography", "Turabian Notes-Bibliography") and _sistem_editor == "Dalam teks (penulis–tahun)":
+            st.warning("Chicago Notes & Bibliography/Turabian Notes-Bibliography menggunakan catatan. "
+                       "Jika ingin penulis–tahun, pilih gaya yang sesuai atau ikuti dokumen asli.")
         st.info("🔒 Judul, fakta, data, angka, variabel, hasil penelitian, kutipan, sumber, ayat/hadis, tabel, dan makna asli tidak boleh diubah tanpa perintah pengguna.")
 
         # Naskah aktif memungkinkan penyuntingan berulang tanpa download-upload.
@@ -4412,6 +4460,10 @@ elif menu == "✨ Penyunting Akademik AI":
             _prompt = f"""Anda adalah Penyunting Akademik AI.
 JENIS NASKAH: {jenis_naskah_editor}
 MODE: {mode_edit}
+GAYA SITASI PILIHAN PENGGUNA: {_gaya_editor}
+SISTEM PENGUTIPAN PILIHAN PENGGUNA: {_sistem_editor}
+DETEKSI GAYA NASKAH (INDIKATIF): {_deteksi_sitasi.get("gaya", "Tidak terdeteksi")}
+ATURAN SITASI KHUSUS: {_aturan_khusus_editor or "(tidak ada)"}
 
 PEDOMAN AKTIF:
 {_ped_prompt}
@@ -4429,6 +4481,18 @@ ATURAN WAJIB:
 9. Jika MODE adalah "✨ Penyuntingan Akademik Lengkap (Mode Aman)", lakukan sekaligus: koreksi ejaan/typo, rapikan kalimat, bahasa akademik, perkuat paragraf, dan koherensi antarparagraf. DILARANG melakukan parafrasa mendalam atau mengubah substansi.
 10. Dalam Mode Aman, rumusan masalah, tujuan, hipotesis, nama variabel, istilah metodologis, angka/data, kutipan langsung, sitasi/footnote, daftar pustaka, ayat/hadis, nama tokoh/lembaga, dan temuan penelitian harus dipertahankan.
 11. Jangan menghapus bagian naskah hanya karena dianggap berulang. Perbaiki bahasanya tanpa mengurangi informasi substantif.
+12. Gaya sitasi dan sistem pengutipan adalah dua pengaturan berbeda dari MODE penyuntingan.
+    Bila pilihan "Ikuti gaya/sistem asli dokumen", pertahankan persis gaya yang sudah ada;
+    jangan otomatis mengonversi ke Chicago, APA, atau gaya lain.
+13. Bila pengguna memilih gaya lain, berikan rekomendasi perubahan sitasi secara terpisah
+    dalam CATATAN PERUBAHAN PENTING. JANGAN mengonversi sitasi/footnote asli secara
+    otomatis dalam HASIL SUNTINGAN, karena konversi aman membutuhkan pemeriksaan
+    referensi, halaman, dan field Word secara khusus.
+14. Jangan mengubah nomor footnote, teks kutipan langsung, bibliografi, DOI, atau sumber.
+    Pertahankan hubungan sitasi dengan klaimnya. Jangan mengklaim footnote Word telah
+    diubah hanya berdasarkan teks yang diekstrak.
+15. Jika gaya khusus dipilih tetapi aturannya tidak lengkap, tandai kebutuhan
+    verifikasi dan jangan mengarang aturan institusi.
 
 NASKAH:
 {_sumber_sunting[:90000]}"""
@@ -4442,6 +4506,34 @@ NASKAH:
                 st.session_state["hasil_sunting_parafrase_ai"] = ""
                 st.error("❌ Penyuntingan belum berhasil.")
                 st.warning(str(_h.get("error", "Kesalahan AI tidak diketahui.")))
+
+        # Download naskah aktif tetap tersedia setelah pengguna menyetujui hasil.
+        # Sebelumnya tombol unduh hanya muncul selama hasil sementara masih ada.
+        _final_aktif = str(st.session_state.get("naskah_aktif_penyunting_ai") or "").strip()
+        if _final_aktif:
+            st.markdown("#### 📥 Download Naskah Aktif Terbaru (Final)")
+            st.caption("Tombol ini tetap tersedia setelah hasil disetujui. Unduhan hanya memakai naskah aktif terbaru.")
+            try:
+                _master_final = st.session_state.get("word_master_penyunting_bytes")
+                if _master_final:
+                    _bytes_final, _audit_final = buat_docx_dari_master_jaga_footnote(_master_final, _final_aktif)
+                    if _bytes_final is None:
+                        st.warning("Word Master belum bisa diekspor secara aman: " + str((_audit_final or {}).get("pesan", "Struktur tidak cocok.")))
+                        st.info("Naskah final tetap tersimpan. Agar format dan footnote master terjaga, periksa kesesuaian paragraf sebelum mengunduh.")
+                else:
+                    _bytes_final = buat_docx_hasil_sunting_pedoman(
+                        _final_aktif, jenis_naskah=jenis_naskah_editor,
+                        font_name="Times New Roman", font_size=12)
+                    st.caption("Tidak ada Word Master aktif; format dibangun ulang dari teks final.")
+                if _bytes_final:
+                    st.download_button(
+                        "📥 DOWNLOAD WORD FINAL (.docx)", data=_bytes_final,
+                        file_name="Akademia_AI_Naskah_Final.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key="download_word_naskah_aktif_final", type="primary",
+                        use_container_width=True)
+            except Exception as _err_final:
+                st.error(f"Unduhan Word final belum dapat disiapkan: {_err_final}")
 
         if st.session_state.get("hasil_sunting_parafrase_ai"):
             _model_sunting = st.session_state.get("model_sunting_parafrase_ai", "")
