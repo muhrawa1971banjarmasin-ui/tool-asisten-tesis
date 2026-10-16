@@ -4379,13 +4379,25 @@ elif menu == "✨ Penyunting Akademik AI":
             if str(getattr(file_edit, "name", "")).lower().endswith(".docx"):
                 try:
                     _master_bytes = file_edit.getvalue()
-                    st.session_state["word_master_penyunting_bytes"] = _master_bytes
-                    st.session_state["word_master_penyunting_nama"] = file_edit.name
-                    st.session_state["word_master_footnote_count"] = hitung_footnote_docx_bytes(_master_bytes)
+                    # Word Master dikunci per berkas; rerun tidak menghapus versi suntingan.
+                    _identitas_master = (file_edit.name, len(_master_bytes), __import__("hashlib").sha256(_master_bytes).hexdigest())
+                    if st.session_state.get("word_master_identitas") != _identitas_master:
+                        st.session_state["word_master_identitas"] = _identitas_master
+                        st.session_state["word_master_penyunting_bytes"] = _master_bytes
+                        st.session_state["word_master_penyunting_nama"] = file_edit.name
+                        st.session_state["word_master_footnote_count"] = hitung_footnote_docx_bytes(_master_bytes)
+                        st.session_state["naskah_asli_penyunting_ai"] = _t
+                        st.session_state["naskah_aktif_penyunting_ai"] = _t
+                        st.session_state["riwayat_naskah_penyunting_ai"] = [{"versi": "Versi Asli", "teks": _t}]
+                        st.session_state["hasil_sunting_parafrase_ai"] = ""
+                        st.session_state.pop("hasil_sunting_parafrase_area", None)
                     st.success(f"🔒 Word Master aktif: {file_edit.name} • Footnote terdeteksi: {st.session_state['word_master_footnote_count']}. Struktur Word asli akan dipertahankan.")
                 except Exception as _e_master:
                     st.warning(f"Word Master belum dapat dikunci: {_e_master}")
 
+        if st.session_state.get("word_master_penyunting_nama") and not file_edit:
+            st.caption("🔒 Word Master masih tersimpan dalam sesi: " +
+                       str(st.session_state["word_master_penyunting_nama"]))
         # PENGATURAN SITASI TERSENDIRI — tidak mengubah Mode Penyuntingan.
         st.markdown("#### 📚 Gaya Sitasi dan Catatan Kaki")
         _naskah_deteksi_sitasi = str(
@@ -4507,10 +4519,15 @@ NASKAH:
                 st.error("❌ Penyuntingan belum berhasil.")
                 st.warning(str(_h.get("error", "Kesalahan AI tidak diketahui.")))
 
+        # Unduh hanya pada saat pengguna siap finalisasi; tidak perlu unduh antar tahap.
+        _siap_final_editor = st.checkbox(
+            "✅ Naskah sudah final — tampilkan Download Word Final",
+            value=False, key="konfirmasi_finalisasi_penyunting"
+        )
         # Download naskah aktif tetap tersedia setelah pengguna menyetujui hasil.
         # Sebelumnya tombol unduh hanya muncul selama hasil sementara masih ada.
         _final_aktif = str(st.session_state.get("naskah_aktif_penyunting_ai") or "").strip()
-        if _final_aktif:
+        if _final_aktif and _siap_final_editor:
             st.markdown("#### 📥 Download Naskah Aktif Terbaru (Final)")
             st.caption("Tombol ini tetap tersedia setelah hasil disetujui. Unduhan hanya memakai naskah aktif terbaru.")
             try:
@@ -4572,7 +4589,7 @@ NASKAH:
 
             st.markdown("#### ✅ Tetapkan Hasil")
             _a1, _a2 = st.columns(2)
-            if _a1.button("✅ Jadikan Naskah Aktif Terbaru", key="btn_jadikan_naskah_aktif_penyunting", type="primary", use_container_width=True):
+            if _a1.button("💾 Simpan Hasil Penyuntingan", key="btn_jadikan_naskah_aktif_penyunting", type="primary", use_container_width=True):
                 _teks_aktif_baru = str(st.session_state.get("hasil_sunting_parafrase_area", _hasil_bersih_aktif) or _hasil_bersih_aktif).strip()
                 _m_aktif = re.search(r"(?is)HASIL\s+SUNTINGAN\s*:?\s*(.*?)(?=\n\s*CATATAN\s+PERUBAHAN\s+PENTING\s*:?|$)", _teks_aktif_baru)
                 if _m_aktif:
@@ -4592,18 +4609,6 @@ NASKAH:
                 st.session_state.pop("hasil_sunting_parafrase_area", None)
                 st.info("Hasil suntingan dibatalkan. Naskah aktif sebelumnya tetap aman.")
                 st.rerun()
-
-            _riwayat_now = st.session_state.get("riwayat_naskah_penyunting_ai", [])
-            if _riwayat_now:
-                with st.expander("📜 Riwayat Versi Naskah", expanded=False):
-                    _nama_versi = [str(_v.get("versi", f"Versi {i+1}")) for i, _v in enumerate(_riwayat_now)]
-                    _pilih_versi = st.selectbox("Lihat versi", _nama_versi, index=len(_nama_versi)-1, key="pilih_riwayat_naskah_penyunting")
-                    _idx_versi = _nama_versi.index(_pilih_versi)
-                    st.text_area("Isi versi", value=str(_riwayat_now[_idx_versi].get("teks", "")), height=300, disabled=True, key="lihat_riwayat_naskah_penyunting")
-                    if st.button("♻️ Jadikan Versi Ini Naskah Aktif", key="btn_pulihkan_versi_penyunting"):
-                        st.session_state["naskah_aktif_penyunting_ai"] = str(_riwayat_now[_idx_versi].get("teks", ""))
-                        st.success(f"{_pilih_versi} dipulihkan sebagai Naskah Aktif Terbaru.")
-                        st.rerun()
 
             st.markdown("#### 📚 Perkuat Referensi & Kutipan")
             st.caption("Akademia AI membaca isi naskah untuk menentukan kata kunci dan menyaring referensi yang relevan. Kata kunci tambahan bersifat opsional.")
@@ -4827,34 +4832,21 @@ KANDIDAT:
                 st.success("Naskah hasil dan referensi sementara dibersihkan. Pedoman dan bank referensi tetap aman.")
                 st.rerun()
 
-            st.markdown("#### 📥 Download Hasil Terakhir")
-            st.caption("Word dibersihkan dari marker AI/Markdown dan ditata mengikuti Pedoman Tesis aktif: A4, margin 4-4-3-3 cm, Times New Roman 12, spasi ganda, justify, indent/tab bertingkat, serta nomor halaman sesuai bagian naskah.")
-            try:
-                _master_word = st.session_state.get("word_master_penyunting_bytes")
-                _audit_word = None
-                if _master_word:
-                    _word_sunting, _audit_word = buat_docx_dari_master_jaga_footnote(_master_word, _hasil_sunting_untuk_word)
-                    if _audit_word:
-                        if _audit_word.get("aman"):
-                            st.success(f"🛡️ Pemeriksaan Word Master: Footnote {_audit_word.get('footnote_master',0)} → {_audit_word.get('footnote_hasil',0)} ✅ • Paragraf {_audit_word.get('paragraf_master',0)} → {_audit_word.get('paragraf_hasil',0)} ✅")
-                        else:
-                            st.error("🔴 Word final diblokir demi keamanan footnote. " + str(_audit_word.get("pesan", "")))
-                            st.info("Gunakan Sunting dengan AI lagi. Mode Word Master sekarang memerintahkan AI mempertahankan jumlah dan urutan paragraf. Master asli tetap aman.")
-                else:
-                    _word_sunting = buat_docx_hasil_sunting_pedoman(
-                        _hasil_sunting_untuk_word, jenis_naskah=jenis_naskah_editor, font_name="Times New Roman", font_size=12
-                    )
-                    st.warning("⚠️ Tidak ada Word Master DOCX aktif. File dibuat dari teks dan tidak dapat menjamin footnote asli. Untuk tesis/proposal ber-footnote, unggah DOCX master terlebih dahulu.")
-                if _word_sunting:
-                    st.download_button(
-                        "📥 Download Word Hasil Suntingan Rapi (Footnote Aman)", data=_word_sunting,
-                        file_name="Hasil_Suntingan_Akademik_Rapi.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        type="primary", key="download_word_hasil_sunting_rapi"
-                    )
-                    st.success("✅ Word hasil terakhir siap diunduh. Jika Word Master aktif, file berasal dari salinan master dan footnote asli telah lolos pemeriksaan jumlah sebelum/sesudah.")
-            except Exception as _e_word_sunting:
-                st.error(f"Word belum dapat dibuat: {_e_word_sunting}")
+            st.info("💾 Untuk melanjutkan penyuntingan, klik **Simpan Hasil Penyuntingan** di atas. "
+                    "Unduh hanya saat naskah sudah final.")
+
+        # Riwayat dapat diakses kapan saja, bukan hanya ketika draf AI sedang tampil.
+        _riwayat_now = st.session_state.get("riwayat_naskah_penyunting_ai", [])
+        if _riwayat_now:
+            with st.expander("📜 Riwayat Versi Naskah", expanded=False):
+                    _nama_versi = [str(_v.get("versi", f"Versi {i+1}")) for i, _v in enumerate(_riwayat_now)]
+                    _pilih_versi = st.selectbox("Lihat versi", _nama_versi, index=len(_nama_versi)-1, key="pilih_riwayat_naskah_penyunting")
+                    _idx_versi = _nama_versi.index(_pilih_versi)
+                    st.text_area("Isi versi", value=str(_riwayat_now[_idx_versi].get("teks", "")), height=300, disabled=True, key="lihat_riwayat_naskah_penyunting")
+                    if st.button("♻️ Jadikan Versi Ini Naskah Aktif", key="btn_pulihkan_versi_penyunting"):
+                        st.session_state["naskah_aktif_penyunting_ai"] = str(_riwayat_now[_idx_versi].get("teks", ""))
+                        st.success(f"{_pilih_versi} dipulihkan sebagai Naskah Aktif Terbaru.")
+                        st.rerun()
 
     # --------------------------------------------------------
     # 2. ASISTEN PENULISAN BAB
