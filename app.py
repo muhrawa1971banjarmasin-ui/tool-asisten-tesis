@@ -4857,57 +4857,93 @@ KANDIDAT:
     elif submenu_editor == "📖 Pengembangan Pembahasan & Dalil":
         st.subheader("📖 Pengembangan Pembahasan Akademik Berbasis Dalil dan Literatur Islam")
         st.caption("Mengembangkan satu subbab tanpa mengubah naskah asli. Semua dalil dan rujukan wajib diperiksa sebelum digunakan.")
-        # Ambil naskah aktif secara otomatis; tidak meminta salin-tempel.
+        # ALUR TERPADU V2: struktur dipetakan dari naskah kerja yang tersimpan.
+        # Parser ini mendukung BAB eksplisit serta paper dengan heading Markdown/teks.
         _sumber_aktif = str(st.session_state.get("naskah_aktif_penyunting_ai") or
-                           st.session_state.get("hasil_tugas_mata_kuliah") or
-                           st.session_state.get("naskah_asli_penyunting_ai") or "")
-        if not _sumber_aktif.strip():
-            st.warning("Belum ada naskah tersimpan di sesi ini. Unggah Word Master sekali pada "
-                       "menu Sunting & Parafrase, atau susun tugas terlebih dahulu. "
-                       "Setelah tersimpan, BAB dan subbab dapat dipilih tanpa mengetik ulang.")
+                            st.session_state.get("hasil_tugas_mata_kuliah") or
+                            st.session_state.get("naskah_asli_penyunting_ai") or "")
         _baris_bahas = _sumber_aktif.splitlines(keepends=True)
-        _pola_bab = re.compile(r"^\s*(?:BAB\s+(?:[IVXLCDM]+|\d+)\b|CHAPTER\s+\d+\b)", re.I)
-        _pola_sub = re.compile(r"^\s*(?:[A-Z]\s*[.\)]\s+\S|\d+(?:\.\d+){1,4}\s+\S|(?:Subbab|Sub-bab)\s+\S)", re.I)
-        _bab_mulai = [i for i, line in enumerate(_baris_bahas) if _pola_bab.match(line.strip())]
-        if _baris_bahas and not _bab_mulai:
-            _bab_mulai = [0]
+        def _bersih_judul_bahas(line):
+            teks = re.sub(r"^\s{0,3}#{1,6}\s*", "", line.strip())
+            teks = re.sub(r"\*\*|__", "", teks).strip()
+            return teks
+
+        def _jenis_heading_bahas(line, posisi):
+            raw = line.strip()
+            teks = _bersih_judul_bahas(raw)
+            if not teks or len(teks) > 145:
+                return None
+            if re.match(r"^(?:BAB|CHAPTER)\s+(?:[IVXLCDM]+|\d+)\b", teks, re.I):
+                return "bab"
+            # Hindari judul dokumen, identitas mata kuliah, metadata, dan daftar pustaka.
+            if re.match(r"^(?:Mata Kuliah|Jenis Tugas|Nama|Dosen|Disusun Oleh)\s*:", teks, re.I):
+                return None
+            if re.match(r"^#{2,6}\s+", raw):
+                return "sub"
+            if re.match(r"^(?:[A-Z]\s*[.)]\s+|\d+(?:\.\d+){1,4}[.)]?\s+)", teks):
+                return "sub"
+            # Paper akademik tanpa BAB: heading umum yang berdiri sendiri.
+            nama_bagian = ("pendahuluan", "latar belakang", "rumusan masalah", "tujuan",
+                           "kajian pustaka", "landasan teori", "pembahasan", "analisis",
+                           "analisis permasalahan", "studi kasus", "solusi", "rekomendasi",
+                           "kesimpulan", "penutup", "daftar pustaka", "metode penelitian")
+            if teks.lower().strip(":") in nama_bagian and posisi > 0:
+                return "sub"
+            return None
+
+        _heading_bahas = [(i, _jenis_heading_bahas(line, i), _bersih_judul_bahas(line))
+                          for i, line in enumerate(_baris_bahas)]
+        _bab_mulai = [i for i, jenis, _ in _heading_bahas if jenis == "bab"]
         _bab_opsi = []
-        for _k, _awal in enumerate(_bab_mulai):
-            _akhir = _bab_mulai[_k+1] if _k+1 < len(_bab_mulai) else len(_baris_bahas)
-            _nama = _baris_bahas[_awal].strip()[:130] or "Naskah tanpa penanda BAB"
-            _bab_opsi.append((_nama, _awal, _akhir))
+        if _bab_mulai:
+            for k, awal in enumerate(_bab_mulai):
+                akhir = _bab_mulai[k + 1] if k + 1 < len(_bab_mulai) else len(_baris_bahas)
+                _bab_opsi.append((_bersih_judul_bahas(_baris_bahas[awal]), awal, akhir))
+        elif _baris_bahas:
+            _bab_opsi = [("Paper / naskah tanpa penanda BAB", 0, len(_baris_bahas))]
+            st.info("Dokumen tidak memakai BAB I/II/III. Pilih bagian paper di daftar subbagian.")
+        else:
+            st.warning("Naskah kerja belum tersedia. Unggah Word Master sekali di Sunting & Parafrase, "
+                       "atau susun tugas dahulu. Tidak perlu mengetik ulang isi BAB.")
+
         with st.expander("📄 Lihat seluruh naskah tersimpan", expanded=False):
             st.text_area("Naskah kerja terbaru (hanya baca)", value=_sumber_aktif,
-                         height=400, disabled=True, key="pengembangan_naskah_lengkap_view")
-        _judul_bahas, _teks_bahas = "", ""
-        _rentang_pilihan = None
+                         height=350, disabled=True, key="pengembangan_naskah_lengkap_view")
+        _judul_bahas, _teks_bahas, _rentang_pilihan = "", "", None
         if _bab_opsi:
-            _idx_bab = st.selectbox("📚 Pilih BAB dari naskah tersimpan",
-                                    range(len(_bab_opsi)),
+            _idx_bab = st.selectbox("📚 Pilih BAB / dokumen", range(len(_bab_opsi)),
                                     format_func=lambda i: _bab_opsi[i][0],
                                     key="pengembangan_bab_pilih")
             _nama_bab, _awal_bab, _akhir_bab = _bab_opsi[_idx_bab]
-            _sub_mulai = [i for i in range(_awal_bab+1, _akhir_bab)
-                          if _pola_sub.match(_baris_bahas[i].strip())]
-            _sub_opsi = [("Seluruh BAB: " + _nama_bab, _awal_bab, _akhir_bab)]
-            for _j, _awal_sub in enumerate(_sub_mulai):
-                _akhir_sub = _sub_mulai[_j+1] if _j+1 < len(_sub_mulai) else _akhir_bab
-                _sub_opsi.append((_baris_bahas[_awal_sub].strip()[:130], _awal_sub, _akhir_sub))
-            _idx_sub = st.selectbox("📑 Pilih subbab / bagian yang akan dikembangkan",
-                                    range(len(_sub_opsi)),
-                                    format_func=lambda i: _sub_opsi[i][0],
-                                    key="pengembangan_subbab_pilih")
-            _judul_bahas, _awal_sub, _akhir_sub = _sub_opsi[_idx_sub]
-            _teks_bahas = "".join(_baris_bahas[_awal_sub:_akhir_sub])
-            _rentang_pilihan = (_awal_sub, _akhir_sub)
-            with st.expander("👁️ Lihat isi BAB / subbab terpilih", expanded=True):
-                st.text_area("Teks otomatis dari naskah aktif", value=_teks_bahas,
-                             height=260, disabled=True, key="pengembangan_teks_terpilih_view")
-            st.caption("Pilih subbab untuk mengganti hanya bagian tersebut. "
-                       "Bagian lain tetap berada di naskah aktif.")
+            _sub_mulai = [i for i in range(_awal_bab + (1 if _bab_mulai else 0), _akhir_bab)
+                          if _jenis_heading_bahas(_baris_bahas[i], i) == "sub"]
+            _sub_opsi = []
+            for j, awal_sub in enumerate(_sub_mulai):
+                akhir_sub = _sub_mulai[j + 1] if j + 1 < len(_sub_mulai) else _akhir_bab
+                _sub_opsi.append((_bersih_judul_bahas(_baris_bahas[awal_sub]), awal_sub, akhir_sub))
+            # Jangan tawarkan penggantian seluruh naskah paper secara tidak sengaja.
+            if _bab_mulai:
+                _sub_opsi.insert(0, ("Seluruh " + _nama_bab, _awal_bab, _akhir_bab))
+            if _sub_opsi:
+                _idx_sub = st.selectbox("📑 Pilih subbab / bagian", range(len(_sub_opsi)),
+                                        format_func=lambda i: _sub_opsi[i][0],
+                                        key="pengembangan_subbab_pilih")
+                _judul_bahas, _awal_sub, _akhir_sub = _sub_opsi[_idx_sub]
+                _teks_bahas = "".join(_baris_bahas[_awal_sub:_akhir_sub])
+                _rentang_pilihan = (_awal_sub, _akhir_sub)
+                with st.expander("👁️ Lihat isi bagian terpilih", expanded=True):
+                    st.text_area("Teks otomatis dari naskah aktif", value=_teks_bahas,
+                                 height=270, disabled=True, key="pengembangan_teks_terpilih_view")
+                st.caption("Bagian ini saja yang dapat diganti setelah draf ditinjau dan disetujui.")
+            else:
+                st.error("Belum ditemukan subbagian yang dapat dipetakan secara aman. "
+                         "Naskah tidak akan ditimpa. Periksa apakah judul bagian "
+                         "menggunakan Heading Word, penomoran, atau heading Markdown.")
         _kedalaman = st.selectbox("Kedalaman pembahasan",
                                   ["Standar", "Mendalam", "Komprehensif"],
                                   index=1, key="pengembangan_kedalaman")
+        if "pengembangan_jenis_sumber_bebas" not in st.session_state:
+            st.session_state["pengembangan_jenis_sumber_bebas"] = []
         _sumber_pilihan = st.multiselect(
             "Jenis sumber pendukung (pilih sesuai kebutuhan)",
             ["Al-Qur'an dan terjemahan", "Hadis dan takhrij", "Kitab tafsir",
@@ -4945,6 +4981,7 @@ KANDIDAT:
             if not _rentang_pilihan or not _teks_bahas.strip():
                 st.warning("Belum ada BAB/subbab yang dapat dipilih dari naskah tersimpan.")
                 st.stop()
+            st.session_state.pop("pengembangan_hasil_ai", None)
             _prompt_bahas = f"""Anda adalah penyunting dan penulis akademik bidang Pendidikan Agama Islam.
 TUGAS: Kembangkan SATU subbab menjadi pembahasan substantif, mendalam, argumentatif,
 terstruktur, dan relevan, bukan sekadar mengulang atau memperpanjang kalimat.
@@ -4954,7 +4991,7 @@ KEDALAMAN: {_kedalaman}
 TARGET PANJANG: sekitar {_target_halaman} halaman Word; tulis secara substansial tanpa pengulangan.
 Jika keluaran tidak cukup untuk target karena batas model, lanjutkan secara bertahap
 pada subbab berikutnya tanpa mengklaim target sudah terpenuhi.
-JENIS SUMBER DIMINTA: {', '.join(_sumber_pilihan)}
+JENIS SUMBER DIMINTA (jika kosong jangan memaksakan sumber tambahan): {', '.join(_sumber_pilihan)}
 PEDOMAN INSTITUSI: {(_ped_teks[:12000] + _ped_analisis[:4000]) if _ped_aktif else 'Belum tersedia; jangan mengarang ketentuan.'}
 
 ATURAN KETAT:
@@ -5010,13 +5047,26 @@ SUBBAB ASLI:
                 _master_generate = st.session_state.get("pengembangan_sumber_saat_generate", "")
                 _range_generate = st.session_state.get("pengembangan_rentang_saat_generate")
                 _naskah_terbaru = st.session_state.get("naskah_aktif_penyunting_ai", "") or _sumber_aktif
-                if not _range_generate or _master_generate != _naskah_terbaru:
+                if (not _range_generate or _master_generate != _naskah_terbaru
+                        or _range_generate != _rentang_pilihan):
                     st.error("Naskah aktif telah berubah sejak draf dibuat. "
                              "Jalankan ulang pengembangan agar subbab lain tidak tertimpa.")
                 else:
                     _lines_before = _master_generate.splitlines(keepends=True)
                     _awal_ganti, _akhir_ganti = _range_generate
-                    _teks_pengganti = _draf_bahas.rstrip("\n") + "\n"
+                    _teks_pengganti = re.split(r"(?im)^#{0,4}\s*(?:CATATAN VERIFIKASI SUMBER|CATATAN VERIFIKASI)\s*:?.*$", _draf_bahas, maxsplit=1)[0].strip()
+                    # Heading asli selalu dipertahankan. AI hanya mengganti isi bagian.
+                    _heading_asli = _lines_before[_awal_ganti]
+                    _judul_normal = _bersih_judul_bahas(_heading_asli).lower()
+                    _hasil_lines = _teks_pengganti.splitlines()
+                    if _hasil_lines and _bersih_judul_bahas(_hasil_lines[0]).lower() == _judul_normal:
+                        _hasil_lines = _hasil_lines[1:]
+                    _isi_baru = "\n".join(_hasil_lines).strip()
+                    if not _isi_baru:
+                        st.error("Hasil pengembangan kosong; naskah tidak diubah.")
+                        st.stop()
+                    # Pertahankan heading asli dan ganti hanya isi hingga heading berikutnya.
+                    _teks_pengganti = _heading_asli.rstrip("\r\n") + "\n" + _isi_baru + "\n"
                     _naskah_gabungan = ("".join(_lines_before[:_awal_ganti]) +
                                         _teks_pengganti + "".join(_lines_before[_akhir_ganti:]))
                     st.session_state.setdefault("riwayat_naskah_penyunting_ai", []).append(
